@@ -1,13 +1,24 @@
+# node build packages 
 node_modules
 dist
 build
+
+# test
 coverage
 test-results
 .env
 .DS_Store
 *.log
+
+# data
 mcp-cache.db
+mcp-cache.db-journal
+
+# wasm
 wasm/
+
+# agents and vscode
+.qodo
 
 
 # repomix
