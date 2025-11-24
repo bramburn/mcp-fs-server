@@ -23,47 +23,87 @@ const copyMainWasm = () => {
     }
 };
 
-// 2. Download Language Grammars
-const downloadLanguage = (language, filenameOverride) => {
-    // Some grammars have specific naming conventions on the CDN
+// 2. Download Language Grammars (with Relative Redirect Support)
+const downloadFile = (inputUrl, dest, language) => {
+    return new Promise((resolve, reject) => {
+        const request = https.get(inputUrl, (response) => {
+            // Handle Redirects (301, 302, 307, 308)
+            if ([301, 302, 307, 308].includes(response.statusCode)) {
+                if (response.headers.location) {
+                    // RESOLVE RELATIVE URLS HERE
+                    // If location is "/foo", validUrl becomes "https://unpkg.com/foo"
+                    const newUrl = new URL(response.headers.location, inputUrl).toString();
+                    
+                    downloadFile(newUrl, dest, language)
+                        .then(resolve)
+                        .catch(reject);
+                    return;
+                }
+            }
+
+            if (response.statusCode !== 200) {
+                reject(new Error(`Failed to download ${language} (Status: ${response.statusCode}) from ${inputUrl}`));
+                return;
+            }
+
+            const file = fs.createWriteStream(dest);
+            response.pipe(file);
+
+            file.on('finish', () => {
+                file.close();
+                console.log(`✅ Downloaded ${language}`);
+                resolve();
+            });
+
+            file.on('error', (err) => {
+                fs.unlink(dest, () => {}); 
+                reject(err);
+            });
+        });
+        
+        request.on('error', (err) => {
+             reject(err);
+        });
+    });
+};
+
+const downloadLanguage = async (language) => {
     const filename = `tree-sitter-${language}.wasm`;
     const url = `https://unpkg.com/tree-sitter-wasms/out/tree-sitter-${language}.wasm`;
     const dest = path.join(WASM_DIR, filename);
 
-    const file = fs.createWriteStream(dest);
-
     console.log(`⬇️  Downloading ${language}...`);
-
-    https.get(url, (response) => {
-        if (response.statusCode !== 200) {
-            console.error(`❌ Failed to download ${language} (Status: ${response.statusCode})`);
-            return;
-        }
-        response.pipe(file);
-        file.on('finish', () => {
-            file.close();
-            console.log(`✅ Downloaded ${filename}`);
-        });
-    }).on('error', (err) => {
-        fs.unlink(dest, () => {}); 
-        console.error(`❌ Error downloading ${language}: ${err.message}`);
-    });
+    
+    try {
+        await downloadFile(url, dest, language);
+    } catch (error) {
+        console.error(`❌ Error downloading ${language}: ${error.message}`);
+    }
 };
 
-// Run
-copyMainWasm();
+// Run Main
+(async () => {
+    try {
+        copyMainWasm();
 
-// Web / JS
-downloadLanguage('typescript');
-downloadLanguage('tsx'); // Required for React components
-downloadLanguage('javascript');
+        // Standard Web
+        await downloadLanguage('typescript');
+        await downloadLanguage('tsx');
+        await downloadLanguage('javascript');
 
-// Backend / Systems
-downloadLanguage('python');
-downloadLanguage('java');
-downloadLanguage('rust');
-downloadLanguage('go'); 
+        // Backend
+        await downloadLanguage('python');
+        await downloadLanguage('java');
+        await downloadLanguage('rust');
+        await downloadLanguage('go'); 
+        
+        // Note: Kotlin and Dart might not be in the standard 'tree-sitter-wasms' bundle.
+        // If these fail with 404, we just skip them gracefully.
+        await downloadLanguage('kotlin'); 
+        // Dart is often not included in the generic bundle, but we attempt it anyway
+        // await downloadLanguage('dart'); 
 
-// Mobile / Other
-downloadLanguage('kotlin');
-downloadLanguage('dart');
+    } catch (e) {
+        console.error("Setup failed:", e);
+    }
+})();

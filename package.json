@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc",
     "start": "node build/index.js",
-    "setup":"node scripts/wasm-install.js",
+    "setup":"node scripts/wasm-installer.js",
     "watch": "tsc --watch"
   },
   "dependencies": {
