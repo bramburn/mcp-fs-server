@@ -123,61 +123,57 @@ class SemanticWatcher {
   }
 
   async init() {
-    // AI!: Using console.error for status messages is unconventional. console.log is typically used for informational output.
-    console.error("[MCP] Initializing Semantic Watcher...");
+    logger.info("Initializing Semantic Watcher...");
 
     // 1. Init Tree Sitter (WASM)
     try {
       await Parser.init({
         locateFile(scriptName: string, scriptDirectory: string) {
-            // AI!: The locateFile function assumes CONFIG.wasmPath is relative to the script's execution context. If CONFIG.wasmPath is an absolute path, this might behave differently. It's generally safer to use path.resolve if absolute paths are expected.
-            return path.join(CONFIG.wasmPath, scriptName);
+          const resolvedPath = path.resolve(CONFIG.wasmPath, scriptName);
+          logger.debug(`Loading WASM: ${resolvedPath}`);
+          return resolvedPath;
         },
       });
       this.parser = new Parser();
 
       const uniqueLangs = new Set(Object.values(LANGUAGES).map(l => l.lang));
+      logger.info(`Loading ${uniqueLangs.size} language grammars...`);
 
       for (const langName of uniqueLangs) {
-          const langPath = path.join(CONFIG.wasmPath, `tree-sitter-${langName}.wasm`);
-          try {
-            await fs.access(langPath);
-            const lang = await Parser.Language.load(langPath);
-            this.parsers[langName] = lang;
-            // AI!: Using console.error for status messages.
-            console.error(`[MCP] Loaded grammar: ${langName}`);
-          } catch (e) {
-            // AI!: This error message is informative, indicating why a grammar might be skipped.
-            console.error(`[MCP] Skipped grammar ${langName} (not found in ${CONFIG.wasmPath})`);
-          }
+        const langPath = path.resolve(CONFIG.wasmPath, `tree-sitter-${langName}.wasm`);
+        try {
+          await fs.access(langPath);
+          const lang = await Parser.Language.load(langPath);
+          this.parsers[langName] = lang;
+          logger.info(`Loaded grammar: ${langName}`);
+        } catch (e) {
+          logger.warn(`Skipped grammar ${langName} (not found in ${CONFIG.wasmPath})`);
+        }
       }
-
     } catch (e) {
-        console.error("[MCP] Failed to init Tree Sitter:", e);
+      logger.error("Failed to init Tree Sitter:", e);
     }
 
     // 2. Init Qdrant Collection
     try {
       const collections = await this.qdrant.getCollections();
-      // FIX 2: Added explicit type (c: any) to prevent implicit any error
-      // AI!: While 'any' suppresses the error, defining a proper interface for Qdrant's CollectionDescription would be more robust.
       const exists = collections.collections.find(
-        (c: any) => c.name === CONFIG.collectionName
+        (c: QdrantCollectionDescription) => c.name === CONFIG.collectionName
       );
 
       if (!exists) {
         await this.qdrant.createCollection(CONFIG.collectionName, {
-          // AI!: Vector size (768) and distance ("Cosine") are hardcoded. These should ideally be configurable and match the Ollama model's embedding dimension.
           vectors: {
-            size: 768,
+            size: CONFIG.vectorSize,
             distance: "Cosine",
           },
         });
-        // AI!: Using console.error for status messages.
-        console.error(`[MCP] Created Qdrant collection: ${CONFIG.collectionName}`);
+        logger.info(`Created Qdrant collection: ${CONFIG.collectionName} (size: ${CONFIG.vectorSize})`);
+      } else {
+        logger.info(`Using existing Qdrant collection: ${CONFIG.collectionName}`);
       }
     } catch (e) {
-      console.error("[MCP] Qdrant connection error. Ensure Qdrant is running.", e);
+      logger.error("Qdrant connection error. Ensure Qdrant is running.", e);
     }
 
     // 3. Start Watcher
@@ -185,24 +181,22 @@ class SemanticWatcher {
   }
 
   private startWatcher() {
-    // AI!: Using console.error for status messages.
-    console.error(`[MCP] Watching directory: ${CONFIG.repoPath}`);
+    logger.info(`Watching directory: ${CONFIG.repoPath}`);
 
     const watcher = chokidar.watch(CONFIG.repoPath, {
-      // AI!: The ignore patterns are good, covering common exclusions. Ensure they align with project needs.
-      ignored: /(^|[\]\/])\..|node_modules|dist|build|target|\.git/, 
+      ignored: /(^|[\]\/])\..|node_modules|dist|build|target|\.git/,
       persistent: true,
-      ignoreInitial: false, // AI!: Processes existing files on startup, which is usually desired for indexing.
+      ignoreInitial: false,
     });
 
     watcher
       .on("add", (path) => this.handleFileChange(path))
       .on("change", (path) => this.handleFileChange(path))
-      .on("unlink", (path) => this.handleFileDelete(path));
+      .on("unlink", (path) => this.handleFileDelete(path))
+      .on("error", (error) => logger.error("Watcher error:", error));
   }
 
   private getHash(content: string): string {
-    // AI!: MD5 is generally sufficient for content hashing in this context (detecting changes). For security-sensitive applications, SHA-256 might be preferred, but it's likely overkill here.
     return crypto.createHash('md5').update(content).digest('hex');
   }
 
@@ -213,45 +207,46 @@ class SemanticWatcher {
 
       try {
         const stats = await fs.stat(fullPath);
-        // AI!: Files larger than 1MB are skipped. This is a reasonable heuristic, but the limit is hardcoded.
-        if (stats.size > 1024 * 1024) return;
-      } catch (e) { return; } // AI!: Silently return if file stats cannot be read (e.g., file deleted between watch event and stat call).
+        if (stats.size > CONFIG.maxFileSize) {
+          logger.debug(`Skipping large file: ${relativePath} (${stats.size} bytes)`);
+          return;
+        }
+      } catch (e) {
+        return; // File deleted between watch event and stat call
+      }
 
       const content = await fs.readFile(fullPath, "utf-8");
       const currentHash = this.getHash(content);
       const lastHash = this.fileState.get(relativePath);
 
-      if (lastHash === currentHash) return; // AI!: Efficiently skips processing if file content hasn't changed.
+      if (lastHash === currentHash) return;
 
-      // AI!: Using console.error for status messages.
-      console.error(`[MCP] Processing: ${relativePath}`);
+      logger.info(`Processing: ${relativePath}`);
 
-      await this.handleFileDelete(filePath); // AI!: Deletes old entries before re-indexing, ensuring data consistency.
+      await this.handleFileDelete(filePath); // Clean old entries before re-indexing
       const chunks = await this.splitCode(relativePath, content);
-      const points = [];
+      const points: any[] = [];
 
       for (const chunk of chunks) {
         try {
-            const embeddingResponse = await ollama.embeddings({
+          const embeddingResponse = await ollama.embeddings({
             model: CONFIG.ollamaModel,
-            // AI!: The prompt for embeddings includes file path, lines, and content. This provides good context for the embedding model. Consider making the prompt template configurable.
             prompt: `File: ${chunk.filePath}\nLines: ${chunk.startLine}-${chunk.endLine}\n\n${chunk.content}`,
-            });
+          });
 
-            points.push({
+          points.push({
             id: chunk.id,
-            vector: embeddingResponse.embedding,
+            vector: (embeddingResponse as EmbeddingResponse).embedding,
             payload: {
-                content: chunk.content,
-                filePath: chunk.filePath,
-                startLine: chunk.startLine,
-                endLine: chunk.endLine,
-                fullContext: `File: ${chunk.filePath} (${chunk.startLine}-${chunk.endLine})\n${chunk.content}`,
+              content: chunk.content,
+              filePath: chunk.filePath,
+              startLine: chunk.startLine,
+              endLine: chunk.endLine,
+              fullContext: `File: ${chunk.filePath} (${chunk.startLine}-${chunk.endLine})\n${chunk.content}`,
             },
-            });
-        } catch(err) {
-            // AI!: Ollama errors are caught and logged. Consider adding retry logic or a more specific error handling strategy if Ollama is intermittently unavailable.
-            console.error(`[MCP] Ollama error for ${chunk.filePath}:`, err);
+          });
+        } catch (err) {
+          logger.error(`Ollama error for ${chunk.filePath}:`, err);
         }
       }
 
@@ -263,11 +258,10 @@ class SemanticWatcher {
       }
 
       this.fileState.set(relativePath, currentHash);
-      // AI!: Using console.error for status messages.
-      console.error(`[MCP] Indexed ${chunks.length} chunks for ${relativePath}`);
+      logger.info(`Indexed ${chunks.length} chunks for ${relativePath}`);
 
     } catch (error) {
-      console.error(`[MCP] Error processing ${filePath}:`, error);
+      logger.error(`Error processing ${filePath}:`, error);
     }
   }
 
@@ -288,8 +282,10 @@ class SemanticWatcher {
           ],
         },
       });
-      // AI!: Errors during deletion are silently ignored. It might be better to log these errors or handle them explicitly if data integrity is critical.
-    } catch (e) { } // AI!: Silently ignore deletion errors.
+      logger.debug(`Deleted vectors for: ${relativePath}`);
+    } catch (e) {
+      logger.warn(`Failed to delete vectors for ${relativePath}:`, e);
+    }
   }
 
   async splitCode(filePath: string, content: string): Promise<CodeChunk[]> {
@@ -308,88 +304,126 @@ class SemanticWatcher {
         let lastIndex = 0;
 
         for (const capture of captures) {
-            const node = capture.node;
-            // AI!: Skips nodes that appear before the last processed node's end index, preventing overlapping or out-of-order processing.
-            if (node.startIndex < lastIndex) continue;
+          const node = capture.node;
+          if (node.startIndex < lastIndex) continue; // Prevent overlapping
 
-            const chunkContent = node.text;
-            // AI!: Chunks smaller than 50 characters are skipped. This threshold is hardcoded.
-            if (chunkContent.length < 50) continue;
+          const chunkContent = node.text;
+          if (chunkContent.length < CONFIG.minChunkSize) continue;
 
-            const id = crypto.createHash('md5').update(`${filePath}:${node.startIndex}`).digest('hex');
+          const id = crypto.createHash('md5').update(`${filePath}:${node.startIndex}`).digest('hex');
 
-            chunks.push({
+          chunks.push({
             id: id,
             filePath,
-            startLine: node.startPosition.row + 1, // AI!: Tree-sitter rows are 0-indexed, so add 1 for human-readable line numbers.
+            startLine: node.startPosition.row + 1, // Tree-sitter rows are 0-indexed
             endLine: node.endPosition.row + 1,
             content: chunkContent,
             contentHash: this.getHash(chunkContent)
-            });
+          });
 
-            lastIndex = node.endIndex;
+          lastIndex = node.endIndex;
         }
       } catch (e) {
-          // AI!: If Tree-sitter parsing or querying fails, it falls back to a simpler line-based splitting method. This is a good fallback strategy.
-          console.error(`[MCP] Tree-sitter query failed for ${filePath}, falling back to lines.`, e);
+        logger.debug(`Tree-sitter query failed for ${filePath}, falling back to lines.`, e);
       }
     }
 
-    // AI!: If no chunks were generated by Tree-sitter (e.g., unsupported language, parsing error, or no matching nodes), use a simpler line-based split.
+    // If no chunks were generated by Tree-sitter, use line-based split
     if (chunks.length === 0) {
-        return this.simpleSplit(filePath, content);
+      return this.simpleSplit(filePath, content);
     }
 
     return chunks;
   }
 
-  // AI!: This simple split method divides content into chunks based on lines, with overlap.
+  // Simple line-based chunking with overlap
   private simpleSplit(filePath: string, content: string): CodeChunk[] {
-      const lines = content.split('\n');
-      const chunkSize = 50; // AI!: Hardcoded chunk size.
-      const overlap = 10; // AI!: Hardcoded overlap between chunks.
-      const chunks: CodeChunk[] = [];
+    const lines = content.split('\n');
+    const chunkSize = CONFIG.chunkLines;
+    const overlap = CONFIG.chunkOverlap;
+    const chunks: CodeChunk[] = [];
 
-      for (let i = 0; i < lines.length; i += (chunkSize - overlap)) {
-          const end = Math.min(i + chunkSize, lines.length);
-          const chunkLines = lines.slice(i, end);
-          const chunkText = chunkLines.join('\n');
-          // AI!: Skips very short chunks (less than 10 characters) after joining lines.
-          if (chunkText.trim().length < 10) continue;
+    for (let i = 0; i < lines.length; i += (chunkSize - overlap)) {
+      const end = Math.min(i + chunkSize, lines.length);
+      const chunkLines = lines.slice(i, end);
+      const chunkText = chunkLines.join('\n');
 
-          const id = crypto.createHash('md5').update(`${filePath}:${i}`).digest('hex');
+      if (chunkText.trim().length < 10) continue;
 
-          chunks.push({
-              id,
-              filePath,
-              startLine: i + 1, // AI!: Line numbers are 1-indexed.
-              endLine: end,
-              content: chunkText,
-              contentHash: this.getHash(chunkText)
-          });
-      }
-      return chunks;
+      const id = crypto.createHash('md5').update(`${filePath}:${i}`).digest('hex');
+
+      chunks.push({
+        id,
+        filePath,
+        startLine: i + 1, // 1-indexed line numbers
+        endLine: end,
+        content: chunkText,
+        contentHash: this.getHash(chunkText)
+      });
+    }
+    return chunks;
   }
 
-  async search(query: string, limit: number = 5) {
-      const embeddingResponse = await ollama.embeddings({
-          model: CONFIG.ollamaModel,
-          prompt: query
-      });
+  async search(query: string, limit?: number) {
+    const searchLimit = limit || CONFIG.searchLimit;
 
-      const searchResults = await this.qdrant.search(CONFIG.collectionName, {
-          vector: embeddingResponse.embedding,
-          limit: limit, // AI!: The search limit is hardcoded to 5 by default. This should ideally be configurable or passed from the caller.
-          with_payload: true
-      });
+    const embeddingResponse = await ollama.embeddings({
+      model: CONFIG.ollamaModel,
+      prompt: query
+    });
 
-      // FIX 3: Added explicit type (res: any) for search results
-      // AI!: The search results are mapped to a formatted string. Consider returning structured data for more flexibility.
-      // AI!: The 'res: any' type assertion could be replaced with a more specific type if the Qdrant client's return structure is well-defined.
-      return searchResults.map((res: any) => {
-          const payload = res.payload as any; // AI!: 'payload as any' is a type assertion. Define a Payload interface for better type safety.
-          return `Path: ${payload.filePath}\nLines: ${payload.startLine}-${payload.endLine}\nScore: ${res.score.toFixed(4)}\n\n${payload.content}\n---`;
-      }).join('\n');
+    const searchResults = await this.qdrant.search(CONFIG.collectionName, {
+      vector: (embeddingResponse as EmbeddingResponse).embedding,
+      limit: searchLimit,
+      with_payload: true
+    });
+
+    return searchResults.map((res: QdrantSearchResult) => {
+      const payload = res.payload;
+      return `Path: ${payload.filePath}\nLines: ${payload.startLine}-${payload.endLine}\nScore: ${res.score.toFixed(4)}\n\n${payload.content}\n---`;
+    }).join('\n');
+  }
+
+  // Add a new method for refreshing the index
+  async refreshIndex(): Promise<void> {
+    logger.info("Refreshing index...");
+    this.fileState.clear();
+
+    // Re-scan all files in the repository
+    const files = await this.getAllFiles();
+    logger.info(`Found ${files.length} files to re-index`);
+
+    for (const file of files) {
+      await this.handleFileChange(file);
+    }
+
+    logger.info("Index refresh completed");
+  }
+
+  // Helper method to get all files recursively
+  private async getAllFiles(dir: string = CONFIG.repoPath): Promise<string[]> {
+    const files: string[] = [];
+
+    try {
+      const entries = await fs.readdir(dir, { withFileTypes: true });
+
+      for (const entry of entries) {
+        const fullPath = path.join(dir, entry.name);
+
+        if (entry.isDirectory()) {
+          // Skip hidden directories and common ignore patterns
+          if (!entry.name.startsWith('.') && !['node_modules', 'dist', 'build', 'target', '.git'].includes(entry.name)) {
+            files.push(...await this.getAllFiles(fullPath));
+          }
+        } else if (entry.isFile()) {
+          files.push(fullPath);
+        }
+      }
+    } catch (e) {
+      logger.warn(`Error reading directory ${dir}:`, e);
+    }
+
+    return files;
   }
 }
 
@@ -402,7 +436,6 @@ const server = new Server(
     version: "1.0.0",
   },
   {
-    // AI!: The 'tools' object in capabilities is empty. If the Server class expects tools to be registered here, this might be a point of failure or limitation.
     capabilities: {
       tools: {},
     },
@@ -422,6 +455,12 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
               type: "string",
               description: "The search query",
             },
+            limit: {
+              type: "number",
+              description: "Maximum number of results to return",
+              minimum: 1,
+              maximum: 20,
+            },
           },
           required: ["query"],
         },
@@ -430,9 +469,9 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
         name: "refresh_index",
         description: "Manually triggers a re-scan of the repository.",
         inputSchema: {
-            type: "object",
-            properties: {}
-        }
+          type: "object",
+          properties: {},
+        },
       }
     ],
   };
@@ -442,27 +481,38 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   const { name, arguments: args } = request.params;
 
   if (name === "semantic_search") {
-    // AI!: Using 'args as any' for type assertion. Consider using Zod schema validation for arguments if available.
-    const query = (args as any).query;
-    if (!query) throw new Error("Query is required");
+    const query = args?.query as string;
+    const limit = args?.limit as number | undefined;
+
+    if (!query) {
+      throw new Error("Query is required");
+    }
 
     try {
-        const results = await watcherService.search(query);
-        return {
-            content: [{ type: "text", text: results }],
-        };
+      const results = await watcherService.search(query, limit);
+      return {
+        content: [{ type: "text", text: results }],
+      };
     } catch (e: any) {
-        // AI!: Error handling for search tool. Consider returning more structured error information.
-        return {
-            content: [{ type: "text", text: `Error searching: ${e.message}` }]
-        }
+      logger.error("Search error:", e);
+      return {
+        content: [{ type: "text", text: `Error searching: ${e.message}` }]
+      };
     }
   }
 
   if (name === "refresh_index") {
-      // AI!: The refresh_index tool is defined but its implementation is incomplete. It currently only returns a message and does not trigger a re-scan. This is a functional gap.
-      // AI!: To implement this, it should likely call a method on watcherService to re-initialize or re-scan.
-      return { content: [{ type: "text", text: "Index refresh triggered." }] };
+    try {
+      await watcherService.refreshIndex();
+      return {
+        content: [{ type: "text", text: "Index refresh completed successfully." }]
+      };
+    } catch (e: any) {
+      logger.error("Refresh index error:", e);
+      return {
+        content: [{ type: "text", text: `Error refreshing index: ${e.message}` }]
+      };
+    }
   }
 
   throw new Error(`Tool ${name} not found`);
@@ -472,11 +522,10 @@ async function run() {
   await watcherService.init();
   const transport = new StdioServerTransport();
   await server.connect(transport);
-  // AI!: Using console.error for status messages.
-  console.error("MCP Semantic Watcher Server running on stdio");
+  logger.info("MCP Semantic Watcher Server running on stdio");
 }
 
 run().catch((error) => {
-  console.error("Fatal error:", error);
+  logger.error("Fatal error:", error);
   process.exit(1);
 });
