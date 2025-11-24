@@ -1,3 +1,6 @@
+[![CI Status](https://github.com/bramburn/mcp-fs-server/actions/workflows/ci.yml/badge.svg)](https://github.com/bramburn/mcp-fs-server/actions/workflows/ci.yml)
+
+
 # MCP Semantic Watcher
 
 This project provides an MCP server that watches a code repository, indexes code snippets using Ollama embeddings, and stores them in Qdrant for semantic search. It leverages Tree-sitter for parsing code structures and Chokidar for efficient file watching.
@@ -152,8 +155,8 @@ The server's behavior can be customized using environment variables:
 
 ## Contributing
 
-(Placeholder for contribution guidelines)
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details on how to contribute to this project.
 
 ## License
 
-(Placeholder for license information)
+This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
