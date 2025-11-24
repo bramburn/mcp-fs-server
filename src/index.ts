@@ -15,6 +15,7 @@ import ollama from "ollama";
 import fs from "fs/promises";
 import path from "path";
 import crypto from "crypto";
+import Database from "better-sqlite3";
 
 // --- Type Definitions ---
 interface QdrantCollectionDescription {
@@ -53,6 +54,7 @@ const CONFIG = {
   collectionName: process.env.QDRANT_COLLECTION || "codebase_context",
   repoPath: process.env.REPO_PATH || "./target-repo",
   wasmPath: process.env.WASM_PATH || "./wasm",
+  dbPath: process.env.DB_PATH || "mcp-cache.db",
   maxFileSize: parseInt(process.env.MAX_FILE_SIZE || "1048576"), // 1MB default
   minChunkSize: parseInt(process.env.MIN_CHUNK_SIZE || "50"),
   chunkOverlap: parseInt(process.env.CHUNK_OVERLAP || "10"),
@@ -66,7 +68,7 @@ const CONFIG = {
 const logger = {
   info: (message: string, ...args: any[]) => {
     if (CONFIG.logLevel === 'info' || CONFIG.logLevel === 'debug') {
-      console.log(`[MCP-INFO] ${message}`, ...args);
+      console.error(`[MCP-INFO] ${message}`, ...args);
     }
   },
   error: (message: string, ...args: any[]) => {
@@ -74,11 +76,11 @@ const logger = {
   },
   debug: (message: string, ...args: any[]) => {
     if (CONFIG.logLevel === 'debug') {
-      console.log(`[MCP-DEBUG] ${message}`, ...args);
+      console.error(`[MCP-DEBUG] ${message}`, ...args);
     }
   },
   warn: (message: string, ...args: any[]) => {
-    console.warn(`[MCP-WARN] ${message}`, ...args);
+    console.error(`[MCP-WARN] ${message}`, ...args);
   }
 };
 
@@ -111,15 +113,34 @@ class SemanticWatcher {
   private qdrant: QdrantClient;
   private parser: Parser | null = null;
   private parsers: Record<string, Parser.Language> = {};
-
-  // Track indexed files: filePath -> contentHash
-  private fileState = new Map<string, string>();
+  private db: Database.Database;
 
   constructor() {
     this.qdrant = new QdrantClient({
       url: CONFIG.qdrantUrl,
       apiKey: CONFIG.qdrantApiKey,
     });
+
+    // Initialize SQLite Database
+    this.db = new Database(CONFIG.dbPath);
+    this.initDB();
+  }
+
+  private initDB() {
+    // Create table to track indexed files
+    // Schema includes collection_name to prevent "split brain" if you switch indexes
+    const stmt = this.db.prepare(`
+      CREATE TABLE IF NOT EXISTS indexed_files (
+        collection_name TEXT NOT NULL,
+        repo_path TEXT NOT NULL,
+        file_path TEXT NOT NULL,
+        content_hash TEXT NOT NULL,
+        last_updated INTEGER,
+        PRIMARY KEY (collection_name, repo_path, file_path)
+      )
+    `);
+    stmt.run();
+    logger.info(`SQLite cache initialized at ${CONFIG.dbPath}`);
   }
 
   async init() {
@@ -158,7 +179,7 @@ class SemanticWatcher {
     try {
       const collections = await this.qdrant.getCollections();
       const exists = collections.collections.find(
-        (c: QdrantCollectionDescription) => c.name === CONFIG.collectionName
+        (c: any) => c.name === CONFIG.collectionName
       );
 
       if (!exists) {
@@ -200,6 +221,38 @@ class SemanticWatcher {
     return crypto.createHash('md5').update(content).digest('hex');
   }
 
+  // --- SQLite Helper Methods ---
+
+  private getStoredHash(relativePath: string): string | null {
+    const absRepoPath = path.resolve(CONFIG.repoPath);
+    const stmt = this.db.prepare(`
+      SELECT content_hash FROM indexed_files 
+      WHERE collection_name = ? AND repo_path = ? AND file_path = ?
+    `);
+    const result = stmt.get(CONFIG.collectionName, absRepoPath, relativePath) as { content_hash: string } | undefined;
+    return result ? result.content_hash : null;
+  }
+
+  private updateStoredHash(relativePath: string, hash: string) {
+    const absRepoPath = path.resolve(CONFIG.repoPath);
+    const stmt = this.db.prepare(`
+      INSERT OR REPLACE INTO indexed_files (collection_name, repo_path, file_path, content_hash, last_updated)
+      VALUES (?, ?, ?, ?, ?)
+    `);
+    stmt.run(CONFIG.collectionName, absRepoPath, relativePath, hash, Date.now());
+  }
+
+  private deleteStoredHash(relativePath: string) {
+    const absRepoPath = path.resolve(CONFIG.repoPath);
+    const stmt = this.db.prepare(`
+      DELETE FROM indexed_files 
+      WHERE collection_name = ? AND repo_path = ? AND file_path = ?
+    `);
+    stmt.run(CONFIG.collectionName, absRepoPath, relativePath);
+  }
+
+  // --- File Handling ---
+
   async handleFileChange(filePath: string) {
     try {
       const fullPath = path.resolve(filePath);
@@ -216,10 +269,17 @@ class SemanticWatcher {
       }
 
       const content = await fs.readFile(fullPath, "utf-8");
+      
+      // 1. GENERATE HASH
       const currentHash = this.getHash(content);
-      const lastHash = this.fileState.get(relativePath);
+      
+      // 2. CHECK DB STATE (Deduplication)
+      const lastHash = this.getStoredHash(relativePath);
 
-      if (lastHash === currentHash) return;
+      if (lastHash === currentHash) {
+          // logger.debug(`Skipping unchanged file: ${relativePath}`);
+          return;
+      }
 
       logger.info(`Processing: ${relativePath}`);
 
@@ -257,7 +317,8 @@ class SemanticWatcher {
         });
       }
 
-      this.fileState.set(relativePath, currentHash);
+      // 3. UPDATE DB STATE
+      this.updateStoredHash(relativePath, currentHash);
       logger.info(`Indexed ${chunks.length} chunks for ${relativePath}`);
 
     } catch (error) {
@@ -267,7 +328,9 @@ class SemanticWatcher {
 
   async handleFileDelete(filePath: string) {
     const relativePath = path.relative(CONFIG.repoPath, filePath);
-    this.fileState.delete(relativePath);
+    
+    // Remove from DB
+    this.deleteStoredHash(relativePath);
 
     try {
       await this.qdrant.delete(CONFIG.collectionName, {
@@ -378,7 +441,7 @@ class SemanticWatcher {
       with_payload: true
     });
 
-    return searchResults.map((res: QdrantSearchResult) => {
+    return searchResults.map((res: any) => {
       const payload = res.payload;
       return `Path: ${payload.filePath}\nLines: ${payload.startLine}-${payload.endLine}\nScore: ${res.score.toFixed(4)}\n\n${payload.content}\n---`;
     }).join('\n');
@@ -387,11 +450,12 @@ class SemanticWatcher {
   // Add a new method for refreshing the index
   async refreshIndex(): Promise<void> {
     logger.info("Refreshing index...");
-    this.fileState.clear();
-
+    // We do NOT clear the DB here. We let handleFileChange check hashes against the DB.
+    // This allows for a fast "sync" rather than a destructive "rebuild".
+    
     // Re-scan all files in the repository
     const files = await this.getAllFiles();
-    logger.info(`Found ${files.length} files to re-index`);
+    logger.info(`Found ${files.length} files to scan`);
 
     for (const file of files) {
       await this.handleFileChange(file);
