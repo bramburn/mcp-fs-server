@@ -14,7 +14,7 @@ import Parser from "web-tree-sitter";
 import ollama from "ollama";
 import fs from "fs/promises";
 import path from "path";
-import crypto from "crypto";
+import crypto from "node:crypto";
 import Database from "better-sqlite3";
 
 // --- Type Definitions ---
