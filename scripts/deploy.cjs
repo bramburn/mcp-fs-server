@@ -4,7 +4,7 @@ const { execSync, spawn } = require('child_process');
 
 // Configuration
 const PACKAGE_JSON_PATH = path.join(__dirname, '../package.json');
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-2.5-flash-lite';
 const TEMP_PROMPT_FILE = path.join(__dirname, '_gemini_prompt.txt');
 
 // Helper to run shell commands (synchronous)
