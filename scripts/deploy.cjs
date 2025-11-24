@@ -1,12 +1,13 @@
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execSync, spawn } = require('child_process');
 
 // Configuration
 const PACKAGE_JSON_PATH = path.join(__dirname, '../package.json');
 const GEMINI_MODEL = 'gemini-2.5-flash';
+const TEMP_PROMPT_FILE = path.join(__dirname, '_gemini_prompt.txt');
 
-// Helper to run shell commands
+// Helper to run shell commands (synchronous)
 function run(command, options = {}) {
     try {
         console.log(`\n> ${command}`);
@@ -17,11 +18,6 @@ function run(command, options = {}) {
         if (error.stderr) console.error(error.stderr);
         process.exit(1);
     }
-}
-
-// Helper to sanitize input for shell arguments
-function escapeShellArg(arg) {
-    return `'${arg.replace(/'/g, "'\\''")}'`;
 }
 
 async function deploy() {
@@ -42,67 +38,79 @@ async function deploy() {
     run('npm run build');
 
     // 3. Stage Files
-    // We stage files first so we can diff what is about to be committed
     console.log('📝 Staging files...');
     run('git add .');
 
-    // 4. Get Diff for Gemini
+    // 4. Get Diff & Generate Commit Message
     console.log('🤖 Generating commit message with Gemini...');
     
-    // Get the staged diff (limit length to prevent shell overflow)
-    let diff = run('git diff --cached --stat'); // Get file stats first
-    const fullDiff = run('git diff --cached'); // Get actual changes
+    // Get diff
+    run('git diff --cached --stat'); 
+    const fullDiff = run('git diff --cached');
     
-    // Truncate full diff if excessively large for the prompt
-    const diffContext = fullDiff.length > 10000 
-        ? fullDiff.substring(0, 10000) + "\n...[diff truncated]" 
-        : fullDiff;
+    // Create the full prompt content in a variable
+    const systemPrompt = `You are a deployment bot. Write a concise, semantic git commit message (Conventional Commits) for these changes. Only output the message.`;
+    const fullPromptContent = `${systemPrompt}\n\nChanges:\n${fullDiff}`;
 
-    const prompt = `
-        You are an automated deployment bot.
-        Write a concise, semantic git commit message (Conventional Commits) for the following code changes.
-        Only output the commit message, no explanations.
-        
-        Changes:
-        ${diffContext}
-    `;
+    // WRITE TO TEMP FILE
+    // This avoids "Argument list too long" errors by storing data on disk
+    fs.writeFileSync(TEMP_PROMPT_FILE, fullPromptContent, 'utf-8');
 
     let commitMsg = `chore: release v${newVersion}`; // Fallback
 
     try {
-        // Run Gemini CLI
-        // Note: passing complex multiline strings via CLI args can be tricky on Windows/PowerShell vs Bash.
-        // We write the prompt to a temp file to be safe.
-        const promptFile = path.join(__dirname, '_temp_prompt.txt');
-        fs.writeFileSync(promptFile, prompt);
+        console.log("   (Streaming file to Gemini CLI...)");
+        
+        // Spawn Gemini process
+        // We do NOT pass the prompt as an argument. We pass it via the pipe below.
+        const child = spawn('gemini', ['-y', '-m', GEMINI_MODEL], {
+            shell: true,
+            stdio: ['pipe', 'pipe', 'pipe'] // [stdin, stdout, stderr]
+        });
 
-        // We use 'type' on Windows or 'cat' on Linux/Mac to pipe to gemini if it accepts stdin, 
-        // but the standard cli usually takes arguments. 
-        // We will pass the instruction and read the file content into the prompt arg.
-        
-        // Constructing the command safely:
-        const geminiCommand = `gemini -y -m ${GEMINI_MODEL} "Read the following file content and output a commit message based on the instructions inside: ${prompt.replace(/"/g, '\\"')}"`;
-        
-        // Alternatively, if the prompt is simple enough, we try direct injection. 
-        // Let's try a safer approach: simplistic prompt + diff summary to avoid shell breaking.
-        
-        const cleanDiff = diffContext.replace(/["`$]/g, '');
-        const safeCommand = `gemini -y -m ${GEMINI_MODEL} "Write a semantic commit message for these changes: ${cleanDiff}"`;
-        
-        const aiResponse = run(safeCommand);
-        
+        // Create a promise to handle the async stream interaction
+        const aiResponse = await new Promise((resolve, reject) => {
+            let output = '';
+            let errorOutput = '';
+
+            // Collect response
+            child.stdout.on('data', (data) => { output += data.toString(); });
+            child.stderr.on('data', (data) => { errorOutput += data.toString(); });
+
+            child.on('close', (code) => {
+                if (code !== 0) {
+                    // Only reject if we got no output implies failure
+                    if (!output && errorOutput) reject(new Error(errorOutput));
+                }
+                resolve(output);
+            });
+
+            child.on('error', (err) => reject(err));
+
+            // PIPE THE FILE INTO STDIN
+            // This is the magic step that fixes the "stuck" issue
+            const fileStream = fs.createReadStream(TEMP_PROMPT_FILE);
+            fileStream.pipe(child.stdin);
+        });
+
         if (aiResponse) {
-            // Clean up Markdown formatting if Gemini adds it
-            commitMsg = aiResponse.replace(/`/g, '').replace(/^commit message:/i, '').trim();
-            // Ensure version is included
-            commitMsg = `${commitMsg} (v${newVersion})`;
+            const clean = aiResponse
+                .replace(/`/g, '')
+                .replace(/^commit message:\s*/i, '')
+                .trim();
+            
+            if (clean.length > 0) {
+                commitMsg = `${clean} (v${newVersion})`;
+            }
         }
-        
-        // Cleanup temp file if we used one
-        if (fs.existsSync(promptFile)) fs.unlinkSync(promptFile);
 
     } catch (e) {
         console.warn('⚠️  Gemini generation failed, using default message.', e.message);
+    } finally {
+        // CLEANUP: Remove the temp file
+        if (fs.existsSync(TEMP_PROMPT_FILE)) {
+            fs.unlinkSync(TEMP_PROMPT_FILE);
+        }
     }
 
     console.log(`💬 Commit Message: "${commitMsg}"`);
@@ -110,12 +118,18 @@ async function deploy() {
     // 5. Commit, Tag, Push
     console.log('💾 Committing and Pushing...');
     
-    run(`git commit -m "${commitMsg}"`);
-    run(`git tag v${newVersion}`);
-    run('git push');
-    run('git push --tags');
-
-    console.log(`\n✨ Successfully deployed v${newVersion} to GitHub!`);
+    try {
+        // Check if there are changes to commit
+        execSync('git diff --cached --quiet'); 
+        console.log("⚠️  No changes to commit.");
+    } catch (e) {
+        // If git diff returns 1 (error), it actually means there ARE changes
+        run(`git commit -m "${commitMsg}"`);
+        run(`git tag v${newVersion}`);
+        run('git push');
+        run('git push --tags');
+        console.log(`\n✨ Successfully deployed v${newVersion} to GitHub!`);
+    }
 }
 
 deploy();
