@@ -1,0 +1,26 @@
+{
+  "name": "mcp-semantic-watcher",
+  "version": "1.0.0",
+  "description": "MCP server with Qdrant vector search and file watching",
+  "main": "build/index.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node build/index.js",
+    "setup":"node scripts/wasm-install.js",
+    "watch": "tsc --watch"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.1",
+    "@qdrant/js-client-rest": "^1.11.0",
+    "chokidar": "^4.0.1",
+    "web-tree-sitter": "^0.22.6",
+    "ollama": "^0.5.9",
+    "zod": "^3.23.8",
+    "glob": "^11.0.0",
+    "crypto": "^1.0.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}
