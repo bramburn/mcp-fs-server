@@ -1,6 +1,6 @@
 {
   "name": "mcp-semantic-watcher",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "MCP server with Qdrant vector search and file watching",
   "type": "module",
   "main": "build/index.js",
@@ -11,6 +11,7 @@
     "setup": "node scripts/setup-wasm.cjs",
     "test-parser": "node scripts/test-parser.cjs",
     "test": "vitest",
+    "deploy": "node scripts/deploy.cjs",
     "coverage": "vitest run --coverage"
   },
   "dependencies": {
