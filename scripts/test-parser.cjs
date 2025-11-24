@@ -24,7 +24,7 @@ async function testParser() {
     const targetFile = process.argv[2];
     if (!targetFile) {
         console.error("Please provide a file path.");
-        console.error("Usage: node scripts/test-parser.js <path-to-file>");
+        console.error("Usage: node scripts/test-parser.cjs <path-to-file>");
         process.exit(1);
     }
 
@@ -79,7 +79,6 @@ async function testParser() {
         console.log("| Line  | Type      | Signature                   ");
         console.log("---------------------------------------------------");
 
-        // Track last index to skip duplicates (simple version)
         let lastIndex = 0;
 
         captures.forEach(capture => {
@@ -92,9 +91,6 @@ async function testParser() {
             // 1-based line number
             const startLine = node.startPosition.row + 1;
             
-            // Determine end line
-            const endLine = node.endPosition.row + 1;
-
             console.log(`| ${startLine.toString().padEnd(5)} | ${type.padEnd(9)} | ${signature}...`);
         });
         console.log("---------------------------------------------------\n");

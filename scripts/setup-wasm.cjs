@@ -31,7 +31,6 @@ const downloadFile = (inputUrl, dest, language) => {
             if ([301, 302, 307, 308].includes(response.statusCode)) {
                 if (response.headers.location) {
                     // RESOLVE RELATIVE URLS HERE
-                    // If location is "/foo", validUrl becomes "https://unpkg.com/foo"
                     const newUrl = new URL(response.headers.location, inputUrl).toString();
                     
                     downloadFile(newUrl, dest, language)
@@ -97,12 +96,7 @@ const downloadLanguage = async (language) => {
         await downloadLanguage('rust');
         await downloadLanguage('go'); 
         
-        // Note: Kotlin and Dart might not be in the standard 'tree-sitter-wasms' bundle.
-        // If these fail with 404, we just skip them gracefully.
         await downloadLanguage('kotlin'); 
-        // Dart is often not included in the generic bundle, but we attempt it anyway
-        // await downloadLanguage('dart'); 
-
     } catch (e) {
         console.error("Setup failed:", e);
     }
