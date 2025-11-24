@@ -48,12 +48,18 @@ async function deploy() {
     run('git diff --cached --stat'); 
     const fullDiff = run('git diff --cached');
     
-    // Create the full prompt content in a variable
-    const systemPrompt = `You are a deployment bot. Write a concise, semantic git commit message (Conventional Commits) for these changes. Only output the message.`;
-    const fullPromptContent = `${systemPrompt}\n\nChanges:\n${fullDiff}`;
+    // --- Structured Output Prompt Engineering ---
+    const structureInstruction = `
+        You are an automated deployment bot writing a semantic git commit message (Conventional Commits).
+        Analyze the changes below and output a single JSON object.
+        The JSON object MUST contain two fields:
+        1. "type": The commit type (e.g., feat, fix, chore, refactor).
+        2. "message": The concise, one-line commit description.
+        DO NOT include any explanation, markdown, or text outside the JSON block.
+    `;
+    const fullPromptContent = `${structureInstruction}\n\nChanges:\n${fullDiff}`;
 
     // WRITE TO TEMP FILE
-    // This avoids "Argument list too long" errors by storing data on disk
     fs.writeFileSync(TEMP_PROMPT_FILE, fullPromptContent, 'utf-8');
 
     let commitMsg = `chore: release v${newVersion}`; // Fallback
@@ -62,10 +68,9 @@ async function deploy() {
         console.log("   (Streaming file to Gemini CLI...)");
         
         // Spawn Gemini process
-        // We do NOT pass the prompt as an argument. We pass it via the pipe below.
         const child = spawn('gemini', ['-y', '-m', GEMINI_MODEL], {
             shell: true,
-            stdio: ['pipe', 'pipe', 'pipe'] // [stdin, stdout, stderr]
+            stdio: ['pipe', 'pipe', 'pipe']
         });
 
         // Create a promise to handle the async stream interaction
@@ -73,13 +78,11 @@ async function deploy() {
             let output = '';
             let errorOutput = '';
 
-            // Collect response
             child.stdout.on('data', (data) => { output += data.toString(); });
             child.stderr.on('data', (data) => { errorOutput += data.toString(); });
 
             child.on('close', (code) => {
                 if (code !== 0) {
-                    // Only reject if we got no output implies failure
                     if (!output && errorOutput) reject(new Error(errorOutput));
                 }
                 resolve(output);
@@ -88,24 +91,24 @@ async function deploy() {
             child.on('error', (err) => reject(err));
 
             // PIPE THE FILE INTO STDIN
-            // This is the magic step that fixes the "stuck" issue
             const fileStream = fs.createReadStream(TEMP_PROMPT_FILE);
             fileStream.pipe(child.stdin);
         });
 
         if (aiResponse) {
-            const clean = aiResponse
-                .replace(/`/g, '')
-                .replace(/^commit message:\s*/i, '')
-                .trim();
-            
-            if (clean.length > 0) {
-                commitMsg = `${clean} (v${newVersion})`;
+            // 1. Clean the response: remove markdown backticks (```json...)
+            let jsonString = aiResponse.trim().replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+
+            // 2. Parse the JSON
+            const parsed = JSON.parse(jsonString);
+
+            if (parsed.type && parsed.message) {
+                commitMsg = `${parsed.type}: ${parsed.message} (v${newVersion})`;
             }
         }
 
     } catch (e) {
-        console.warn('⚠️  Gemini generation failed, using default message.', e.message);
+        console.warn(`⚠️  Gemini generation failed or JSON parsing error. Using default message. Error: ${e.message}`);
     } finally {
         // CLEANUP: Remove the temp file
         if (fs.existsSync(TEMP_PROMPT_FILE)) {

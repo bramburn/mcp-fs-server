@@ -1,6 +1,6 @@
 {
   "name": "mcp-semantic-watcher",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "MCP server with Qdrant vector search and file watching",
   "type": "module",
   "main": "build/index.js",
