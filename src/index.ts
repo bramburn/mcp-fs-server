@@ -67,7 +67,7 @@ const CONFIG = {
 // --- Logger Utility ---
 const logger = {
   info: (message: string, ...args: any[]) => {
-    if (CONFIG.logLevel === 'info' || CONFIG.logLevel === 'debug') {
+    if (CONFIG.logLevel === "info" || CONFIG.logLevel === "debug") {
       console.error(`[MCP-INFO] ${message}`, ...args);
     }
   },
@@ -75,27 +75,64 @@ const logger = {
     console.error(`[MCP-ERROR] ${message}`, ...args);
   },
   debug: (message: string, ...args: any[]) => {
-    if (CONFIG.logLevel === 'debug') {
+    if (CONFIG.logLevel === "debug") {
       console.error(`[MCP-DEBUG] ${message}`, ...args);
     }
   },
   warn: (message: string, ...args: any[]) => {
     console.error(`[MCP-WARN] ${message}`, ...args);
-  }
+  },
 };
 
 // --- Language Definitions ---
 const LANGUAGES: Record<string, { lang: string; query: string }> = {
-  ts: { lang: "typescript", query: "(function_declaration) @func (method_definition) @method (class_declaration) @class (interface_declaration) @interface" },
-  tsx: { lang: "tsx", query: "(function_declaration) @func (method_definition) @method (class_declaration) @class (interface_declaration) @interface" },
-  js: { lang: "javascript", query: "(function_declaration) @func (method_definition) @method (class_declaration) @class" },
-  jsx: { lang: "javascript", query: "(function_declaration) @func (method_definition) @method (class_declaration) @class" },
-  py: { lang: "python", query: "(function_definition) @func (class_definition) @class" },
-  java: { lang: "java", query: "(class_declaration) @class (method_declaration) @method (interface_declaration) @interface" },
-  rs: { lang: "rust", query: "(function_item) @func (struct_item) @struct (trait_item) @trait (impl_item) @impl" },
-  go: { lang: "go", query: "(function_declaration) @func (method_declaration) @method (type_declaration) @type" },
-  kt: { lang: "kotlin", query: "(class_declaration) @class (function_declaration) @func" },
-  dart: { lang: "dart", query: "(class_definition) @class (function_signature) @func" },
+  ts: {
+    lang: "typescript",
+    query:
+      "(function_declaration) @func (method_definition) @method (class_declaration) @class (interface_declaration) @interface",
+  },
+  tsx: {
+    lang: "tsx",
+    query:
+      "(function_declaration) @func (method_definition) @method (class_declaration) @class (interface_declaration) @interface",
+  },
+  js: {
+    lang: "javascript",
+    query:
+      "(function_declaration) @func (method_definition) @method (class_declaration) @class",
+  },
+  jsx: {
+    lang: "javascript",
+    query:
+      "(function_declaration) @func (method_definition) @method (class_declaration) @class",
+  },
+  py: {
+    lang: "python",
+    query: "(function_definition) @func (class_definition) @class",
+  },
+  java: {
+    lang: "java",
+    query:
+      "(class_declaration) @class (method_declaration) @method (interface_declaration) @interface",
+  },
+  rs: {
+    lang: "rust",
+    query:
+      "(function_item) @func (struct_item) @struct (trait_item) @trait (impl_item) @impl",
+  },
+  go: {
+    lang: "go",
+    query:
+      "(function_declaration) @func (method_declaration) @method (type_declaration) @type",
+  },
+  kt: {
+    lang: "kotlin",
+    query: "(class_declaration) @class (function_declaration) @func",
+  },
+  dart: {
+    lang: "dart",
+    query: "(class_definition) @class (function_signature) @func",
+  },
 };
 
 // --- Interfaces ---
@@ -157,18 +194,23 @@ class SemanticWatcher {
       });
       this.parser = new Parser();
 
-      const uniqueLangs = new Set(Object.values(LANGUAGES).map(l => l.lang));
+      const uniqueLangs = new Set(Object.values(LANGUAGES).map((l) => l.lang));
       logger.info(`Loading ${uniqueLangs.size} language grammars...`);
 
       for (const langName of uniqueLangs) {
-        const langPath = path.resolve(CONFIG.wasmPath, `tree-sitter-${langName}.wasm`);
+        const langPath = path.resolve(
+          CONFIG.wasmPath,
+          `tree-sitter-${langName}.wasm`
+        );
         try {
           await fs.access(langPath);
           const lang = await Parser.Language.load(langPath);
           this.parsers[langName] = lang;
           logger.info(`Loaded grammar: ${langName}`);
         } catch (e) {
-          logger.warn(`Skipped grammar ${langName} (not found in ${CONFIG.wasmPath})`);
+          logger.warn(
+            `Skipped grammar ${langName} (not found in ${CONFIG.wasmPath})`
+          );
         }
       }
     } catch (e) {
@@ -189,9 +231,13 @@ class SemanticWatcher {
             distance: "Cosine",
           },
         });
-        logger.info(`Created Qdrant collection: ${CONFIG.collectionName} (size: ${CONFIG.vectorSize})`);
+        logger.info(
+          `Created Qdrant collection: ${CONFIG.collectionName} (size: ${CONFIG.vectorSize})`
+        );
       } else {
-        logger.info(`Using existing Qdrant collection: ${CONFIG.collectionName}`);
+        logger.info(
+          `Using existing Qdrant collection: ${CONFIG.collectionName}`
+        );
       }
     } catch (e) {
       logger.error("Qdrant connection error. Ensure Qdrant is running.", e);
@@ -218,7 +264,7 @@ class SemanticWatcher {
   }
 
   private getHash(content: string): string {
-    return crypto.createHash('md5').update(content).digest('hex');
+    return crypto.createHash("md5").update(content).digest("hex");
   }
 
   // --- SQLite Helper Methods ---
@@ -229,7 +275,11 @@ class SemanticWatcher {
       SELECT content_hash FROM indexed_files 
       WHERE collection_name = ? AND repo_path = ? AND file_path = ?
     `);
-    const result = stmt.get(CONFIG.collectionName, absRepoPath, relativePath) as { content_hash: string } | undefined;
+    const result = stmt.get(
+      CONFIG.collectionName,
+      absRepoPath,
+      relativePath
+    ) as { content_hash: string } | undefined;
     return result ? result.content_hash : null;
   }
 
@@ -239,7 +289,13 @@ class SemanticWatcher {
       INSERT OR REPLACE INTO indexed_files (collection_name, repo_path, file_path, content_hash, last_updated)
       VALUES (?, ?, ?, ?, ?)
     `);
-    stmt.run(CONFIG.collectionName, absRepoPath, relativePath, hash, Date.now());
+    stmt.run(
+      CONFIG.collectionName,
+      absRepoPath,
+      relativePath,
+      hash,
+      Date.now()
+    );
   }
 
   private deleteStoredHash(relativePath: string) {
@@ -261,7 +317,9 @@ class SemanticWatcher {
       try {
         const stats = await fs.stat(fullPath);
         if (stats.size > CONFIG.maxFileSize) {
-          logger.debug(`Skipping large file: ${relativePath} (${stats.size} bytes)`);
+          logger.debug(
+            `Skipping large file: ${relativePath} (${stats.size} bytes)`
+          );
           return;
         }
       } catch (e) {
@@ -269,16 +327,16 @@ class SemanticWatcher {
       }
 
       const content = await fs.readFile(fullPath, "utf-8");
-      
+
       // 1. GENERATE HASH
       const currentHash = this.getHash(content);
-      
+
       // 2. CHECK DB STATE (Deduplication)
       const lastHash = this.getStoredHash(relativePath);
 
       if (lastHash === currentHash) {
-          // logger.debug(`Skipping unchanged file: ${relativePath}`);
-          return;
+        // logger.debug(`Skipping unchanged file: ${relativePath}`);
+        return;
       }
 
       logger.info(`Processing: ${relativePath}`);
@@ -320,7 +378,6 @@ class SemanticWatcher {
       // 3. UPDATE DB STATE
       this.updateStoredHash(relativePath, currentHash);
       logger.info(`Indexed ${chunks.length} chunks for ${relativePath}`);
-
     } catch (error) {
       logger.error(`Error processing ${filePath}:`, error);
     }
@@ -328,7 +385,7 @@ class SemanticWatcher {
 
   async handleFileDelete(filePath: string) {
     const relativePath = path.relative(CONFIG.repoPath, filePath);
-    
+
     // Remove from DB
     this.deleteStoredHash(relativePath);
 
@@ -373,7 +430,10 @@ class SemanticWatcher {
           const chunkContent = node.text;
           if (chunkContent.length < CONFIG.minChunkSize) continue;
 
-          const id = crypto.createHash('md5').update(`${filePath}:${node.startIndex}`).digest('hex');
+          const id = crypto
+            .createHash("md5")
+            .update(`${filePath}:${node.startIndex}`)
+            .digest("hex");
 
           chunks.push({
             id: id,
@@ -381,13 +441,16 @@ class SemanticWatcher {
             startLine: node.startPosition.row + 1, // Tree-sitter rows are 0-indexed
             endLine: node.endPosition.row + 1,
             content: chunkContent,
-            contentHash: this.getHash(chunkContent)
+            contentHash: this.getHash(chunkContent),
           });
 
           lastIndex = node.endIndex;
         }
       } catch (e) {
-        logger.debug(`Tree-sitter query failed for ${filePath}, falling back to lines.`, e);
+        logger.debug(
+          `Tree-sitter query failed for ${filePath}, falling back to lines.`,
+          e
+        );
       }
     }
 
@@ -401,19 +464,22 @@ class SemanticWatcher {
 
   // Simple line-based chunking with overlap
   private simpleSplit(filePath: string, content: string): CodeChunk[] {
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const chunkSize = CONFIG.chunkLines;
     const overlap = CONFIG.chunkOverlap;
     const chunks: CodeChunk[] = [];
 
-    for (let i = 0; i < lines.length; i += (chunkSize - overlap)) {
+    for (let i = 0; i < lines.length; i += chunkSize - overlap) {
       const end = Math.min(i + chunkSize, lines.length);
       const chunkLines = lines.slice(i, end);
-      const chunkText = chunkLines.join('\n');
+      const chunkText = chunkLines.join("\n");
 
       if (chunkText.trim().length < 10) continue;
 
-      const id = crypto.createHash('md5').update(`${filePath}:${i}`).digest('hex');
+      const id = crypto
+        .createHash("md5")
+        .update(`${filePath}:${i}`)
+        .digest("hex");
 
       chunks.push({
         id,
@@ -421,7 +487,7 @@ class SemanticWatcher {
         startLine: i + 1, // 1-indexed line numbers
         endLine: end,
         content: chunkText,
-        contentHash: this.getHash(chunkText)
+        contentHash: this.getHash(chunkText),
       });
     }
     return chunks;
@@ -432,19 +498,23 @@ class SemanticWatcher {
 
     const embeddingResponse = await ollama.embeddings({
       model: CONFIG.ollamaModel,
-      prompt: query
+      prompt: query,
     });
 
     const searchResults = await this.qdrant.search(CONFIG.collectionName, {
       vector: (embeddingResponse as EmbeddingResponse).embedding,
       limit: searchLimit,
-      with_payload: true
+      with_payload: true,
     });
 
-    return searchResults.map((res: any) => {
-      const payload = res.payload;
-      return `Path: ${payload.filePath}\nLines: ${payload.startLine}-${payload.endLine}\nScore: ${res.score.toFixed(4)}\n\n${payload.content}\n---`;
-    }).join('\n');
+    return searchResults
+      .map((res: any) => {
+        const payload = res.payload;
+        return `Path: ${payload.filePath}\nLines: ${payload.startLine}-${
+          payload.endLine
+        }\nScore: ${res.score.toFixed(4)}\n\n${payload.content}\n---`;
+      })
+      .join("\n");
   }
 
   // Add a new method for refreshing the index
@@ -452,7 +522,7 @@ class SemanticWatcher {
     logger.info("Refreshing index...");
     // We do NOT clear the DB here. We let handleFileChange check hashes against the DB.
     // This allows for a fast "sync" rather than a destructive "rebuild".
-    
+
     // Re-scan all files in the repository
     const files = await this.getAllFiles();
     logger.info(`Found ${files.length} files to scan`);
@@ -476,8 +546,13 @@ class SemanticWatcher {
 
         if (entry.isDirectory()) {
           // Skip hidden directories and common ignore patterns
-          if (!entry.name.startsWith('.') && !['node_modules', 'dist', 'build', 'target', '.git'].includes(entry.name)) {
-            files.push(...await this.getAllFiles(fullPath));
+          if (
+            !entry.name.startsWith(".") &&
+            !["node_modules", "dist", "build", "target", ".git"].includes(
+              entry.name
+            )
+          ) {
+            files.push(...(await this.getAllFiles(fullPath)));
           }
         } else if (entry.isFile()) {
           files.push(fullPath);
@@ -490,106 +565,116 @@ class SemanticWatcher {
     return files;
   }
 }
+export { SemanticWatcher, CONFIG };
 
-// --- Main MCP Server Setup ---
+// --- Main Execution ---
 
-const watcherService = new SemanticWatcher();
-const server = new Server(
-  {
-    name: "mcp-semantic-watcher",
-    version: "1.0.0",
-  },
-  {
-    capabilities: {
-      tools: {},
+// Only run the server if this file is the main module (not imported by tests)
+import { fileURLToPath } from "url";
+
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
+  const watcherService = new SemanticWatcher();
+  const server = new Server(
+    {
+      name: "mcp-semantic-watcher",
+      version: "1.0.0",
     },
-  }
-);
-
-server.setRequestHandler(ListToolsRequestSchema, async () => {
-  return {
-    tools: [
-      {
-        name: "semantic_search",
-        description: "Search the codebase using semantic vector search.",
-        inputSchema: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description: "The search query",
-            },
-            limit: {
-              type: "number",
-              description: "Maximum number of results to return",
-              minimum: 1,
-              maximum: 20,
-            },
-          },
-          required: ["query"],
-        },
+    {
+      capabilities: {
+        tools: {},
       },
-      {
-        name: "refresh_index",
-        description: "Manually triggers a re-scan of the repository.",
-        inputSchema: {
-          type: "object",
-          properties: {},
+    }
+  );
+
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    return {
+      tools: [
+        {
+          name: "semantic_search",
+          description: "Search the codebase using semantic vector search.",
+          inputSchema: {
+            type: "object",
+            properties: {
+              query: {
+                type: "string",
+                description: "The search query",
+              },
+              limit: {
+                type: "number",
+                description: "Maximum number of results to return",
+                minimum: 1,
+                maximum: 20,
+              },
+            },
+            required: ["query"],
+          },
         },
+        {
+          name: "refresh_index",
+          description: "Manually triggers a re-scan of the repository.",
+          inputSchema: {
+            type: "object",
+            properties: {},
+          },
+        },
+      ],
+    };
+  });
+
+  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    const { name, arguments: args } = request.params;
+
+    if (name === "semantic_search") {
+      const query = args?.query as string;
+      const limit = args?.limit as number | undefined;
+
+      if (!query) {
+        throw new Error("Query is required");
       }
-    ],
-  };
-});
 
-server.setRequestHandler(CallToolRequestSchema, async (request) => {
-  const { name, arguments: args } = request.params;
-
-  if (name === "semantic_search") {
-    const query = args?.query as string;
-    const limit = args?.limit as number | undefined;
-
-    if (!query) {
-      throw new Error("Query is required");
+      try {
+        const results = await watcherService.search(query, limit);
+        return {
+          content: [{ type: "text", text: results }],
+        };
+      } catch (e: any) {
+        console.error(`[MCP-ERROR] Search error:`, e);
+        return {
+          content: [{ type: "text", text: `Error searching: ${e.message}` }],
+        };
+      }
     }
 
-    try {
-      const results = await watcherService.search(query, limit);
-      return {
-        content: [{ type: "text", text: results }],
-      };
-    } catch (e: any) {
-      logger.error("Search error:", e);
-      return {
-        content: [{ type: "text", text: `Error searching: ${e.message}` }]
-      };
+    if (name === "refresh_index") {
+      try {
+        await watcherService.refreshIndex();
+        return {
+          content: [
+            { type: "text", text: "Index refresh completed successfully." },
+          ],
+        };
+      } catch (e: any) {
+        console.error(`[MCP-ERROR] Refresh index error:`, e);
+        return {
+          content: [
+            { type: "text", text: `Error refreshing index: ${e.message}` },
+          ],
+        };
+      }
     }
+
+    throw new Error(`Tool ${name} not found`);
+  });
+
+  async function run() {
+    await watcherService.init();
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error("[MCP-INFO] MCP Semantic Watcher Server running on stdio");
   }
 
-  if (name === "refresh_index") {
-    try {
-      await watcherService.refreshIndex();
-      return {
-        content: [{ type: "text", text: "Index refresh completed successfully." }]
-      };
-    } catch (e: any) {
-      logger.error("Refresh index error:", e);
-      return {
-        content: [{ type: "text", text: `Error refreshing index: ${e.message}` }]
-      };
-    }
-  }
-
-  throw new Error(`Tool ${name} not found`);
-});
-
-async function run() {
-  await watcherService.init();
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  logger.info("MCP Semantic Watcher Server running on stdio");
+  run().catch((error) => {
+    console.error("[MCP-ERROR] Fatal error:", error);
+    process.exit(1);
+  });
 }
-
-run().catch((error) => {
-  logger.error("Fatal error:", error);
-  process.exit(1);
-});

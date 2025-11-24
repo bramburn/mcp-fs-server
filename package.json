@@ -9,7 +9,9 @@
     "start": "node build/index.js",
     "watch": "tsc --watch",
     "setup": "node scripts/setup-wasm.cjs",
-    "test-parser": "node scripts/test-parser.cjs"
+    "test-parser": "node scripts/test-parser.cjs",
+    "test": "vitest",
+    "coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.1",
@@ -25,6 +27,9 @@
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.11",
     "@types/node": "^22.9.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vite": "^5.4.8",
+    "vitest": "^2.1.5",
+    "@vitest/coverage-v8": "^2.1.5"
   }
 }
