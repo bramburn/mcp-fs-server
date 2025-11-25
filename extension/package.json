@@ -18,7 +18,7 @@
   "activationEvents": [
     "onView:qdrant.searchView"
   ],
-  "main": "./out/extension.js",
+  "main": "./out/extension/src/extension.js",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -66,7 +66,9 @@
     "watch:extension": "tsc -watch -p ./",
     "watch:webview": "vite build --watch",
     "build:webview": "vite build",
-    "package": "vsce package",
+    "package": "node ./scripts/package-vsix.js",
+    "bump:minor": "npm version minor --no-git-tag-version",
+    "release:minor": "npm run bump:minor && npm run package",
     "test": "vitest run"
   },
   "dependencies": {

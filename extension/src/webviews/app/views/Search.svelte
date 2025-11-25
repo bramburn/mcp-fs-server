@@ -2,7 +2,8 @@
   // P2.3: Design Search Interface with shadcn/ui
   import { sendCommand, sendRequest } from '../lib/vscode'; // Use new IPC functions
   import SnippetList from '../components/SnippetList.svelte';
-  import { SEARCH_METHOD, START_INDEX_METHOD, IpcScope, SearchRequestParams, SearchResponseParams } from '../../protocol'; // Use typed IPC commands and constants
+  import { SEARCH_METHOD, START_INDEX_METHOD } from '../../protocol'; // Use typed IPC commands and constants
+  import type { SearchRequestParams, SearchResponseParams } from '../../protocol';
   import type { FileSnippetResult } from '../../protocol';
   import * as Command from '$app/components/ui/command'; // Assuming Command is now a module import for compound components
   import Button from '$app/components/ui/button/button.svelte';

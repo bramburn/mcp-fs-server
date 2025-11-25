@@ -1,0 +1,29 @@
+# Git / editor / workspace
+.git/**
+.vscode/**
+.vscode-test/**
+coverage/**
+*.log
+
+# Source files (compiled JS is in out/)
+src/**
+**/*.ts
+**/*.tsx
+**/*.svelte
+**/*.map
+
+# Tests
+test/**
+src/test/**
+out/test/**
+
+# Build / tooling configs (not needed at runtime)
+tsconfig.json
+vitest.config.ts
+vite.config.ts
+svelte.config.js
+tailwind.config.js
+postcss.config.js
+eslint.config.mjs
+components.json
+idea.md

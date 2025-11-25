@@ -1,6 +1,7 @@
 <script lang="ts">
     import { sendCommand, sendRequest, onNotification } from '../lib/vscode'; // Use new IPC functions
-    import { LOAD_CONFIG_METHOD, START_INDEX_METHOD, CONFIG_DATA_METHOD, IpcScope, QdrantOllamaConfig, DID_CHANGE_CONFIG_NOTIFICATION } from '../../protocol';
+    import { LOAD_CONFIG_METHOD, START_INDEX_METHOD, CONFIG_DATA_METHOD, DID_CHANGE_CONFIG_NOTIFICATION } from '../../protocol';
+    import type { QdrantOllamaConfig } from '../../protocol';
     // import type { OverviewFilters } from "$lib/types"; // Assume this type exists if needed for further logic
     import Button from '../components/ui/button/button.svelte';
     import SettingsIcon from 'lucide-svelte/icons/settings';

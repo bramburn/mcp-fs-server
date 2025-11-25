@@ -1,19 +1,6 @@
 <script lang="ts">
   import { Command as CommandPrimitive } from "cmdk-sv";
-  import type { CommandEvents } from "cmdk-sv";
-  import type { HTMLAttributes } from "svelte/elements";
   import { cn } from "../../../lib/utils.js";
-  import { setContext } from 'svelte';
-  import { ipcContext, HostIpc } from '../../../contexts/ipc';
-
-  type $$Props = HTMLAttributes<HTMLDivElement> & {
-    loop?: boolean;
-    value?: string;
-    label?: string;
-    isVisible?: boolean;
-    class?: string; // Add class to $$Props for proper type inference
-  };
-  type $$Events = CommandEvents;
 
   let {
     class: className = undefined,
@@ -21,22 +8,11 @@
     value = "",
     label = "",
     isVisible = true,
-    ...rest // Collect other props
-  } = $props<$$Props>();
-  
-  // Get the IPC context from parent
-  const ipc: HostIpc = $state(null as any);
-  
-  // Optionally expose theme/style context
-  $effect(() => {
-    if (isVisible) {
-      // Set context for child components
-      setContext('commandRoot', { isVisible: true, theme: 'vscode' });
-    }
-  });
+    ...rest
+  } = $props();
 </script>
 
-<CommandPrimitive
+<CommandPrimitive.Root
   bind:value
   {loop}
   {label}
@@ -48,16 +24,9 @@
   aria-expanded={isVisible}
   aria-owns="command-list-id"
   {...rest}
-  onopenchange
-  onkeydown
-  onchange
-  oninput
-  onfocus
-  onblur
-  onclick
 >
   <slot />
-</CommandPrimitive>
+</CommandPrimitive.Root>
 
 <style>
   .command-root {
