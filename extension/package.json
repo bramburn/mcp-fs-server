@@ -1,5 +1,10 @@
 {
   "name": "qdrant-codesearch",
+  "publisher": "icelabz",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/icelabz/qdrant-codesearch.git"
+  },
   "displayName": "Qdrant Code Search",
   "description": "Semantic code search using Qdrant and Ollama",
   "version": "0.0.1",
@@ -10,7 +15,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onView:qdrant.searchView"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "viewsContainers": {
@@ -54,43 +61,46 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./ && npm run build:webview",
+    "compile": "tsc -p ./tsconfig.json && npm run build:webview",
     "watch": "npm-run-all -p watch:*",
     "watch:extension": "tsc -watch -p ./",
     "watch:webview": "vite build --watch",
     "build:webview": "vite build",
-    "package": "@vscode/vsce package",
+    "package": "vsce package",
     "test": "vitest run"
   },
   "dependencies": {
     "@qdrant/js-client-rest": "^1.16.1",
     "clsx": "^2.1.1",
-    "lucide-svelte": "^0.454.0",
+    "lucide-svelte": "^0.554.0",
     "svelte-radix": "^1.1.1",
-    "tailwind-merge": "^2.5.0",
-    "tailwind-variants": "^3.2.2"
+    "tailwind-merge": "^3.4.0"
   },
   "devDependencies": {
-    "@sveltejs/vite-plugin-svelte": "^3.0.0",
+    "@sveltejs/vite-plugin-svelte": "^5.0.0",
+    "@testing-library/svelte": "^5.2.9",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.90.0",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",
     "@vscode/test-electron": "^2.4.0",
     "@vscode/vsce": "^2.24.0",
-    "autoprefixer": "^10.4.0",
+    "autoprefixer": "^10.4.22",
     "cmdk-sv": "^0.0.19",
     "eslint": "^8.0.0",
     "eslint-plugin-svelte": "^2.35.0",
+    "jsdom": "^27.2.0",
     "npm-run-all": "^4.1.5",
     "postcss": "^8.4.0",
     "shadcn-svelte": "^0.14.3",
-    "svelte": "^4.2.0",
-    "svelte-check": "^3.6.0",
+    "svelte": "^5.44.0",
+    "svelte-check": "^4.3.4",
+    "tailwind-merge": "^3.4.0",
+    "tailwind-variants": "^3.2.2",
     "tailwindcss": "^3.3.0",
     "tslib": "^2.6.0",
     "typescript": "^5.0.0",
-    "vite": "^5.0.0",
+    "vite": "^6.0.0",
     "vitest": "^1.0.0"
   }
 }

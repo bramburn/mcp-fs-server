@@ -1,11 +1,12 @@
 {
   "compilerOptions": {
-    "module": "Node16",
+    "module": "ESNext",
     "target": "ES2022",
     "outDir": "out",
     "lib": [
-      "ES2022",
-      "DOM"
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
     ],
     "sourceMap": true,
     "rootDir": "..",
@@ -19,13 +20,16 @@
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
     "strict": true,
-    "moduleResolution": "Node16",
+    "moduleResolution": "node",
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
-    "types": ["vite/client", "node", "svelte"]
+    "esModuleInterop": true,
+    "jsx": "preserve",
+    "types": ["vite/client", "node", "svelte", "svelte/elements", "vitest/globals"]
   },
   "include": [
     "src/**/*",
+    "src/webviews/app/ambient.d.ts",
     "vite.config.ts",
     "svelte.config.js",
     "../shared/**/*"

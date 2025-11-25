@@ -1,27 +1,20 @@
 import * as vscode from 'vscode';
 import { WebviewController } from './webviews/WebviewController.js';
-import { IndexingService } from './services/IndexingService.js';
-import { ConfigService } from './services/ConfigService.js';
-import { WorkspaceManager } from './services/WorkspaceManager.js';
-
-let indexingService: IndexingService;
-let configService: ConfigService;
-let workspaceManager: WorkspaceManager;
-let webviewController: WebviewController;
+import { initializeServices, useService, Container } from './container/Container.js';
 
 export async function activate(context: vscode.ExtensionContext) {
     console.log('Qdrant Code Search extension is now active!');
 
-    // Initialize services
-    configService = new ConfigService(context);
-    indexingService = new IndexingService(configService, context);
-    workspaceManager = new WorkspaceManager(context, configService, indexingService);
+    // Initialize DI container with all services
+    initializeServices(context);
 
-    // Initialize workspace manager
-    await workspaceManager.initialize();
+    // Get services via container (lazy initialization with proper dependency resolution)
+    const configService = useService('ConfigService');
+    const indexingService = useService('IndexingService');
+    const workspaceManager = useService('WorkspaceManager');
 
     // Create webview controller
-    webviewController = new WebviewController(
+    const webviewController = new WebviewController(
         context.extensionUri,
         indexingService,
         workspaceManager,
@@ -58,9 +51,9 @@ export async function activate(context: vscode.ExtensionContext) {
 
             // Update status
             statusBarItem.text = "$(sync~spin) Qdrant: Indexing...";
-            
+
             try {
-                await indexingService.indexWorkspace(folder);
+                await indexingService.startIndexing(folder);
                 statusBarItem.text = "$(database) Qdrant: Ready";
                 vscode.window.showInformationMessage('Workspace indexed successfully!');
             } catch (error) {
@@ -80,6 +73,7 @@ export async function activate(context: vscode.ExtensionContext) {
     webviewController.sendNotification('index/status', { status: 'ready' });
 }
 
-export function deactivate() {
-    // Cleanup will be handled by VS Code
+export async function deactivate() {
+    // Properly dispose all services in reverse dependency order
+    await Container.instance.dispose();
 }

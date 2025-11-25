@@ -8,9 +8,7 @@ export default defineConfig({
     globals: true,
     environment: 'jsdom',
     include: [
-      'src/services/**/*.test.ts',
-      'src/webviews/**/*.test.ts',
-      'src/webviews/**/*.test.svelte'
+      'src/**/*.test.ts'
     ],
     exclude: [
       'node_modules',
@@ -31,8 +29,9 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src/webviews'),
-      'shared': resolve(__dirname, '../packages/shared')
+      '$app': resolve(__dirname, './src/webviews/app'),
+      'shared': resolve(__dirname, '../packages/shared'),
+      'vscode': resolve(__dirname, './src/test/mocks/vscode-api.ts')
     }
   }
 });

@@ -4,23 +4,28 @@
     import { appState } from './store.svelte.ts';
     import Search from './views/Search.svelte';
     import Settings from './views/Settings.svelte';
-    import { vscode } from './lib/vscode.ts';
-    import { 
-        SEARCH_METHOD, 
-        INDEX_STATUS_METHOD, 
+    import CommandPaletteTest from './components/CommandPaletteTest.svelte';
+    import { vscode, hostIpc } from './lib/vscode.ts';
+    import { setIpcContext } from './contexts/ipc';
+    import {
+        SEARCH_METHOD,
+        INDEX_STATUS_METHOD,
         LOAD_CONFIG_METHOD,
         CONFIG_DATA_METHOD,
         Scope
     } from '../protocol.ts';
-    import type { 
-        IpcMessage, 
+    import type {
+        IpcMessage,
         IpcNotification,
-        SearchResponseParams, 
-        IndexStatusParams, 
-        QdrantOllamaConfig 
+        SearchResponseParams,
+        IndexStatusParams,
+        QdrantOllamaConfig
     } from '../protocol.ts';
 
     onMount(() => {
+        // Set up IPC context for all child components
+        setIpcContext(hostIpc);
+        
         // Initial Data Fetch
         vscode.postMessage(LOAD_CONFIG_METHOD, {}, 'request');
 
@@ -69,6 +74,8 @@
         <Search />
     {:else if appState.view === 'settings'}
         <Settings />
+    {:else if appState.view === 'test'}
+        <CommandPaletteTest />
     {:else}
         <div class="p-4">Unknown view</div>
     {/if}

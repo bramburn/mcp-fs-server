@@ -1,40 +1,79 @@
 <script lang="ts">
-    import { onMount } from 'svelte';
-    import { appState } from '../store.svelte.ts';
-    import { vscode } from '../lib/vscode.ts';
-    import { START_INDEX_METHOD, LOAD_CONFIG_METHOD } from '../../protocol.ts';
-    
-    // Import shadcn components
-    import { Button } from '../components/ui/button/button.svelte';
+    import { sendCommand, sendRequest, onNotification } from '../lib/vscode'; // Use new IPC functions
+    import { LOAD_CONFIG_METHOD, START_INDEX_METHOD, CONFIG_DATA_METHOD, IpcScope, QdrantOllamaConfig, DID_CHANGE_CONFIG_NOTIFICATION } from '../../protocol';
+    // import type { OverviewFilters } from "$lib/types"; // Assume this type exists if needed for further logic
+    import Button from '../components/ui/button/button.svelte';
     import SettingsIcon from 'lucide-svelte/icons/settings';
     import ChevronLeft from 'lucide-svelte/icons/chevron-left';
+    import Switch from "$app/components/ui/switch/switch.svelte"; // Required for settings UI (updated alias)
 
-    let loading = false; 
+    // Mock appState for UI elements that rely on it (indexStatus, config, setView)
+    let appState = $state({
+        config: undefined as QdrantOllamaConfig | undefined,
+        indexStatus: 'ready' as 'ready' | 'indexing' | 'error',
+        setView: (view: string) => console.log('setView called:', view)
+    });
+
+    let loading = $state(false);
+
+    // Initialize state from mock appState config if available
+    // let initialFilters = $state<OverviewFilters | undefined>(appState.config); // No direct equivalent in protocol.ts
+    let showStale = $state(false); // Default to false, assuming this is a local setting
 
     async function refreshConfig() {
         loading = true;
-        vscode.postMessage(LOAD_CONFIG_METHOD, {}, 'request');
-        setTimeout(() => {
-            loading = false;
-        }, 1000);
+        // Assuming LOAD_CONFIG_METHOD is a request that returns QdrantOllamaConfig
+        sendRequest<{}, QdrantOllamaConfig>(LOAD_CONFIG_METHOD, 'qdrantIndex', {})
+            .then(config => {
+                appState.config = config;
+            })
+            .catch(error => {
+                console.error('Failed to load config:', error);
+                appState.config = undefined; // Clear config on error
+            })
+            .finally(() => {
+                loading = false;
+            });
     }
 
     function handleReindex() {
-        vscode.postMessage(START_INDEX_METHOD, {}, 'command');
+        sendCommand(START_INDEX_METHOD, 'qdrantIndex', {});
     }
 
     function handleOpenSettings() {
-        vscode.postMessage('qdrant.openSettings', {}, 'command');
+        // Assuming 'qdrant.openSettings' is a VS Code command to be executed by the extension host
+        sendCommand('webview/execute-command', 'webview-mgmt', { command: 'qdrant.openSettings' });
     }
 
     function goBack() {
         appState.setView('search');
     }
 
-    onMount(() => {
+    // Initialize on mount (mimicking onMount behavior with $effect.pre)
+    $effect.pre(() => {
         if (!appState.config) {
              refreshConfig();
         }
+        // Listen for config updates from the extension host
+        onNotification<QdrantOllamaConfig>(CONFIG_DATA_METHOD, (config) => {
+            appState.config = config;
+        });
+
+        // Listen for configuration changes (e.g., from preferences)
+        onNotification<{ configKey: string, value: any }>(DID_CHANGE_CONFIG_NOTIFICATION, (params) => {
+            if (params.configKey === 'overview.stale.show') {
+                showStale = params.value;
+            }
+            // Add more handling for other config keys if needed
+        });
+    });
+
+    // Effect to watch local state changes and send IPC updates
+    $effect(() => {
+        // This assumes 'overview.stale.show' is a preference that can be updated
+        // via a command to the extension host.
+        // There's no direct 'UpdatePreferencesCommand' in protocol.ts, so I'll create a generic one.
+        sendCommand('update/preferences', 'webview-mgmt', { 'overview.stale.show': showStale });
     });
 </script>
 
@@ -87,13 +126,22 @@
                     Open Workspace Settings
                 </Button>
 
-                <Button 
+                <Button
                     on:click={handleReindex}
                     disabled={appState.indexStatus === 'indexing'}
                     class="w-full"
                 >
                     {appState.indexStatus === 'indexing' ? 'Indexing...' : 'Force Re-index'}
                 </Button>
+            </div>
+
+            <!-- Settings Mirror for Stale Filter -->
+            <div class="flex flex-col gap-3">
+                <h3 class="text-sm font-semibold text-foreground/90">Filters</h3>
+                <div class="flex items-center justify-between p-2 border rounded">
+                    <label for="stale-filter" class="text-sm">Show Stale Results</label>
+                    <Switch id="stale-filter" bind:checked={showStale} />
+                </div>
             </div>
 
             <!-- Status Section -->

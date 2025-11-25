@@ -2,19 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <!-- Note: CSP nonce is dynamically injected by WebviewController.ts at runtime -->
-    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}' ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
+    <!-- Note: CSP is set via WebviewOptions in WebviewController.ts -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Qdrant Search</title>
   </head>
-  <body>
+  <body class="vscode-light" data-vscode-theme-id="builtin.default.light">
     <div id="app"></div>
-    <script>
-      // Acquire VS Code API
-      const vscode = acquireVsCodeApi();
-      // Make it available globally
-      window.vscode = vscode;
-    </script>
-    <script type="module" src="./main.ts"></script>
+    <script type="module" src="./main.ts" defer></script>
   </body>
 </html>

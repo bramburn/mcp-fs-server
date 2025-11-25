@@ -4,19 +4,9 @@ import './app.css';
 import App from './app/App.svelte';
 
 // Initialize VS Code API for webview communication
-declare global {
-    interface Window {
-        acquireVsCodeApi?: () => any;
-    }
-}
 
 // Acquire VS Code API
 const vscode = window.acquireVsCodeApi?.();
-
-// Make vscode API globally available for components
-if (vscode) {
-    (window as any).vscode = vscode;
-}
 
 const target = document.getElementById('app');
 
@@ -49,6 +39,18 @@ try {
         </div>
     `;
 }
+
+// --- IPC Initialization ---
+if (vscode) {
+    // 3. IPC Initialization: Send WebviewReadyRequest to host
+    // Note: The exact message structure will be defined in protocol.ts (TODO #4)
+    // Sending a basic command structure here for now.
+    vscode.postMessage({
+        command: 'ipc:ready-request', // Placeholder command name
+        payload: undefined,
+    });
+}
+// --- End IPC Initialization ---
 
 // Export app instance and cleanup function
 export { app };

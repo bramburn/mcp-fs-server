@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { ConfigService } from './ConfigService.js';
 import { QdrantOllamaConfig } from '../webviews/protocol.js';
 import { QdrantClient } from '@qdrant/js-client-rest';
-// !AI: MVP assumption: The shared code splitter logic (which might use WASM) is robust and handles context splitting optimally for all target languages.
 import { CodeSplitter } from 'shared/code-splitter.js';
 
 interface SearchResultItem {
@@ -17,14 +16,28 @@ interface SearchResultItem {
 }
 
 /**
- * Core service to handle file indexing and interaction with Qdrant/Ollama.
- * Refactored to use shared chunking logic.
+ * Indexing progress information
  */
-export class IndexingService {
+export interface IndexingProgress {
+    current: number;
+    total: number;
+    currentFile?: string;
+    status: 'starting' | 'indexing' | 'completed' | 'error' | 'cancelled';
+}
+
+export type IndexingProgressListener = (progress: IndexingProgress) => void;
+
+/**
+ * Core service to handle file indexing and interaction with Qdrant/Ollama
+ * with proper cancellation token support and dependency injection
+ */
+export class IndexingService implements vscode.Disposable {
     private _isIndexing = false;
     private _client: QdrantClient | null = null;
     private _activeConfig: QdrantOllamaConfig | null = null;
     private _splitter: CodeSplitter;
+    private _cancellationTokenSource: vscode.CancellationTokenSource | undefined;
+    private _progressListeners: IndexingProgressListener[] = [];
 
     constructor(
         private readonly _configService: ConfigService,
@@ -34,97 +47,229 @@ export class IndexingService {
     }
 
     /**
-     * Triggers the indexing process for the given workspace folder.
+     * Add a listener for indexing progress
      */
-    public async indexWorkspace(folder: vscode.WorkspaceFolder): Promise<void> {
+    public addProgressListener(listener: IndexingProgressListener): void {
+        this._progressListeners.push(listener);
+    }
+
+    /**
+     * Remove a progress listener
+     */
+    public removeProgressListener(listener: IndexingProgressListener): void {
+        const index = this._progressListeners.indexOf(listener);
+        if (index > -1) {
+            this._progressListeners.splice(index, 1);
+        }
+    }
+
+    private notifyProgress(progress: IndexingProgress): void {
+        this._progressListeners.forEach(listener => {
+            try {
+                listener(progress);
+            } catch (error) {
+                console.error('Error in progress listener:', error);
+            }
+        });
+    }
+
+    /**
+     * Triggers the indexing process for the given workspace folder with cancellation support
+     */
+    public async startIndexing(folder?: vscode.WorkspaceFolder): Promise<void> {
         if (this._isIndexing) {
             vscode.window.showWarningMessage('Indexing is already in progress.');
             return;
         }
 
-        const config = await this._configService.loadConfig(folder);
-        if (!config) {
-            vscode.window.showErrorMessage(`No valid configuration found in ${folder.name}. Please create .qdrant/configuration.json`);
-            return;
-        }
-        
-        // Validate connections before starting heavy work
-// !AI: MVP workflow: Connection validation is synchronous/blocking here. For larger setups, this should perhaps be asynchronous or backgrounded, but for MVP, this is an acceptable blocking step.
-        const isHealthy = await this._configService.validateConnection(config);
-        if (!isHealthy) {
-            vscode.window.showErrorMessage('Could not connect to Qdrant or Ollama. Check your configuration and ensure services are running.');
-            return;
-        }
-
         this._isIndexing = true;
-        this._activeConfig = config;
-        this._client = new QdrantClient({
-            url: config.qdrant_config.url,
-            apiKey: config.qdrant_config.api_key,
-        });
-
-        // !AI: MVP dependency: Relies on specific WASM files being present in the extension resources directory for advanced splitting. This adds complexity to extension packaging and setup.
-        // Initialize Splitter with WASM paths
-        try {
-            const wasmPath = vscode.Uri.joinPath(this._context.extensionUri, 'resources', 'tree-sitter.wasm').fsPath;
-            const langPath = vscode.Uri.joinPath(this._context.extensionUri, 'resources', 'tree-sitter-typescript.wasm').fsPath;
-            await this._splitter.initialize(wasmPath, langPath);
-        } catch (e) {
-            console.warn('Failed to init splitter WASM (falling back to line split):', e);
-        }
-
-        vscode.window.setStatusBarMessage('$(sync~spin) Qdrant: Indexing...', 3000);
+        this._cancellationTokenSource = new vscode.CancellationTokenSource();
+        const token = this._cancellationTokenSource.token;
 
         try {
+            this.notifyProgress({
+                current: 0,
+                total: 0,
+                status: 'starting'
+            });
+
+            // Get active workspace folder if not provided
+            const workspaceFolder = folder || this.getActiveWorkspaceFolder();
+            if (!workspaceFolder) {
+                throw new Error('No active workspace folder found');
+            }
+
+            const config = await this._configService.loadQdrantConfig(workspaceFolder);
+            if (!config) {
+                throw new Error(`No valid configuration found in ${workspaceFolder.name}. Please create .qdrant/configuration.json`);
+            }
+            
+            // Validate connections before starting heavy work
+            const isHealthy = await this._configService.validateConnection(config);
+            if (!isHealthy) {
+                throw new Error('Could not connect to Qdrant or Ollama. Check your configuration and ensure services are running.');
+            }
+
+            this._activeConfig = config;
+            this._client = new QdrantClient({
+                url: config.qdrant_config.url,
+                apiKey: config.qdrant_config.api_key,
+            });
+
+            // Initialize Splitter with WASM paths
+            try {
+                const wasmPath = vscode.Uri.joinPath(this._context.extensionUri, 'resources', 'tree-sitter.wasm').fsPath;
+                const langPath = vscode.Uri.joinPath(this._context.extensionUri, 'resources', 'tree-sitter-typescript.wasm').fsPath;
+                await this._splitter.initialize(wasmPath, langPath);
+            } catch (e) {
+                console.warn('Failed to init splitter WASM (falling back to line split):', e);
+            }
+
+            vscode.window.setStatusBarMessage('$(sync~spin) Qdrant: Indexing...', 3000);
+
             const collectionName = config.index_info?.name || 'codebase';
             
-            // !AI: MVP data structure: Hardcoded vector size of 768. This is tied to the default embedding model (likely Nomic Embed). Should be configurable based on the selected Ollama model for flexibility.
             // Ensure Collection Exists
             await this.ensureCollection(collectionName, 768);
 
-            // Find files
-            const excludePattern = new vscode.RelativePattern(folder, '**/{node_modules,.git,out,dist,build,.svelte-kit}/**');
+            // Find files using configuration
+            const configSettings = this._configService.config;
+            const excludePattern = configSettings.indexing.excludePatterns.length > 0
+                ? new vscode.RelativePattern(workspaceFolder, `{${configSettings.indexing.excludePatterns.join(',')}}`)
+                : undefined;
+
+            const includePattern = configSettings.indexing.includeExtensions.length > 0
+                ? new vscode.RelativePattern(workspaceFolder, `**/*.{${configSettings.indexing.includeExtensions.join(',')}}`)
+                : new vscode.RelativePattern(workspaceFolder, '**/*');
+
             const files = await vscode.workspace.findFiles(
-                // !AI: MVP scope: File inclusion is based on a fixed list of extensions. Should be configurable or dynamically derived from project settings/language configuration.
-                new vscode.RelativePattern(folder, '**/*.{ts,js,svelte,json,md,txt,html,css}'),
+                includePattern,
                 excludePattern,
-                // !AI: MVP scope/data structure: Hard limit of 500 files indexed per workspace. This is a major constraint for large codebases in the MVP.
-                500
+                configSettings.indexing.maxFiles
             );
+
+            // Check for cancellation before starting heavy work
+            if (token.isCancellationRequested) {
+                throw new Error('Indexing cancelled');
+            }
+
+            this.notifyProgress({
+                current: 0,
+                total: files.length,
+                status: 'indexing'
+            });
 
             let processedCount = 0;
             
             for (const fileUri of files) {
+                // Check for cancellation before each file
+                if (token.isCancellationRequested) {
+                    throw new Error('Indexing cancelled');
+                }
+
                 try {
                     const content = await vscode.workspace.fs.readFile(fileUri);
                     const text = new TextDecoder().decode(content);
                     const relativePath = vscode.workspace.asRelativePath(fileUri);
 
-                    await this.indexFile(collectionName, relativePath, text);
+                    await this.indexFile(collectionName, relativePath, text, token);
                     processedCount++;
+
+                    this.notifyProgress({
+                        current: processedCount,
+                        total: files.length,
+                        currentFile: relativePath,
+                        status: 'indexing'
+                    });
+
                 } catch (err) {
                     console.error(`Failed to index file ${fileUri.fsPath}:`, err);
                 }
             }
 
+            this.notifyProgress({
+                current: processedCount,
+                total: files.length,
+                status: 'completed'
+            });
+
             vscode.window.showInformationMessage(`Indexed ${processedCount} files successfully to collection '${collectionName}'.`);
 
         } catch (error) {
-            console.error('Indexing critical failure:', error);
-            vscode.window.showErrorMessage(`Indexing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            if (error instanceof Error && error.message === 'Indexing cancelled') {
+                this.notifyProgress({
+                    current: 0,
+                    total: 0,
+                    status: 'cancelled'
+                });
+                vscode.window.showInformationMessage('Indexing was cancelled');
+            } else {
+                this.notifyProgress({
+                    current: 0,
+                    total: 0,
+                    status: 'error'
+                });
+                console.error('Indexing critical failure:', error);
+                vscode.window.showErrorMessage(`Indexing failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+            }
         } finally {
             this._isIndexing = false;
+            this._cancellationTokenSource = undefined;
         }
     }
 
-    private async ensureCollection(name: string, vectorSize: number) {
+    /**
+     * Stop the current indexing operation
+     */
+    public stopIndexing(): void {
+        if (this._cancellationTokenSource) {
+            this._cancellationTokenSource.cancel();
+        }
+    }
+
+    /**
+     * Check if indexing is currently in progress
+     */
+    public get isIndexing(): boolean {
+        return this._isIndexing;
+    }
+
+    private getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
+        const folders = vscode.workspace.workspaceFolders;
+        if (!folders) return undefined;
+
+        // Priority: 1. Folder with active text editor, 2. First folder
+        const activeEditor = vscode.window.activeTextEditor;
+        if (activeEditor?.document?.uri) {
+            const activeFolder = folders.find(folder => 
+                activeEditor.document.uri.fsPath.startsWith(folder.uri.fsPath)
+            );
+            if (activeFolder) {
+                return activeFolder;
+            }
+        }
+
+        return folders[0];
+    }
+
+    private async ensureCollection(name: string, vectorSize: number, token?: vscode.CancellationToken): Promise<void> {
         if (!this._client) return;
+        
+        // Check for cancellation
+        if (token?.isCancellationRequested) {
+            throw new Error('Indexing cancelled');
+        }
         
         try {
             const collections = await this._client.getCollections();
             const exists = collections.collections.some(c => c.name === name);
             
             if (!exists) {
+                // Check for cancellation again
+                if (token?.isCancellationRequested) {
+                    throw new Error('Indexing cancelled');
+                }
+                
                 await this._client.createCollection(name, {
                     vectors: {
                         size: vectorSize,
@@ -139,9 +284,14 @@ export class IndexingService {
     }
 
     /**
-     * Breaks file content into chunks, embeds them, and uploads to Qdrant.
+     * Breaks file content into chunks, embeds them, and uploads to Qdrant
      */
-    private async indexFile(collectionName: string, filePath: string, content: string) {
+    private async indexFile(collectionName: string, filePath: string, content: string, token: vscode.CancellationToken): Promise<void> {
+        // Check for cancellation
+        if (token.isCancellationRequested) {
+            throw new Error('Indexing cancelled');
+        }
+
         // Use the shared splitter logic
         const chunks = this._splitter.split(content, filePath);
         
@@ -150,8 +300,12 @@ export class IndexingService {
         const points = [];
 
         for (const chunk of chunks) {
-            // !AI: MVP assumption/workflow: Silent failure on embedding generation (returns null and continues) leads to data loss in Qdrant for that chunk. Needs better error reporting or retry logic for MVP reliability.
-            const vector = await this.generateEmbedding(chunk.content);
+            // Check for cancellation before each embedding
+            if (token.isCancellationRequested) {
+                throw new Error('Indexing cancelled');
+            }
+
+            const vector = await this.generateEmbedding(chunk.content, token);
             if (!vector) continue;
 
             points.push({
@@ -167,14 +321,23 @@ export class IndexingService {
         }
 
         if (this._client && points.length > 0) {
+            // Final cancellation check before network operation
+            if (token.isCancellationRequested) {
+                throw new Error('Indexing cancelled');
+            }
+            
             await this._client.upsert(collectionName, {
                 points: points
             });
         }
     }
 
-    private async generateEmbedding(text: string): Promise<number[] | null> {
-        // !AI: MVP assumption: Ollama service is running locally at a fixed, known path (`base_url`) and is accessible over HTTP without proxy/network issues.
+    private async generateEmbedding(text: string, token?: vscode.CancellationToken): Promise<number[] | null> {
+        // Check for cancellation
+        if (token?.isCancellationRequested) {
+            throw new Error('Indexing cancelled');
+        }
+
         if (!this._activeConfig) return null;
 
         const { base_url, model } = this._activeConfig.ollama_config;
@@ -216,16 +379,18 @@ export class IndexingService {
                 return [];
             }
 
+            const searchLimit = this._configService.config.search.limit;
             const searchResult = await this._client.search(collectionName, {
                 vector: vector,
-                // !AI: MVP configuration: Hardcoded search limit of 10 results. This should be configurable in the settings.
-                limit: 10, // Default limit, can be configurable later
+                limit: searchLimit,
             });
 
-            // !AI: MVP data structure fragility: Casting the Qdrant response is brittle and suggests the underlying library's return type isn't cleanly typed or consistent between versions/client usage.
             // The search result contains hits with payload.
             // Cast to the expected structure which may have 'points' or 'hits' property.
-            const qdrantResult = searchResult as { points?: { id: string | number, score: number, payload: SearchResultItem['payload'] }[]; hits?: { id: string | number, score: number, payload: SearchResultItem['payload'] }[] };
+            const qdrantResult = searchResult as { 
+                points?: { id: string | number, score: number, payload: SearchResultItem['payload'] }[]; 
+                hits?: { id: string | number, score: number, payload: SearchResultItem['payload'] }[]; 
+            };
             const results = qdrantResult.points || qdrantResult.hits || [];
             
             return results.map((item): SearchResultItem => ({
@@ -239,5 +404,10 @@ export class IndexingService {
             vscode.window.showErrorMessage(`Search failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
             return [];
         }
+    }
+
+    public dispose(): void {
+        this.stopIndexing();
+        this._progressListeners = [];
     }
 }

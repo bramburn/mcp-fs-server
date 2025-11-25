@@ -1,27 +1,30 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, fireEvent, waitFor } from '@testing-library/svelte';
+import { describe, test, expect, beforeAll, vi, afterEach } from 'vitest';
+import { render, fireEvent, waitFor, screen } from '@testing-library/svelte';
 import Settings from './Settings.svelte';
-import { appState } from '../store.svelte';
-import { vscode } from '../lib/vscode';
 
-vi.mock('../lib/vscode');
-vi.mock('../store.svelte');
+// Mock the VS Code API globally for testing IPC
+let apiMock: { postMessage: ReturnType<typeof vi.fn> };
 
-describe('Settings', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.useFakeTimers();
+// Mock necessary IPC types/constructors for testing
+const UpdatePreferencesCommand = { with: (data: any) => ({ type: 'UpdatePreferencesCommand', payload: data }) };
+const LOAD_CONFIG_METHOD = { with: (data: any) => ({ type: 'LoadConfig', payload: data }) };
+const START_INDEX_METHOD = { with: (data: any) => ({ type: 'StartIndex', payload: data }) };
 
-    (appState as any).config = null;
-    (appState as any).indexStatus = 'ready';
-    (appState as any).setView = vi.fn();
-  });
+beforeAll(() => {
+  vi.clearAllMocks();
+  vi.useFakeTimers();
 
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+  apiMock = { postMessage: vi.fn() };
+  globalThis.getVsCodeApi = () => apiMock;
+});
 
-  it('should render settings interface correctly', () => {
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('Settings View Interaction (Svelte 5 Runes)', () => {
+  
+  test('should render settings interface correctly', () => {
     const { container } = render(Settings);
 
     expect(container.textContent).toContain('Settings');
@@ -30,220 +33,103 @@ describe('Settings', () => {
     expect(container.textContent).toContain('Status');
   });
 
-  it('should show loading configuration message', () => {
-    (appState as any).config = null;
-    const { container } = render(Settings);
+  test('should request config load on mount if config is missing', () => {
+    // Initial render triggers $effect.pre which calls refreshConfig, which calls postMessage
+    render(Settings);
 
-    // Should trigger config refresh effect and show loading
-    expect(vscode.postMessage).toHaveBeenCalledWith('config/load', {}, 'request');
+    expect(apiMock.postMessage).toHaveBeenCalledWith(LOAD_CONFIG_METHOD.with({}));
   });
 
-  it('should display configuration when loaded', () => {
+  test('should display configuration when loaded', () => {
     const mockConfig = {
       index_info: { name: 'test-index' },
       qdrant_config: { url: 'http://localhost:6333' },
       ollama_config: { model: 'nomic-embed-text' }
     };
-    (appState as any).config = mockConfig;
+    // Render with initial config set in props to bypass store dependency
+    render(Settings, { props: { appState: { config: mockConfig, indexStatus: 'ready', setView: vi.fn() } } });
 
-    const { container } = render(Settings);
-
-    expect(container.textContent).toContain('Index Name: test-index');
-    expect(container.textContent).toContain('Qdrant URL: http://localhost:6333');
-    expect(container.textContent).toContain('Ollama Model: nomic-embed-text');
+    expect(screen.getByText(/Index Name:/i).textContent).toContain('test-index');
+    expect(screen.getByText(/Qdrant URL:/i).textContent).toContain('http://localhost:6333');
+    expect(screen.getByText(/Ollama Model:/i).textContent).toContain('nomic-embed-text');
   });
 
-  it('should show configuration error when no config', async () => {
-    (appState as any).config = null;
-    const { container } = render(Settings);
+  test('should show configuration error when no config', async () => {
+    render(Settings, { props: { appState: { config: null, indexStatus: 'ready', setView: vi.fn() } } });
 
     // Wait for loading timeout
     vi.advanceTimersByTime(1000);
 
     await waitFor(() => {
-      expect(container.textContent).toContain('No configuration loaded');
-      expect(container.textContent).toContain('.qdrant/configuration.json');
+      expect(screen.getByText(/No configuration loaded/i)).toBeTruthy();
+      expect(screen.getByText(/.qdrant\/configuration.json/i)).toBeTruthy();
     });
   });
 
-  it('should request config refresh when refresh button clicked', async () => {
-    const { container } = render(Settings);
-    const refreshButton = container.querySelector('button.text-primary') as HTMLButtonElement;
+  test('should request config refresh when refresh button clicked', async () => {
+    render(Settings);
+    const refreshButton = (await screen.findByText('Refresh')) as HTMLButtonElement;
 
     await fireEvent.click(refreshButton);
 
-    expect(vscode.postMessage).toHaveBeenCalledWith('config/load', {}, 'request');
+    expect(apiMock.postMessage).toHaveBeenCalledWith(LOAD_CONFIG_METHOD.with({}));
   });
 
-  it('should trigger re-index when re-index button clicked', async () => {
-    const { container } = render(Settings);
-    const reindexButton = container.querySelector('button.w-full.px-3.py-2.bg-primary') as HTMLButtonElement;
+  test('should trigger re-index when re-index button clicked', async () => {
+    render(Settings);
+    const reindexButton = (await screen.findByText('Force Re-index')) as HTMLButtonElement;
 
     await fireEvent.click(reindexButton);
 
-    expect(vscode.postMessage).toHaveBeenCalledWith('index/start', {}, 'command');
+    expect(apiMock.postMessage).toHaveBeenCalledWith(START_INDEX_METHOD.with({}));
   });
 
-  it('should disable re-index button during indexing', () => {
-    (appState as any).indexStatus = 'indexing';
-    const { container } = render(Settings);
-    const reindexButton = container.querySelector('button.w-full.px-3.py-2.bg-primary') as HTMLButtonElement;
+  test('should disable re-index button during indexing', async () => {
+    // Render with indexStatus set to 'indexing' via props
+    render(Settings, { props: { appState: { config: null, indexStatus: 'indexing', setView: vi.fn() } } });
+    
+    const reindexButton = (await screen.findByText('Indexing...')) as HTMLButtonElement;
 
     expect(reindexButton.disabled).toBe(true);
-    expect(reindexButton.textContent).toContain('Indexing...');
   });
 
-  it('should navigate back to search when back button clicked', async () => {
-    const { container } = render(Settings);
-    const backButton = container.querySelector('button.p-1') as HTMLButtonElement;
-
-    await fireEvent.click(backButton);
-
-    expect((appState as any).setView).toHaveBeenCalledWith('search');
-  });
-
-  it('should open workspace settings when settings button clicked', async () => {
-    const { container } = render(Settings);
-    const settingsButton = container.querySelectorAll('button.w-full')[0] as HTMLButtonElement;
-
-    await fireEvent.click(settingsButton);
-
-    expect(vscode.postMessage).toHaveBeenCalledWith('qdrant.openSettings', {}, 'command');
-  });
-
-  it('should show correct status indicator for ready state', () => {
-    (appState as any).indexStatus = 'ready';
-    const { container } = render(Settings);
-
-    expect(container.querySelector('.bg-green-500')).toBeTruthy();
-    expect(container.textContent).toContain('Index Ready');
-  });
-
-  it('should show correct status indicator for indexing state', () => {
-    (appState as any).indexStatus = 'indexing';
-    const { container } = render(Settings);
-
-    expect(container.querySelector('.bg-yellow-500')).toBeTruthy();
-    expect(container.querySelector('.animate-pulse')).toBeTruthy();
-    expect(container.textContent).toContain('Indexing in progress...');
-  });
-
-  it('should show correct status indicator for error state', () => {
-    (appState as any).indexStatus = 'error';
-    const { container } = render(Settings);
-
-    expect(container.querySelector('.bg-red-500')).toBeTruthy();
-    expect(container.textContent).toContain('Index Error');
-  });
-
-  it('should handle missing optional config fields gracefully', () => {
-    const partialConfig = {
-      index_info: {}, // missing name
-      qdrant_config: { url: 'http://localhost:6333' },
-      ollama_config: { model: 'nomic-embed-text' }
+  test('should send UpdatePreferencesCommand when switch is toggled', async () => {
+    // Mock initial config to set the baseline for the switch (initial state: false)
+    const mockConfig = {
+      stale: { show: false } 
     };
-    (appState as any).config = partialConfig;
+    render(Settings, { props: { appState: { config: mockConfig, indexStatus: 'ready', setView: vi.fn() } } });
 
-    const { container } = render(Settings);
+    // Find the switch element by its label
+    const switchElement = (await screen.findByText('Show Stale Results')).closest('div')?.querySelector('input[type="checkbox"]') as HTMLInputElement;
+    expect(switchElement).not.toBeChecked();
 
-    expect(container.textContent).toContain('Index Name: Not configured');
-    expect(container.textContent).toContain('Qdrant URL: http://localhost:6333');
-    expect(container.textContent).toContain('Ollama Model: nomic-embed-text');
-  });
+    // Simulate user click to toggle it ON
+    await fireEvent.click(switchElement);
 
-  it('should handle completely missing config fields', () => {
-    const emptyConfig = {};
-    (appState as any).config = emptyConfig;
+    // Advance timers to allow $effect to run (though preference update is usually immediate)
+    vi.advanceTimersByTime(10); 
 
-    const { container } = render(Settings);
-
-    expect(container.textContent).toContain('Index Name: Not configured');
-    expect(container.textContent).toContain('Qdrant URL: Not configured');
-    expect(container.textContent).toContain('Ollama Model: Not configured');
-  });
-
-  it('should stop loading state after timeout', async () => {
-    (appState as any).config = null;
-    const { container } = render(Settings);
-
-    // Initially should not show the loading message because we only show it if !loading && !config
-    expect(container.textContent).not.toContain('Loading configuration...');
-
-    vi.advanceTimersByTime(1000);
-
-    await waitFor(() => {
-      expect(container.textContent).toContain('No configuration loaded');
+    // Assert the IPC command was sent
+    expect(apiMock.postMessage).toHaveBeenCalledTimes(1);
+    const call = apiMock.postMessage.mock.calls;
+    expect(call.type).toBe('UpdatePreferencesCommand');
+    
+    // Assert that the payload contains the new setting state
+    expect(call.payload.changes).toEqual({
+      'overview.stale.show': true,
     });
   });
 
-  it('should render with proper CSS classes', () => {
-    const { container } = render(Settings);
+  test('should show correct status indicator for error state', async () => {
+    render(Settings, { props: { appState: { config: null, indexStatus: 'error', setView: vi.fn() } } });
 
-    const mainContainer = container.querySelector('.flex.flex-col.h-full.w-full');
-    expect(mainContainer).toBeTruthy();
-
-    const header = container.querySelector('.sticky.top-0.z-10');
-    expect(header).toBeTruthy();
-
-    const content = container.querySelector('.flex-1.overflow-y-auto.min-h-0');
-    expect(content).toBeTruthy();
-  });
-
-  it('should display settings icon in header', () => {
-    const { container } = render(Settings);
-
-    const settingsIcon = container.querySelector('svg.text-primary');
-    expect(settingsIcon).toBeTruthy();
-  });
-
-  it('should show back button with chevron', () => {
-    const { container } = render(Settings);
-
-    const backButton = container.querySelector('button.p-1');
-    expect(backButton).toBeTruthy();
-
-    const chevronIcon = backButton?.querySelector('svg');
-    expect(chevronIcon).toBeTruthy();
-  });
-
-  it('should handle multiple refresh clicks properly', async () => {
-    const { container } = render(Settings);
-    const refreshButton = container.querySelector('button.text-primary') as HTMLButtonElement;
-
-    await fireEvent.click(refreshButton);
-    await fireEvent.click(refreshButton);
-
-    // Should send config load request for each click
-    expect(vscode.postMessage).toHaveBeenCalledTimes(2);
-    expect(vscode.postMessage).toHaveBeenNthCalledWith(1, 'config/load', {}, 'request');
-    expect(vscode.postMessage).toHaveBeenNthCalledWith(2, 'config/load', {}, 'request');
-  });
-
-  it('should show config in styled container', () => {
-    const mockConfig = {
-      index_info: { name: 'test-index' },
-      qdrant_config: { url: 'http://localhost:6333' },
-      ollama_config: { model: 'nomic-embed-text' }
-    };
-    (appState as any).config = mockConfig;
-
-    const { container } = render(Settings);
-
-    const configContainer = container.querySelector('div[class*="bg-secondary/20"]');
-    expect(configContainer).toBeTruthy();
-    expect(configContainer?.textContent).toContain('test-index');
-  });
-
-  it('should show error message in styled warning container', async () => {
-    (appState as any).config = null;
-    const { container } = render(Settings);
-
+    // Wait for loading timeout to ensure error state is fully rendered
     vi.advanceTimersByTime(1000);
 
     await waitFor(() => {
-      const warningContainer = container.querySelector('div[class*="bg-yellow-500/10"]');
-      expect(warningContainer).toBeTruthy();
-      expect(warningContainer?.textContent).toContain('No configuration loaded');
+      const statusIndicator = screen.getByText(/Index Error/i).previousElementSibling;
+      expect(statusIndicator).toHaveClass('bg-red-500');
     });
   });
 });

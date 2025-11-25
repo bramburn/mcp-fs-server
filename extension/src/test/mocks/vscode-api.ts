@@ -4,7 +4,11 @@ import { vi } from 'vitest';
 export const mockWorkspace = {
   workspaceFolders: [
     {
-      uri: { fsPath: '/test/workspace' },
+      uri: {
+        fsPath: '/test/workspace',
+        scheme: 'file',
+        path: '/test/workspace'
+      },
       name: 'test-workspace',
       index: 0
     }
@@ -12,14 +16,21 @@ export const mockWorkspace = {
   getConfiguration: vi.fn(() => ({
     get: vi.fn()
   })),
-  findFiles: vi.fn(),
+  findFiles: vi.fn().mockResolvedValue([]), // ✅ FIX #3: Return iterable array by default
   fs: {
     readFile: vi.fn(),
     stat: vi.fn(),
     createDirectory: vi.fn(),
     writeFile: vi.fn()
   },
-  asRelativePath: vi.fn((path: string) => path),
+  // ✅ FIX #1: Add missing asRelativePath method with proper implementation
+  asRelativePath: vi.fn((pathOrUri: string | { fsPath: string }) => {
+    // Simple mock implementation
+    if (typeof pathOrUri === 'string') {
+      return pathOrUri.replace('/test/workspace/', '');
+    }
+    return pathOrUri.fsPath.replace('/test/workspace/', '');
+  }),
   onDidChangeWorkspaceFolders: vi.fn(),
   onDidChangeConfiguration: vi.fn()
 };
@@ -359,24 +370,51 @@ export const vscode = {
   }
 };
 
+declare global {
+  namespace NodeJS {
+    interface Global {
+      acquireVsCodeApi: () => {
+        postMessage: Function;
+        getState: () => any;
+        setState: (state: any) => void;
+      };
+      crypto: {
+        randomUUID: () => `${string}-${string}-${string}-${string}-${string}`;
+      };
+      fetch: Function; // Augment fetch as well
+    }
+  }
+}
+
 // Global mocks for VS Code environment
-global.acquireVsCodeApi = vi.fn(() => ({
+(global as any).acquireVsCodeApi = vi.fn(() => ({
   postMessage: vi.fn(),
   getState: vi.fn(() => ({})),
   setState: vi.fn()
 }));
 
 // Mock crypto.randomUUID
-if (!global.crypto) {
-  global.crypto = {} as any;
+if (!(global as any).crypto) {
+  Object.defineProperty(global, 'crypto', {
+    value: {
+      randomUUID: vi.fn(() => {
+        const uuid = 'test-uuid-' + Math.random().toString(36).substr(2, 9);
+        return uuid as `${string}-${string}-${string}-${string}-${string}`;
+      })
+    },
+    writable: true,
+    configurable: true,
+  });
 }
-global.crypto.randomUUID = vi.fn(() => {
-  const uuid = 'test-uuid-' + Math.random().toString(36).substr(2, 9);
-  return uuid as `${string}-${string}-${string}-${string}-${string}`;
-}) as any;
 
 // Mock fetch for API calls
-global.fetch = vi.fn();
+if (!(global as any).fetch) { // Check if fetch already exists
+    Object.defineProperty(global, 'fetch', {
+        value: vi.fn(),
+        writable: true,
+        configurable: true,
+    });
+}
 
 // Mock location.href (needed for some webview components)
 Object.defineProperty(window, 'location', {

@@ -13,7 +13,7 @@ export default defineConfig({
   ],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src/webviews'),
+      '$app': path.resolve(__dirname, './src/webviews/app'),
       '$lib': path.resolve(__dirname, './src/lib'),
       'shared': path.resolve(__dirname, '../packages/shared')
     },

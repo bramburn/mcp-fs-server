@@ -1,10 +1,10 @@
 <script lang="ts">
-  import { appState } from '../store.svelte.ts';
+  import store from '../store.svelte.ts'; // Use default export 'store'
   import { vscode } from '../lib/vscode.ts';
   import { OPEN_FILE_METHOD } from '../../protocol.ts';
   
   // Import shadcn Command components
-  import CommandItem from '../components/ui/command/command-item.svelte';
+  import CommandItem from './ui/command/command-item.svelte';
   
   import FileCode from 'lucide-svelte/icons/file-code';
   import CornerDownRight from 'lucide-svelte/icons/corner-down-right';
@@ -14,8 +14,7 @@
     vscode.postMessage(OPEN_FILE_METHOD, { uri, line }, 'command');
   }
 
-  let results = [];
-  $: results = appState.results || [];
+  let results = $derived(store.searchResults || []); // Use $derived for reactivity
 </script>
 
 <div class="flex flex-col gap-1 w-full">

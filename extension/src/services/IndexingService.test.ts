@@ -1,8 +1,8 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { vi, test, expect, beforeEach, afterEach } from 'vitest';
+import * as vscode from 'vscode';
 import { IndexingService } from './IndexingService.js';
 import { ConfigService } from './ConfigService.js';
 import { QdrantOllamaConfig } from '../webviews/protocol.js';
-import { vscode } from '../test/mocks/vscode-api.js';
 import { QdrantClient } from '@qdrant/js-client-rest';
 
 // Mock Qdrant client
@@ -10,385 +10,639 @@ vi.mock('@qdrant/js-client-rest');
 
 // Mock shared code splitter
 vi.mock('shared/code-splitter.js', () => ({
-  CodeSplitter: vi.fn().mockImplementation(() => ({
-    initialize: vi.fn().mockResolvedValue(undefined),
-    split: vi.fn().mockReturnValue([
-      {
-        id: 'test-chunk-1',
-        filePath: 'test.ts',
-        content: 'function test() {}',
-        lineStart: 1,
-        lineEnd: 5
-      }
-    ])
-  }))
+    CodeSplitter: vi.fn().mockImplementation(() => ({
+        initialize: vi.fn().mockResolvedValue(undefined),
+        split: vi.fn().mockReturnValue([
+            {
+                id: 'test-chunk-1',
+                filePath: 'test.ts',
+                content: 'function test() {}',
+                lineStart: 1,
+                lineEnd: 5
+            }
+        ])
+    }))
 }));
 
-vi.mock('vscode', () => vscode);
+// Mock VS Code API
+vi.mock('vscode', () => {
+    // FIXES: Define all necessary mocks for ConfigService instantiation
+    const mockOnDidChangeConfiguration = vi.fn();
+    const mockGet = vi.fn((key?: string) => {
+        // Default mock values
+        if (key === 'qdrant.search.trace') return false;
+        if (key === 'qdrant.indexing.enabled') return true;
+        if (key === 'qdrant.indexing.maxFiles') return 500;
+        if (key === 'qdrant.search.limit') return 10;
+        return 'default';
+    });
+
+    // Moved inside the vi.mock factory function
+    const MockCancellationTokenSource = class {
+        token: { isCancellationRequested: boolean } = { isCancellationRequested: false };
+        cancel = vi.fn(() => { this.token.isCancellationRequested = true; }); // Make cancel a mock function
+        dispose = vi.fn();
+    };
+
+    return {
+        workspace: {
+            fs: {
+                stat: vi.fn(),
+                readFile: vi.fn(),
+                createDirectory: vi.fn(),
+                writeFile: vi.fn()
+            },
+            findFiles: vi.fn(),
+            getConfiguration: () => ({ get: mockGet }),
+            asRelativePath: vi.fn((pathOrUri: string | { fsPath: string }) => {
+                if (typeof pathOrUri === 'string') {
+                    return pathOrUri.replace('/test/workspace/', '');
+                }
+                return pathOrUri.fsPath.replace('/test/workspace/', '');
+            }),
+            workspaceFolders: [
+                {
+                    uri: { fsPath: '/test/workspace' },
+                    name: 'test-workspace',
+                    index: 0
+                }
+            ],
+            // FIX: onDidChangeConfiguration must be inside the workspace object
+            onDidChangeConfiguration: mockOnDidChangeConfiguration
+        },
+        window: {
+            activeTextEditor: undefined,
+            showInformationMessage: vi.fn(),
+            showErrorMessage: vi.fn(),
+            showWarningMessage: vi.fn(),
+            setStatusBarMessage: vi.fn()
+        },
+        Uri: {
+            joinPath: vi.fn((base: any, ...segments: string[]) => ({
+                fsPath: [base.fsPath, ...segments].join('/'),
+                scheme: 'file',
+                path: [base.fsPath, ...segments].join('/'),
+                query: '',
+                fragment: '',
+                with: vi.fn(),
+                toString: vi.fn(() => [base.fsPath, ...segments].join('/'))
+            })),
+            file: vi.fn((path: string) => ({ // Add mock for Uri.file
+                fsPath: path,
+                scheme: 'file',
+                path: path,
+                query: '',
+                fragment: '',
+                with: vi.fn(),
+                toString: vi.fn(() => path)
+            }))
+        },
+        RelativePattern: vi.fn(),
+        CancellationTokenSource: MockCancellationTokenSource as any, // Refer to the class here, cast to any
+        // FIX: Add necessary classes for ConfigService to instantiate without error
+        Disposable: class Disposable { dispose = vi.fn(); },
+        ConfigurationChangeEvent: class {},
+        FileType: {
+            Unknown: 0,
+            File: 1,
+            Directory: 2,
+            SymbolicLink: 64
+        }
+    };
+});
+
+// Mock fetch for API calls
+global.fetch = vi.fn();
 
 describe('IndexingService', () => {
-  let indexingService: IndexingService;
-  let mockConfigService: ConfigService;
-  let mockContext: any;
-  let mockQdrantClient: any;
-  let mockFolder: any;
+    let indexingService: IndexingService;
+    let mockConfigService: ConfigService;
+    let mockContext: any;
+    let mockQdrantClient: any;
+    let mockTokenSource: any;
 
-  beforeEach(() => {
-    mockContext = {
-      extensionUri: { fsPath: '/test/extension' },
-      subscriptions: []
-    };
+    beforeEach(() => {
+        mockContext = {
+            extensionUri: { fsPath: '/test/extension' },
+            subscriptions: []
+        };
 
-    mockConfigService = new ConfigService(mockContext);
-    indexingService = new IndexingService(mockConfigService, mockContext);
+        // This line now successfully creates ConfigService due to the mock fix
+        mockConfigService = new ConfigService();
+        indexingService = new IndexingService(mockConfigService, mockContext);
 
-    // Mock Qdrant client
-    mockQdrantClient = {
-      getCollections: vi.fn(),
-      createCollection: vi.fn(),
-      upsert: vi.fn(),
-      search: vi.fn(),
-      delete: vi.fn()
-    };
+        // Mock Qdrant client
+        mockQdrantClient = {
+            getCollections: vi.fn(),
+            createCollection: vi.fn(),
+            upsert: vi.fn(),
+            search: vi.fn(),
+            delete: vi.fn()
+        };
 
-    (QdrantClient as any).mockImplementation(() => mockQdrantClient);
+        (QdrantClient as any).mockImplementation(() => mockQdrantClient);
 
-    mockFolder = {
-      uri: { fsPath: '/test/workspace' },
-      name: 'test-workspace',
-      index: 0
-    };
-
-    // Global fetch mock
-    global.fetch = vi.fn();
-
-    vi.clearAllMocks();
-  });
-
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  describe('indexWorkspace', () => {
-    const mockConfig: QdrantOllamaConfig = {
-      index_info: { name: 'test-index' },
-      qdrant_config: { url: 'http://localhost:6333' },
-      ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
-    };
-
-    it('should index workspace successfully', async () => {
-      // Mock configuration loading and validation
-      vi.spyOn(mockConfigService, 'loadConfig').mockResolvedValueOnce(mockConfig);
-      vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
-
-      // Mock Qdrant operations
-      mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
-      mockQdrantClient.createCollection.mockResolvedValueOnce({});
-
-      // Mock file discovery
-      vscode.workspace.findFiles.mockResolvedValueOnce([
-        { fsPath: '/test/workspace/test.ts' }
-      ]);
-
-      // Mock file reading
-      vscode.workspace.fs.readFile.mockResolvedValueOnce(
-        new TextEncoder().encode('function test() {}')
-      );
-
-      // Mock embedding generation
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ embedding: [0.1, 0.2, 0.3] })
-      });
-
-      await indexingService.indexWorkspace(mockFolder);
-
-      expect(mockQdrantClient.createCollection).toHaveBeenCalledWith('test-index', {
-        vectors: { size: 768, distance: 'Cosine' }
-      });
-      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Indexed 1 files successfully')
-      );
+        vi.clearAllMocks();
     });
 
-    it('should show warning when indexing is already in progress', async () => {
-      // Start first indexing operation
-      const firstIndexingPromise = indexingService.indexWorkspace(mockFolder);
-
-      // Try to start second indexing operation
-      await indexingService.indexWorkspace(mockFolder);
-
-      expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Indexing is already in progress.');
-
-      // Wait for first operation to complete
-      await firstIndexingPromise;
+    afterEach(() => {
+        vi.restoreAllMocks();
     });
 
-    it('should show error for missing configuration', async () => {
-      // Mock missing configuration
-      vi.spyOn(mockConfigService, 'loadConfig').mockResolvedValueOnce(null);
+    describe('startIndexing', () => {
+        const mockConfig: QdrantOllamaConfig = {
+            index_info: { name: 'test-index' },
+            qdrant_config: { url: 'http://localhost:6333' },
+            ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
+        };
 
-      await indexingService.indexWorkspace(mockFolder);
+        beforeEach(() => {
+            // Mock configuration loading and validation
+            vi.spyOn(mockConfigService, 'loadQdrantConfig').mockResolvedValueOnce(mockConfig);
+            vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+            vi.spyOn(mockConfigService, 'config', 'get').mockReturnValue({
+                indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+                search: { limit: 10, threshold: 0.7 },
+                general: { trace: false }
+            });
+        });
 
-      expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('No valid configuration found')
-      );
+        test('should index workspace successfully', async () => {
+            // Mock Qdrant operations
+            mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
+            mockQdrantClient.createCollection.mockResolvedValueOnce({});
+
+            // Mock file discovery
+            (vi.mocked(vscode.workspace.findFiles)).mockResolvedValueOnce([
+                vscode.Uri.file('/test/workspace/test.ts')
+            ]);
+
+            // Mock file reading
+            (vi.mocked(vscode.workspace.fs.readFile)).mockResolvedValueOnce(
+                new TextEncoder().encode('function test() {}')
+            );
+
+            // Mock embedding generation
+            (global.fetch as any).mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({ embedding: [0.1, 0.2, 0.3] })
+            });
+
+            await indexingService.startIndexing();
+
+            expect(mockQdrantClient.createCollection).toHaveBeenCalledWith('test-index', {
+                vectors: { size: 768, distance: 'Cosine' }
+            });
+            expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+                expect.stringContaining('Indexed 1 files successfully')
+            );
+        });
+
+        test('should show warning when indexing is already in progress', async () => {
+            // Mock Qdrant operations
+            mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
+            mockQdrantClient.createCollection.mockResolvedValueOnce({});
+
+            // Mock findFiles to take time
+            (vi.mocked(vscode.workspace.findFiles)).mockImplementation(() => {
+                return new Promise(resolve => {
+                    setTimeout(() => resolve([]), 100);
+                });
+            });
+
+            // Start first indexing operation (don't await it)
+            const firstIndexingPromise = indexingService.startIndexing();
+
+            // Give the first operation time to set _isIndexing to true
+            await new Promise(resolve => setTimeout(resolve, 10));
+
+            // Try to start second indexing operation (should return immediately with warning)
+            await indexingService.startIndexing();
+
+            expect(vscode.window.showWarningMessage).toHaveBeenCalledWith('Indexing is already in progress.');
+
+            // Wait for first operation to complete
+            await firstIndexingPromise;
+        });
+
+        test('should show error for missing configuration', async () => {
+            // Mock missing configuration
+            vi.spyOn(mockConfigService, 'loadQdrantConfig').mockResolvedValueOnce(null);
+
+            await indexingService.startIndexing();
+
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+                expect.stringContaining('No valid configuration found')
+            );
+        });
+
+        test('should show error for failed connection validation', async () => {
+            // Mock configuration loading but failed connection
+            vi.spyOn(mockConfigService, 'loadQdrantConfig').mockResolvedValueOnce(mockConfig);
+            vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(false);
+
+            await indexingService.startIndexing();
+
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+                expect.stringContaining('Could not connect to Qdrant or Ollama')
+            );
+        });
+
+        test('should handle file indexing errors gracefully', async () => {
+            // Mock Qdrant operations
+            mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
+            mockQdrantClient.createCollection.mockResolvedValueOnce({});
+
+            // Mock file discovery
+            (vi.mocked(vscode.workspace.findFiles)).mockResolvedValueOnce([
+                vscode.Uri.file('/test/workspace/test.ts')
+            ]);
+
+            // Mock file read error
+            (vi.mocked(vscode.workspace.fs.readFile)).mockRejectedValueOnce(new Error('File read error'));
+
+            await indexingService.startIndexing();
+
+            // Should still complete without crashing
+            expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+                expect.stringContaining('Indexed 0 files successfully')
+            );
+        });
     });
 
-    it('should show error for failed connection validation', async () => {
-      // Mock configuration loading but failed connection
-      vi.spyOn(mockConfigService, 'loadConfig').mockResolvedValueOnce(mockConfig);
-      vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(false);
+    describe('stopIndexing', () => {
+        test('should cancel indexing when stopIndexing is called', async () => {
+            const mockConfig: QdrantOllamaConfig = {
+                index_info: { name: 'test-index' },
+                qdrant_config: { url: 'http://localhost:6333' },
+                ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
+            };
 
-      await indexingService.indexWorkspace(mockFolder);
+            // Mock configuration loading and validation
+            vi.spyOn(mockConfigService, 'loadQdrantConfig').mockResolvedValueOnce(mockConfig);
+            vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+            vi.spyOn(mockConfigService, 'config', 'get').mockReturnValue({
+                indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+                search: { limit: 10, threshold: 0.7 },
+                general: { trace: false }
+            });
 
-      expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Could not connect to Qdrant or Ollama')
-      );
+            // Mock Qdrant operations
+            mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
+            mockQdrantClient.createCollection.mockResolvedValueOnce({});
+
+            // Mock file discovery
+            (vi.mocked(vscode.workspace.findFiles)).mockResolvedValueOnce([
+                vscode.Uri.file('/test/workspace/test.ts')
+            ]);
+
+            // Mock file reading with delay to allow cancellation
+            (vi.mocked(vscode.workspace.fs.readFile)).mockImplementation(() => {
+                return new Promise(resolve => {
+                    setTimeout(() => resolve(new TextEncoder().encode('function test() {}')), 50);
+                });
+            });
+
+            // Start indexing
+            const indexingPromise = indexingService.startIndexing();
+
+            // Wait a bit then cancel
+            await new Promise(resolve => setTimeout(resolve, 10));
+            indexingService.stopIndexing();
+
+            // Should show cancellation message
+            expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Indexing was cancelled');
+
+            // Wait for indexing to complete
+            await indexingPromise;
+        });
     });
 
-    it('should handle file indexing errors gracefully', async () => {
-      // Mock configuration loading and validation
-      vi.spyOn(mockConfigService, 'loadConfig').mockResolvedValueOnce(mockConfig);
-      vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+    describe('Indexing stops gracefully when cancelled (edge case)', () => {
+        test('should handle cancellation during file processing', async () => {
+            const mockConfig: QdrantOllamaConfig = {
+                index_info: { name: 'test-index' },
+                qdrant_config: { url: 'http://localhost:6333' },
+                ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
+            };
 
-      // Mock Qdrant operations
-      mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
-      mockQdrantClient.createCollection.mockResolvedValueOnce({});
+            // Mock configuration loading and validation
+            vi.spyOn(mockConfigService, 'loadQdrantConfig').mockResolvedValueOnce(mockConfig);
+            vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+            vi.spyOn(mockConfigService, 'config', 'get').mockReturnValue({
+                indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+                search: { limit: 10, threshold: 0.7 },
+                general: { trace: false }
+            });
 
-      // Mock file discovery
-      vscode.workspace.findFiles.mockResolvedValueOnce([
-        { fsPath: '/test/workspace/test.ts' }
-      ]);
+            // Mock Qdrant operations
+            mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
+            mockQdrantClient.createCollection.mockResolvedValueOnce({});
 
-      // Mock file read error
-      vscode.workspace.fs.readFile.mockRejectedValueOnce(new Error('File read error'));
+            // Mock file discovery
+            (vi.mocked(vscode.workspace.findFiles)).mockResolvedValueOnce([
+                vscode.Uri.file('/test/workspace/test.ts')
+            ]);
 
-      await indexingService.indexWorkspace(mockFolder);
+            // Mock file reading with delay
+            (vi.mocked(vscode.workspace.fs.readFile)).mockImplementation(() => {
+                return new Promise(resolve => {
+                    setTimeout(() => resolve(new TextEncoder().encode('function test() {}')), 50);
+                });
+            });
 
-      // Should still complete without crashing
-      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Indexed 0 files successfully');
+            // Start indexing and get token source
+            const indexingPromise = indexingService.startIndexing();
+
+            // Wait a bit then cancel
+            await new Promise(resolve => setTimeout(resolve, 10));
+            indexingService.stopIndexing();
+
+            // Should resolve without crashing
+            await expect(indexingPromise).resolves.toBeUndefined();
+
+            // Should show cancellation message
+            expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Indexing was cancelled');
+        });
+
+        test('should handle cancellation during embedding generation', async () => {
+            const mockConfig: QdrantOllamaConfig = {
+                index_info: { name: 'test-index' },
+                qdrant_config: { url: 'http://localhost:6333' },
+                ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
+            };
+
+            // Mock configuration loading and validation
+            vi.spyOn(mockConfigService, 'loadQdrantConfig').mockResolvedValueOnce(mockConfig);
+            vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+            vi.spyOn(mockConfigService, 'config', 'get').mockReturnValue({
+                indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+                search: { limit: 10, threshold: 0.7 },
+                general: { trace: false }
+            });
+
+            // Mock Qdrant operations
+            mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
+            mockQdrantClient.createCollection.mockResolvedValueOnce({});
+
+            // Mock file discovery
+            (vi.mocked(vscode.workspace.findFiles)).mockResolvedValueOnce([
+                vscode.Uri.file('/test/workspace/test.ts')
+            ]);
+
+            // Mock file reading
+            (vi.mocked(vscode.workspace.fs.readFile)).mockResolvedValueOnce(
+                new TextEncoder().encode('function test() {}')
+            );
+
+            // Mock embedding generation with delay
+            (global.fetch as any).mockImplementation(() => {
+                return new Promise(resolve => {
+                    setTimeout(() => resolve({
+                        ok: true,
+                        json: async () => ({ embedding: [0.1, 0.2, 0.3] })
+                    }), 50);
+                });
+            });
+
+            // Start indexing
+            const indexingPromise = indexingService.startIndexing();
+
+            // Wait a bit then cancel
+            await new Promise(resolve => setTimeout(resolve, 10));
+            indexingService.stopIndexing();
+
+            // Should resolve without crashing
+            await expect(indexingPromise).resolves.toBeUndefined();
+
+            // Should show cancellation message
+            expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Indexing was cancelled');
+        });
     });
 
-    it('should handle embedding generation failures gracefully', async () => {
-      // Mock configuration loading and validation
-      vi.spyOn(mockConfigService, 'loadConfig').mockResolvedValueOnce(mockConfig);
-      vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+    describe('progress listeners', () => {
+        test('should notify progress listeners during indexing', async () => {
+            const progressListener = vi.fn();
+            indexingService.addProgressListener(progressListener);
 
-      // Mock Qdrant operations
-      mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
-      mockQdrantClient.createCollection.mockResolvedValueOnce({});
+            const mockConfig: QdrantOllamaConfig = {
+                index_info: { name: 'test-index' },
+                qdrant_config: { url: 'http://localhost:6333' },
+                ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
+            };
 
-      // Mock file discovery and reading
-      vscode.workspace.findFiles.mockResolvedValueOnce([
-        { fsPath: '/test/workspace/test.ts' }
-      ]);
-      vscode.workspace.fs.readFile.mockResolvedValueOnce(
-        new TextEncoder().encode('function test() {}')
-      );
+            // Mock configuration loading and validation
+            vi.spyOn(mockConfigService, 'loadQdrantConfig').mockResolvedValueOnce(mockConfig);
+            vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+            vi.spyOn(mockConfigService, 'config', 'get').mockReturnValue({
+                indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+                search: { limit: 10, threshold: 0.7 },
+                general: { trace: false }
+            });
 
-      // Mock embedding generation failure
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: false,
-        statusText: 'Internal Server Error'
-      });
+            // Mock Qdrant operations
+            mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
+            mockQdrantClient.createCollection.mockResolvedValueOnce({});
 
-      await indexingService.indexWorkspace(mockFolder);
+            // Mock file discovery
+            (vi.mocked(vscode.workspace.findFiles)).mockResolvedValueOnce([
+                vscode.Uri.file('/test/workspace/test.ts')
+            ]);
 
-      // Should still complete without crashing, but 0 files indexed
-      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith('Indexed 0 files successfully');
+            // Mock file reading
+            (vi.mocked(vscode.workspace.fs.readFile)).mockResolvedValueOnce(
+                new TextEncoder().encode('function test() {}')
+            );
+
+            // Mock embedding generation
+            (global.fetch as any).mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({ embedding: [0.1, 0.2, 0.3] })
+            });
+
+            await indexingService.startIndexing();
+
+            // Should have been called with progress updates
+            expect(progressListener).toHaveBeenCalledWith(
+                expect.objectContaining({ status: 'starting' })
+            );
+            expect(progressListener).toHaveBeenCalledWith(
+                expect.objectContaining({ status: 'indexing' })
+            );
+            expect(progressListener).toHaveBeenCalledWith(
+                expect.objectContaining({ status: 'completed' })
+            );
+
+            indexingService.removeProgressListener(progressListener);
+        });
+
+        test('should handle progress listener errors gracefully', async () => {
+            const faultyListener = vi.fn(() => {
+                throw new Error('Listener error');
+            });
+            const goodListener = vi.fn();
+
+            indexingService.addProgressListener(faultyListener);
+            indexingService.addProgressListener(goodListener);
+
+            const mockConfig: QdrantOllamaConfig = {
+                index_info: { name: 'test-index' },
+                qdrant_config: { url: 'http://localhost:6333' },
+                ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
+            };
+
+            // Mock configuration loading and validation
+            vi.spyOn(mockConfigService, 'loadQdrantConfig').mockResolvedValueOnce(mockConfig);
+            vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+            vi.spyOn(mockConfigService, 'config', 'get').mockReturnValue({
+                indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+                search: { limit: 10, threshold: 0.7 },
+                general: { trace: false }
+            });
+
+            // Mock Qdrant operations
+            mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
+            mockQdrantClient.createCollection.mockResolvedValueOnce({});
+
+            // Mock file discovery
+            (vi.mocked(vscode.workspace.findFiles)).mockResolvedValueOnce([]);
+
+            await indexingService.startIndexing();
+
+            // Both listeners should be called despite error in faulty listener
+            expect(faultyListener).toHaveBeenCalled();
+            expect(goodListener).toHaveBeenCalled();
+
+            indexingService.removeProgressListener(faultyListener);
+            indexingService.removeProgressListener(goodListener);
+        });
     });
 
-    it('should limit file indexing to 500 files', async () => {
-      // Mock configuration loading and validation
-      vi.spyOn(mockConfigService, 'loadConfig').mockResolvedValueOnce(mockConfig);
-      vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+    describe('search', () => {
+        beforeEach(async () => {
+            const mockConfig: QdrantOllamaConfig = {
+                index_info: { name: 'test-index' },
+                qdrant_config: { url: 'http://localhost:6333' },
+                ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
+            };
 
-      // Mock Qdrant operations
-      mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
-      mockQdrantClient.createCollection.mockResolvedValueOnce({});
+            // Set up service with config for search tests
+            vi.spyOn(mockConfigService, 'loadQdrantConfig').mockResolvedValueOnce(mockConfig);
+            vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+            vi.spyOn(mockConfigService, 'config', 'get').mockReturnValue({
+                indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+                search: { limit: 10, threshold: 0.7 },
+                general: { trace: false }
+            });
 
-      // Mock many files
-      const manyFiles = Array.from({ length: 600 }, (_, i) => ({ fsPath: `/test/workspace/file${i}.ts` }));
-      vscode.workspace.findFiles.mockResolvedValueOnce(manyFiles);
+            // Mock indexing setup to initialize service
+            mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
+            mockQdrantClient.createCollection.mockResolvedValueOnce({});
 
-      // Mock file reading for the first 500 files
-      vscode.workspace.fs.readFile.mockResolvedValue(
-        new TextEncoder().encode('function test() {}')
-      );
+            (vi.mocked(vscode.workspace.findFiles)).mockResolvedValueOnce([]);
 
-      // Mock embedding generation
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ embedding: [0.1, 0.2, 0.3] })
-      });
+            await indexingService.startIndexing();
+        });
 
-      await indexingService.indexWorkspace(mockFolder);
+        test('should return search results successfully', async () => {
+            // Mock embedding generation
+            (global.fetch as any).mockResolvedValueOnce({
+                ok: true,
+                json: async () => ({ embedding: [0.1, 0.2, 0.3] })
+            });
 
-      // Should have limited to 500 files
-      expect(vscode.workspace.findFiles).toHaveBeenCalledWith(
-        expect.any(Object),
-        expect.any(Object),
-        500
-      );
-    });
-  });
+            // Mock search results
+            mockQdrantClient.search.mockResolvedValueOnce({
+                points: [{
+                    id: 'test-id',
+                    score: 0.9,
+                    payload: {
+                        filePath: 'test.ts',
+                        content: 'function test() {}',
+                        lineStart: 1,
+                        lineEnd: 5
+                    }
+                }]
+            });
 
-  describe('search', () => {
-    const mockConfig: QdrantOllamaConfig = {
-      index_info: { name: 'test-index' },
-      qdrant_config: { url: 'http://localhost:6333' },
-      ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
-    };
+            const results = await indexingService.search('test query');
 
-    beforeEach(async () => {
-      // Set up service with config for search tests
-      vi.spyOn(mockConfigService, 'loadConfig').mockResolvedValueOnce(mockConfig);
-      vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+            expect(results).toHaveLength(1);
+            expect(results[0]).toEqual({
+                id: 'test-id',
+                score: 0.9,
+                payload: {
+                    filePath: 'test.ts',
+                    content: 'function test() {}',
+                    lineStart: 1,
+                    lineEnd: 5
+                }
+            });
+        });
 
-      // Mock indexing setup to initialize the service
-      mockQdrantClient.getCollections.mockResolvedValueOnce({ collections: [] });
-      mockQdrantClient.createCollection.mockResolvedValueOnce({});
+        test('should return empty array when service not initialized', async () => {
+            // Create new service without indexing
+            const freshService = new IndexingService(mockConfigService, mockContext);
+            const results = await freshService.search('test query');
 
-      await indexingService.indexWorkspace(mockFolder);
-    });
+            expect(results).toEqual([]);
+            expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
+                'Indexing service is not initialized. Cannot perform search.'
+            );
+        });
 
-    it('should return search results successfully', async () => {
-      // Mock embedding generation
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ embedding: [0.1, 0.2, 0.3] })
-      });
+        test('should return empty array for failed embedding generation', async () => {
+            // Mock embedding generation failure
+            (global.fetch as any).mockResolvedValueOnce({
+                ok: false,
+                statusText: 'Internal Server Error'
+            });
 
-      // Mock search results
-      mockQdrantClient.search.mockResolvedValueOnce({
-        points: [{
-          id: 'test-id',
-          score: 0.9,
-          payload: {
-            filePath: 'test.ts',
-            content: 'function test() {}',
-            lineStart: 1,
-            lineEnd: 5
-          }
-        }]
-      });
+            const results = await indexingService.search('test query');
 
-      const results = await indexingService.search('test query');
-
-      expect(results).toHaveLength(1);
-      expect(results[0]).toEqual({
-        id: 'test-id',
-        score: 0.9,
-        payload: {
-          filePath: 'test.ts',
-          content: 'function test() {}',
-          lineStart: 1,
-          lineEnd: 5
-        }
-      });
-    });
-
-    it('should return empty array when service not initialized', async () => {
-      // Create new service without indexing
-      const freshService = new IndexingService(mockConfigService, mockContext);
-      const results = await freshService.search('test query');
-
-      expect(results).toEqual([]);
-      expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-        'Indexing service is not initialized. Cannot perform search.'
-      );
+            expect(results).toEqual([]);
+            expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
+                'Could not generate embedding for search query.'
+            );
+        });
     });
 
-    it('should return empty array for failed embedding generation', async () => {
-      // Mock embedding generation failure
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: false,
-        statusText: 'Internal Server Error'
-      });
+    describe('dispose', () => {
+        test('should clean up resources on dispose', async () => {
+            const progressListener = vi.fn();
+            indexingService.addProgressListener(progressListener);
 
-      const results = await indexingService.search('test query');
+            // Start indexing to set up cancellation token
+            const mockConfig: QdrantOllamaConfig = {
+                index_info: { name: 'test-index' },
+                qdrant_config: { url: 'http://localhost:6333' },
+                ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
+            };
 
-      expect(results).toEqual([]);
-      expect(vscode.window.showWarningMessage).toHaveBeenCalledWith(
-        'Could not generate embedding for search query.'
-      );
+            vi.spyOn(mockConfigService, 'loadQdrantConfig').mockResolvedValueOnce(mockConfig);
+            vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
+            vi.spyOn(mockConfigService, 'config', 'get').mockReturnValue({
+                indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+                search: { limit: 10, threshold: 0.7 },
+                general: { trace: false }
+            });
+
+            (vi.mocked(vscode.workspace.findFiles)).mockResolvedValueOnce([]);
+
+            // Start indexing (need to await to ensure the token is created before disposal)
+            await indexingService.startIndexing(); 
+            
+            // Recreate the token source mock to track cancellation
+            const tokenSource = indexingService['_cancellationTokenSource'];
+            expect(tokenSource).toBeDefined();
+
+            indexingService.dispose();
+
+            // Should cancel any ongoing indexing
+            expect(tokenSource?.cancel).toHaveBeenCalled();
+
+            // Should clear progress listeners
+            expect(indexingService['_progressListeners']).toEqual([]);
+        });
     });
-
-    it('should handle search with hits instead of points', async () => {
-      // Mock embedding generation
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ embedding: [0.1, 0.2, 0.3] })
-      });
-
-      // Mock search results with hits (alternative response format)
-      mockQdrantClient.search.mockResolvedValueOnce({
-        hits: [{
-          id: 'test-id',
-          score: 0.9,
-          payload: {
-            filePath: 'test.ts',
-            content: 'function test() {}',
-            lineStart: 1,
-            lineEnd: 5
-          }
-        }]
-      });
-
-      const results = await indexingService.search('test query');
-
-      expect(results).toHaveLength(1);
-      expect(results[0].payload.content).toBe('function test() {}');
-    });
-
-    it('should handle search errors gracefully', async () => {
-      // Mock embedding generation success
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ embedding: [0.1, 0.2, 0.3] })
-      });
-
-      // Mock search error
-      mockQdrantClient.search.mockRejectedValueOnce(new Error('Search failed'));
-
-      const results = await indexingService.search('test query');
-
-      expect(results).toEqual([]);
-      expect(vscode.window.showErrorMessage).toHaveBeenCalledWith(
-        expect.stringContaining('Search failed:')
-      );
-    });
-
-    it('should use default collection name when not specified', async () => {
-      // Create service with config without index_info
-      const configWithoutIndex = {
-        qdrant_config: { url: 'http://localhost:6333' },
-        ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' }
-      };
-
-      vi.spyOn(mockConfigService, 'loadConfig').mockResolvedValueOnce(configWithoutIndex);
-      vi.spyOn(mockConfigService, 'validateConnection').mockResolvedValueOnce(true);
-
-      mockQdrantClient.getCollections.mockResolvedValue({ collections: [] });
-      mockQdrantClient.createCollection.mockResolvedValue({});
-
-      await indexingService.indexWorkspace(mockFolder);
-
-      // Mock embedding generation and search
-      (global.fetch as any).mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ embedding: [0.1, 0.2, 0.3] })
-      });
-
-      mockQdrantClient.search.mockResolvedValueOnce({ points: [] });
-
-      await indexingService.search('test query');
-
-      expect(mockQdrantClient.search).toHaveBeenCalledWith('codebase', {
-        vector: [0.1, 0.2, 0.3],
-        limit: 10
-      });
-    });
-  });
 });

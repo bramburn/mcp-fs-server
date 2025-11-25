@@ -3,40 +3,51 @@
  * and the Svelte Webview (Guest).
  */
 
-export type IpcScope = 'qdrantIndex';
-export const Scope: IpcScope = 'qdrantIndex';
+// --- Scope Definitions ---
+export type IpcScope = 'qdrantIndex' | 'webview-mgmt';
 
-// --- Base Types ---
-
-export interface IpcMessage {
-    id: string; // UUID
+// --- Base Message Envelope ---
+export interface IpcBaseMessage {
+    id: string; // UUID for requests/responses
     scope: IpcScope;
-    method: string;
     timestamp: number;
-    kind?: 'command' | 'request' | 'response' | 'notification';
 }
 
-export interface IpcCommand<T = any> extends IpcMessage {
+// --- Command (Fire-and-forget: Guest -> Host, or Host -> Guest) ---
+export interface IpcCommand<T> extends IpcBaseMessage {
     kind: 'command';
+    method: string;
     params: T;
 }
 
-export interface IpcRequest<T = any> extends IpcMessage {
+// --- Request (Request/Response cycle: Guest <-> Host) ---
+export interface IpcRequest<T> extends IpcBaseMessage {
     kind: 'request';
+    method: string;
     params: T;
 }
 
-export interface IpcResponse<T = any> extends IpcMessage {
+export interface IpcResponse<T = any, E = string> extends IpcBaseMessage {
     kind: 'response';
     responseId: string; // ID of the request being responded to
     data?: T;
-    error?: string;
+    error?: E;
 }
 
-export interface IpcNotification<T = any> extends IpcMessage {
+// --- Notification (One-way update: Host -> Guest, or Guest -> Host) ---
+export interface IpcNotification<T> extends IpcBaseMessage {
     kind: 'notification';
+    method: string;
     params: T;
 }
+
+// --- Combined Discriminated Union for easy dispatching ---
+export type IpcMessage = 
+    | IpcCommand<any>
+    | IpcRequest<any>
+    | IpcResponse<any>
+    | IpcNotification<any>;
+
 
 // --- Data Structures ---
 
@@ -98,3 +109,28 @@ export interface OpenFileParams {
     line: number;
 }
 export const OPEN_FILE_METHOD = 'file/open';
+
+// --- Webview Management Messages (Introduced for step 3/5 compliance) ---
+
+// 7. Webview Ready Request (Guest -> Host) - Used to request initial state
+export interface WebviewReadyParams {
+    // Empty if only requesting state
+}
+export type WebviewReadyRequest = IpcRequest<WebviewReadyParams>;
+export const WEBVIEW_READY_METHOD = 'webview/ready-request';
+
+// 8. Execute Command (Guest -> Host) - Used to trigger VS Code API commands
+export interface ExecuteCommandParams {
+    command: string;
+    args?: any[];
+}
+export type ExecuteCommand = IpcCommand<ExecuteCommandParams>;
+export const EXECUTE_COMMAND_METHOD = 'webview/execute-command';
+
+// 9. Did Change Configuration Notification (Host -> Guest)
+export interface DidChangeConfigurationParams {
+    configKey: string;
+    value: any;
+}
+export type DidChangeConfigurationNotification = IpcNotification<DidChangeConfigurationParams>;
+export const DID_CHANGE_CONFIG_NOTIFICATION = 'webview/did-change-configuration';

@@ -1,6 +1,10 @@
 import * as vscode from "vscode";
 import {
   IpcMessage,
+  IpcCommand,
+  IpcRequest,
+  IpcNotification,
+  IpcResponse,
   SEARCH_METHOD,
   START_INDEX_METHOD,
   INDEX_STATUS_METHOD,
@@ -9,8 +13,15 @@ import {
   CONFIG_DATA_METHOD,
   SearchRequestParams,
   OpenFileParams,
-  Scope,
-} from "./protocol.js"; // Fixed import extension
+  WebviewReadyRequest,
+  ExecuteCommand,
+  DidChangeConfigurationNotification,
+  WEBVIEW_READY_METHOD,
+  EXECUTE_COMMAND_METHOD,
+  DID_CHANGE_CONFIG_NOTIFICATION,
+  IpcScope,
+  QdrantOllamaConfig,
+} from "./protocol.js";
 import { IndexingService } from "../services/IndexingService.js";
 import { WorkspaceManager } from "../services/WorkspaceManager.js";
 import { ConfigService } from "../services/ConfigService.js";
@@ -33,9 +44,11 @@ function getNonce(): string {
  * P2.1: Svelte Webview Setup and Hosting
  * Manages the Webview Panel (Sidebar) and handles IPC messaging.
  */
-export class WebviewController implements vscode.WebviewViewProvider {
+export class WebviewController implements vscode.WebviewViewProvider, vscode.Disposable {
   public static readonly viewType = "qdrant.searchView";
   private _view?: vscode.WebviewView;
+  private _disposables: vscode.Disposable[] = [];
+  private _isViewVisible: boolean = false;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -44,12 +57,30 @@ export class WebviewController implements vscode.WebviewViewProvider {
     private readonly _configService: ConfigService
   ) {}
 
+  public dispose() {
+    while (this._disposables.length) {
+      const disposable = this._disposables.pop();
+      if (disposable) {
+        disposable.dispose();
+      }
+    }
+  }
+
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
     context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ) {
     this._view = webviewView;
+
+    // 5. Context Keys: Set visible context key on view creation
+    vscode.commands.executeCommand('setContext', 'qdrant.searchView.visible', true);
+
+    // Correctly handle webview visibility changes
+    webviewView.onDidChangeVisibility(() => {
+        this._isViewVisible = webviewView.visible;
+        vscode.commands.executeCommand('setContext', 'qdrant.searchView.focused', webviewView.visible); // Assuming focused when visible
+    });
 
     webviewView.webview.options = {
       enableScripts: true,
@@ -61,38 +92,103 @@ export class WebviewController implements vscode.WebviewViewProvider {
     webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
     // Listen for messages from the Webview (Guest)
-    webviewView.webview.onDidReceiveMessage(async (data: IpcMessage) => {
-      // Security: Validate message scope
-      if (data.scope !== Scope) return;
+    const listener = webviewView.webview.onDidReceiveMessage(
+      async (data: IpcMessage) => {
+        // Security: Validate message scope
+        // IpcScope is a union type, direct Object.values() won't work.
+        // Instead, we ensure the data.scope is one of the valid literal strings.
+        const validScopes: IpcScope[] = ['qdrantIndex', 'webview-mgmt'];
+        if (!validScopes.includes(data.scope)) {
+            console.warn(`Received message with unknown scope: ${data.scope}`);
+            return;
+        }
 
-      // Note: We cast data to 'any' here to access params because IpcMessage base type
-      // doesn't have params, but we know the methods imply specific subtypes.
-      // In a stricter implementation, we would use type guards.
-      switch (data.method) {
-        case START_INDEX_METHOD:
-          await this.handleIndexRequest();
-          break;
-        case SEARCH_METHOD:
-          await this.handleSearchRequest(data as any);
-          break;
-        case OPEN_FILE_METHOD:
-          await this.handleOpenFile(data as any);
-          break;
-        case LOAD_CONFIG_METHOD:
-          await this.handleLoadConfigRequest();
-          break;
-        default:
-          console.log(`Unknown message method: ${data.method}`);
-      }
-    });
+        // 5. IPC Handler: Use type guards for stricter handling
+        if (data.kind === 'command') {
+            await this.handleCommand(data as IpcCommand<any>);
+        } else if (data.kind === 'request') {
+            await this.handleRequest(data as IpcRequest<any>);
+        } else if (data.kind === 'notification') {
+            await this.handleNotification(data as IpcNotification<any>);
+        }
+        // Responses are typically handled by caller logic, not controller here
+      },
+      undefined,
+      this._disposables
+    );
+
+    // Add listeners/disposables here
+    this._disposables.push(listener);
   }
 
+  // --- IPC Handlers ---
+  private async handleCommand(command: IpcCommand<any>) {
+    switch (command.method) {
+      case START_INDEX_METHOD:
+        await this.handleIndexRequest();
+        break;
+      case OPEN_FILE_METHOD:
+        await this.handleOpenFile(command as any);
+        break;
+      case EXECUTE_COMMAND_METHOD:
+        await this.handleExecuteCommand(command as ExecuteCommand);
+        break;
+      default:
+        console.log(`Unknown command method: ${command.method}`);
+    }
+  }
+
+  private async handleRequest(request: IpcRequest<any>): Promise<IpcResponse<any> | void> {
+    let response: IpcResponse<any> | undefined;
+    switch (request.method) {
+      case SEARCH_METHOD:
+        // Corrected access to request.scope and request.id
+        response = await this.handleSearchRequest(request);
+        break;
+      case LOAD_CONFIG_METHOD:
+        // Corrected access to request.scope and request.id
+        response = await this.handleLoadConfigRequest(request);
+        break;
+      default:
+        console.log(`Unknown request method: ${request.method}`);
+        response = { // Send error response for unknown request
+            kind: 'response',
+            scope: request.scope,
+            id: vscode.env.createUuid(),
+            responseId: request.id,
+            timestamp: Date.now(),
+            error: `Unknown request method: ${request.method}`
+        };
+    }
+    
+    if (response) {
+        this.sendResponse(response);
+    }
+  }
+
+  private async handleNotification(notification: IpcNotification<any>) {
+    switch (notification.method) {
+        case INDEX_STATUS_METHOD:
+            // Handled by sendNotification in handleIndexRequest
+            break;
+        case CONFIG_DATA_METHOD:
+            // Handled by sendNotification in handleLoadConfigRequest
+            break;
+        case DID_CHANGE_CONFIG_NOTIFICATION:
+            this.handleDidChangeConfiguration(notification as DidChangeConfigurationNotification);
+            break;
+        default:
+            console.log(`Unknown notification method: ${notification.method}`);
+    }
+  }
+
+  // --- Request Handlers ---
   private async handleIndexRequest() {
     const folder = this._workspaceManager.getActiveWorkspaceFolder();
     if (folder) {
       this.sendNotification(INDEX_STATUS_METHOD, { status: "indexing" });
       try {
-        await this._indexingService.indexWorkspace(folder);
+        await this._indexingService.startIndexing(folder);
         this.sendNotification(INDEX_STATUS_METHOD, { status: "ready" });
       } catch (e) {
         this.sendNotification(INDEX_STATUS_METHOD, {
@@ -105,31 +201,60 @@ export class WebviewController implements vscode.WebviewViewProvider {
     }
   }
 
-  private async handleSearchRequest(message: { params: SearchRequestParams }) {
-    if (!message.params || !message.params.query) return;
+  private async handleSearchRequest(request: IpcRequest<SearchRequestParams>): Promise<IpcResponse<any>> {
+    if (!request.params || !request.params.query) {
+        return {
+            kind: 'response',
+            scope: request.scope,
+            id: vscode.env.createUuid(),
+            responseId: request.id,
+            timestamp: Date.now(),
+            error: "Missing search query."
+        };
+    }
 
     try {
-      const results = await this._indexingService.search(message.params.query);
-      this.sendNotification(SEARCH_METHOD, { results });
+      const results = await this._indexingService.search(request.params.query);
+      return {
+          kind: 'response',
+          scope: request.scope,
+          id: vscode.env.createUuid(),
+          responseId: request.id,
+          timestamp: Date.now(),
+          data: { results }
+      };
     } catch (error) {
       console.error("Search error:", error);
-      this.sendNotification(SEARCH_METHOD, { results: [] });
-      vscode.window.showErrorMessage("Search failed. See output for details.");
+      return {
+          kind: 'response',
+          scope: request.scope,
+          id: crypto.randomUUID(),
+          responseId: request.id,
+          timestamp: Date.now(),
+          error: `Search failed: ${String(error)}`
+      };
     }
   }
 
-  private async handleLoadConfigRequest() {
+  private async handleLoadConfigRequest(request: IpcRequest<any>): Promise<IpcResponse<any>> {
     const folder = this._workspaceManager.getActiveWorkspaceFolder();
+    let config: QdrantOllamaConfig | null = null;
     if (folder) {
-      const config = await this._configService.loadConfig(folder);
-      this.sendNotification(CONFIG_DATA_METHOD, config || null);
-    } else {
-      this.sendNotification(CONFIG_DATA_METHOD, null);
+      config = await this._configService.loadQdrantConfig(folder);
     }
+
+    return {
+      kind: 'response',
+      scope: request.scope,
+      id: vscode.env.createUuid(),
+      responseId: request.id,
+      timestamp: Date.now(),
+      data: config || null
+    };
   }
 
-  private async handleOpenFile(message: { params: OpenFileParams }) {
-    const { uri, line } = message.params;
+  private async handleOpenFile(command: IpcCommand<OpenFileParams>) {
+    const { uri, line } = command.params;
     try {
       const fileUri =
         uri.startsWith("/") || uri.match(/^[a-zA-Z]:/)
@@ -150,17 +275,47 @@ export class WebviewController implements vscode.WebviewViewProvider {
     }
   }
 
+  private async handleExecuteCommand(command: ExecuteCommand) {
+    try {
+        await vscode.commands.executeCommand(command.params.command, ...(command.params.args || []));
+    } catch (error) {
+        console.error(`Failed to execute command ${command.params.command}:`, error);
+        vscode.window.showErrorMessage(`Failed to execute command: ${command.params.command}`);
+    }
+  }
+
+  private handleDidChangeConfiguration(notification: DidChangeConfigurationNotification) {
+    // Placeholder for logic to react to configuration changes (e.g., reloading a service)
+    console.log(`Configuration changed for key: ${notification.params.configKey}`);
+  }
+
+  // --- Messaging Helpers ---
+
   public sendNotification(method: string, params: any) {
     if (this._view) {
       this._view.webview.postMessage({
-        scope: Scope,
-        id: crypto.randomUUID(),
+        scope: 'qdrantIndex', // Explicitly cast to IpcScope if necessary, or ensure 'qdrantIndex' is within the union
+        id: vscode.env.createUuid(),
         method: method,
         kind: "notification",
         params: params,
         timestamp: Date.now(),
-      });
+      } as IpcNotification<any>);
     }
+  }
+
+  private sendResponse(response: IpcResponse<any>) {
+    if (this._view) {
+      this._view.webview.postMessage(response);
+    }
+  }
+
+  // --- Telemetry & Context Keys ---
+  public getTelemetryContext(): { [key: string]: string } {
+    return {
+        webviewVisible: this._isViewVisible.toString(),
+        webviewFocused: this._isViewVisible.toString(), // Reuse for now
+    };
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
@@ -192,7 +347,6 @@ export class WebviewController implements vscode.WebviewViewProvider {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}' ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
                 <title>Qdrant Search</title>
                 <link href="${stylesUri}" rel="stylesheet" nonce="${nonce}">
             </head>
@@ -203,3 +357,5 @@ export class WebviewController implements vscode.WebviewViewProvider {
             </html>`;
   }
 }
+
+

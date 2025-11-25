@@ -3,13 +3,28 @@
   import type { HTMLAttributes } from "svelte/elements";
   import { cn } from "../../../lib/utils.js";
 
-  type $$Props = HTMLAttributes<HTMLDivElement>;
+  type $$Props = HTMLAttributes<HTMLDivElement> & {
+    class?: string; // Add class to $$Props for proper type inference
+  };
 
-  let className: $$Props["class"] = undefined;
-  export { className as class };
+  let {
+    class: className = undefined,
+    ...rest // Collect other props
+  } = $props<$$Props>();
 </script>
 
 <CommandPrimitive.Separator
-  class={cn("-mx-1 h-px bg-border", className)}
-  {...$$restProps}
+  class={cn("command-separator", className)}
+  role="separator"
+  aria-hidden="true"
+  {...rest}
 />
+
+<style>
+  .command-separator {
+    margin: 4px 8px;
+    height: 1px;
+    background-color: var(--vscode-list-separatorForeground);
+    border: none;
+  }
+</style>
