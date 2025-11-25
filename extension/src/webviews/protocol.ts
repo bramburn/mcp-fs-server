@@ -13,6 +13,7 @@ export interface IpcMessage {
     scope: IpcScope;
     method: string;
     timestamp: number;
+    kind?: 'command' | 'request' | 'response' | 'notification';
 }
 
 export interface IpcCommand<T = any> extends IpcMessage {
@@ -44,6 +45,7 @@ export interface FileSnippetResult {
     filePath: string;
     snippet: string;
     lineStart: number;
+    lineEnd: number;
     score: number;
 }
 
@@ -86,3 +88,13 @@ export const START_INDEX_METHOD = 'index/start';
 
 // 4. Load Configuration Request (Guest -> Host)
 export const LOAD_CONFIG_METHOD = 'config/load';
+
+// 5. Config Data Notification (Host -> Guest)
+export const CONFIG_DATA_METHOD = 'config/data';
+
+// 6. Open File Command (Guest -> Host)
+export interface OpenFileParams {
+    uri: string;
+    line: number;
+}
+export const OPEN_FILE_METHOD = 'file/open';

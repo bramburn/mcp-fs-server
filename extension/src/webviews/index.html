@@ -2,12 +2,12 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" /> <!-- !AI: Assumes Vite correctly resolves assets to root path. MVP context requires checking if this path is correct post-build/packaging for extension bundling. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Qdrant Search Webview</title>
+    <title>Qdrant Search Webview</title> <!-- !AI: Missing essential VS Code webview meta tags (e.g., CSP nonce handling, theme color) which are usually injected or required for proper initialization/styling in an extension context. -->
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="./main.ts"></script>
+    <script type="module" src="./main.ts"></script> <!-- !AI: Scope gap - This relies entirely on main.ts containing the VS Code Webview API setup (e.g., vscode.postMessage/acquireVsCodeApi). If webview setup logic is distributed, this single script reference might be an incomplete workflow step. -->
   </body>
 </html>

@@ -1,8 +1,20 @@
-import * as vscode from 'vscode'; // eslint-disable-line no-unused-vars
-import { ConfigService } from './ConfigService.js';
-import { QdrantOllamaConfig } from '../webviews/protocol.js';
-import { QdrantClient } from '@qdrant/js-client-rest'; // eslint-disable-line no-unused-vars
+import * as vscode from 'vscode';
+import { ConfigService } from './ConfigService.ts';
+import { QdrantOllamaConfig } from '../webviews/protocol.ts';
+import { QdrantClient } from '@qdrant/js-client-rest';
+// !AI: MVP assumption: The shared code splitter logic (which might use WASM) is robust and handles context splitting optimally for all target languages.
 import { CodeSplitter } from 'shared/code-splitter.js';
+
+interface SearchResultItem {
+    id: string | number;
+    score: number;
+    payload: {
+        filePath: string;
+        content: string;
+        lineStart: number;
+        lineEnd: number;
+    };
+}
 
 /**
  * Core service to handle file indexing and interaction with Qdrant/Ollama.
@@ -37,6 +49,7 @@ export class IndexingService {
         }
         
         // Validate connections before starting heavy work
+// !AI: MVP workflow: Connection validation is synchronous/blocking here. For larger setups, this should perhaps be asynchronous or backgrounded, but for MVP, this is an acceptable blocking step.
         const isHealthy = await this._configService.validateConnection(config);
         if (!isHealthy) {
             vscode.window.showErrorMessage('Could not connect to Qdrant or Ollama. Check your configuration and ensure services are running.');
@@ -50,6 +63,7 @@ export class IndexingService {
             apiKey: config.qdrant_config.api_key,
         });
 
+        // !AI: MVP dependency: Relies on specific WASM files being present in the extension resources directory for advanced splitting. This adds complexity to extension packaging and setup.
         // Initialize Splitter with WASM paths
         try {
             const wasmPath = vscode.Uri.joinPath(this._context.extensionUri, 'resources', 'tree-sitter.wasm').fsPath;
@@ -64,15 +78,18 @@ export class IndexingService {
         try {
             const collectionName = config.index_info?.name || 'codebase';
             
+            // !AI: MVP data structure: Hardcoded vector size of 768. This is tied to the default embedding model (likely Nomic Embed). Should be configurable based on the selected Ollama model for flexibility.
             // Ensure Collection Exists
-            await this.ensureCollection(collectionName, 768); 
+            await this.ensureCollection(collectionName, 768);
 
             // Find files
             const excludePattern = new vscode.RelativePattern(folder, '**/{node_modules,.git,out,dist,build,.svelte-kit}/**');
             const files = await vscode.workspace.findFiles(
+                // !AI: MVP scope: File inclusion is based on a fixed list of extensions. Should be configurable or dynamically derived from project settings/language configuration.
                 new vscode.RelativePattern(folder, '**/*.{ts,js,svelte,json,md,txt,html,css}'),
                 excludePattern,
-                500 
+                // !AI: MVP scope/data structure: Hard limit of 500 files indexed per workspace. This is a major constraint for large codebases in the MVP.
+                500
             );
 
             let processedCount = 0;
@@ -133,6 +150,7 @@ export class IndexingService {
         const points = [];
 
         for (const chunk of chunks) {
+            // !AI: MVP assumption/workflow: Silent failure on embedding generation (returns null and continues) leads to data loss in Qdrant for that chunk. Needs better error reporting or retry logic for MVP reliability.
             const vector = await this.generateEmbedding(chunk.content);
             if (!vector) continue;
 
@@ -156,6 +174,7 @@ export class IndexingService {
     }
 
     private async generateEmbedding(text: string): Promise<number[] | null> {
+        // !AI: MVP assumption: Ollama service is running locally at a fixed, known path (`base_url`) and is accessible over HTTP without proxy/network issues.
         if (!this._activeConfig) return null;
 
         const { base_url, model } = this._activeConfig.ollama_config;
@@ -182,7 +201,43 @@ export class IndexingService {
         }
     }
 
-    public async search(query: string): Promise<any[]> {
-        return [];
+    public async search(query: string): Promise<SearchResultItem[]> {
+        if (!this._client || !this._activeConfig) {
+            vscode.window.showErrorMessage('Indexing service is not initialized. Cannot perform search.');
+            return [];
+        }
+
+        const collectionName = this._activeConfig.index_info?.name || 'codebase';
+        
+        try {
+            const vector = await this.generateEmbedding(query);
+            if (!vector) {
+                vscode.window.showWarningMessage('Could not generate embedding for search query.');
+                return [];
+            }
+
+            const searchResult = await this._client.search(collectionName, {
+                vector: vector,
+                // !AI: MVP configuration: Hardcoded search limit of 10 results. This should be configurable in the settings.
+                limit: 10, // Default limit, can be configurable later
+            });
+
+            // !AI: MVP data structure fragility: Casting the Qdrant response is brittle and suggests the underlying library's return type isn't cleanly typed or consistent between versions/client usage.
+            // The search result contains hits with payload.
+            // Cast to the expected structure which may have 'points' or 'hits' property.
+            const qdrantResult = searchResult as { points?: { id: string | number, score: number, payload: SearchResultItem['payload'] }[]; hits?: { id: string | number, score: number, payload: SearchResultItem['payload'] }[] };
+            const results = qdrantResult.points || qdrantResult.hits || [];
+            
+            return results.map((item): SearchResultItem => ({
+                id: item.id,
+                score: item.score,
+                payload: item.payload,
+            }));
+
+        } catch (e) {
+            console.error(`Search failed in collection ${collectionName}:`, e);
+            vscode.window.showErrorMessage(`Search failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+            return [];
+        }
     }
 }

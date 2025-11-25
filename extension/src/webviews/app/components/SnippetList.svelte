@@ -1,44 +1,48 @@
 <script lang="ts">
-    import { appState } from '../store.svelte';
-    import { vscode } from '../lib/vscode';
+    // Fix: Add explicit .ts extensions for Node16 module resolution
+    import { appState } from '../store.svelte.ts';
+    import { vscode } from '../lib/vscode.ts';
+    import { OPEN_FILE_METHOD } from '../../protocol.ts';
+    
+    // Fix: Import Command directly from the main 'bits-ui' package
+    import { Command } from 'bits-ui';
+    
+    import FileCode from 'lucide-svelte/icons/file-code';
+    import CornerDownRight from 'lucide-svelte/icons/corner-down-right';
 
     // Helper to open files
     function openFile(uri: string, line: number) {
-        // In a real implementation, we send a command to the host to open the file
-        // For P2, we'll log it or send a generic command
-        vscode.postMessage('openFile', { uri, line });
+        vscode.postMessage(OPEN_FILE_METHOD, { uri, line }, 'command');
     }
+
+    // Safe access for results
+    let results = $derived(appState.results || []);
 </script>
 
-<div class="flex flex-col gap-2 p-2 w-full">
-    {#if appState.results.length === 0 && !appState.isSearching}
-        <div class="text-center text-muted-foreground text-sm py-8 opacity-60">
-            No results found. Try indexing your workspace or changing your query.
-        </div>
-    {/if}
-
-    {#each appState.results as result}
-        <!-- Accessible Card -->
-        <button 
-            class="flex flex-col text-left gap-1 p-3 rounded-md bg-secondary/20 hover:bg-secondary/40 border border-transparent hover:border-border transition-all cursor-pointer group"
-            onclick={() => openFile(result.uri, result.lineStart)}
-            onkeydown={(e) => e.key === 'Enter' && openFile(result.uri, result.lineStart)}
+<div class="flex flex-col gap-1 w-full">
+    {#each results as result, i (result.uri + '_' + result.lineStart + '_' + i)}
+        <!-- Added unique key using composite ID + index to prevent loop issues -->
+        <Command.Item
+            class="flex flex-col text-left gap-1 p-3 rounded-md bg-secondary/20 hover:bg-secondary/40 border border-transparent hover:border-border transition-all cursor-pointer group data-[selected]:bg-secondary/50 data-[selected]:border-border outline-hidden"
+            onselect={() => openFile(result.uri, result.lineStart)}
         >
             <!-- File Header -->
             <div class="flex items-center gap-2 w-full overflow-hidden">
-                <span class="icon-[lucide--file-code] w-4 h-4 text-primary shrink-0"></span>
+                <FileCode class="w-4 h-4 text-primary shrink-0" />
                 <span class="text-xs font-medium text-foreground truncate opacity-80 group-hover:opacity-100">
-                    {result.filePath}
+                    {result.filePath || 'Unknown File'}
                 </span>
-                <span class="text-xs text-muted-foreground ml-auto shrink-0">
-                    Line {result.lineStart}
+                <span class="text-xs text-muted-foreground ml-auto shrink-0 flex items-center gap-1">
+                    <CornerDownRight class="w-3 h-3" />
+                    {result.lineStart}
                 </span>
             </div>
 
             <!-- Code Snippet -->
-            <pre class="mt-1 text-xs bg-background/50 p-2 rounded border border-border/50 overflow-x-auto w-full font-mono text-muted-foreground group-hover:text-foreground transition-colors">
-                <code>{result.snippet}</code>
+            <!-- Added max-height and overflow handling for long snippets -->
+            <pre class="mt-1 text-xs bg-background/50 p-2 rounded border border-border/50 overflow-x-auto w-full font-mono text-muted-foreground group-hover:text-foreground transition-colors max-h-[200px] overflow-y-auto">
+                <code>{result.snippet || ''}</code>
             </pre>
-        </button>
+        </Command.Item>
     {/each}
 </div>

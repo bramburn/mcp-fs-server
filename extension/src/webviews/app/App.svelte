@@ -1,32 +1,60 @@
 <script lang="ts">
+    // P2.2: Main App and Routing
     import { onMount } from 'svelte';
-    import { appState } from './store.svelte';
+    import { appState } from './store.svelte.ts';
     import Search from './views/Search.svelte';
-    import { SEARCH_METHOD, INDEX_STATUS_METHOD } from '../protocol';
-    import type { IpcMessage, SearchResponseParams, IndexStatusParams } from '../protocol';
+    import Settings from './views/Settings.svelte';
+    import { vscode } from './lib/vscode.ts';
+    import { 
+        SEARCH_METHOD, 
+        INDEX_STATUS_METHOD, 
+        LOAD_CONFIG_METHOD,
+        CONFIG_DATA_METHOD,
+        Scope
+    } from '../protocol.ts';
+    import type { 
+        IpcMessage, 
+        IpcNotification,
+        SearchResponseParams, 
+        IndexStatusParams, 
+        QdrantOllamaConfig 
+    } from '../protocol.ts';
 
     onMount(() => {
+        // Initial Data Fetch
+        vscode.postMessage(LOAD_CONFIG_METHOD, {}, 'request');
+
         // Listen for messages from the Extension Host
         const handleMessage = (event: MessageEvent) => {
             const message = event.data as IpcMessage;
 
-            // Optional: Check scope if needed
-            // if (message.scope !== 'qdrantIndex') return;
+            // Security: Validate origin/scope
+            if (message.scope !== Scope) return;
 
-            switch (message.method) {
-                case SEARCH_METHOD:
-                    // Assuming host sends back a 'response' or notification with same method for simplicity in P2
-                    // In strict protocol, this might be a separate response ID match
-                    if (message.kind === 'response' || message.kind === 'notification') {
-                        const params = message.params as SearchResponseParams;
-                        appState.setResults(params.results);
-                    }
-                    break;
-                
-                case INDEX_STATUS_METHOD:
-                    const statusParams = message.params as IndexStatusParams;
-                    appState.setIndexStatus(statusParams.status);
-                    break;
+            // Fixed: Type guard to safely access params
+            // We assume backend messages with payloads are Notifications for these methods
+            if (message.kind === 'notification') {
+                const notification = message as IpcNotification<any>;
+
+                switch (message.method) {
+                    case SEARCH_METHOD:
+                        if (notification.params) {
+                            const params = notification.params as SearchResponseParams;
+                            appState.setResults(params.results || []);
+                        }
+                        break;
+                    
+                    case INDEX_STATUS_METHOD:
+                        if (notification.params) {
+                            const params = notification.params as IndexStatusParams;
+                            appState.setIndexStatus(params.status);
+                        }
+                        break;
+                    
+                    case CONFIG_DATA_METHOD:
+                        appState.setConfig(notification.params as QdrantOllamaConfig | null);
+                        break;
+                }
             }
         };
 
@@ -36,10 +64,13 @@
 </script>
 
 <main class="h-screen w-screen bg-background text-foreground overflow-hidden font-sans antialiased selection:bg-primary/30">
+    <!-- Simple Router Implementation -->
     {#if appState.view === 'search'}
         <Search />
+    {:else if appState.view === 'settings'}
+        <Settings />
     {:else}
-        <div class="p-4">Settings View (Coming Soon)</div>
+        <div class="p-4">Unknown view</div>
     {/if}
 </main>
 

@@ -41,6 +41,7 @@ export class WorkspaceManager {
             
             // For P1, we simply warn if multiple folders have different configs
             // or if the complexity is high.
+// !AI: MVP scope gap: Production version needs proper config merging or user selection for multi-root workspaces.
             // A production version would merge them or ask the user to select the active one.
             
             let configCount = 0;
@@ -51,6 +52,7 @@ export class WorkspaceManager {
                 }
             }
 
+// !AI: MVP workflow gap: User is only shown a warning and implicitly uses the first config. Needs explicit selection mechanism.
             if (configCount > 1) {
                 vscode.window.showWarningMessage(
                     'Multiple .qdrant configurations detected. The extension will currently use the first valid one found.',
@@ -65,6 +67,7 @@ export class WorkspaceManager {
      */
     public getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
         const folders = vscode.workspace.workspaceFolders;
+// !AI: MVP scope gap: Simply returning the first folder. Need logic to determine the context-aware folder (e.g., based on active text document).
         if (!folders) return undefined;
         // Simple logic: return the first one for now
         return folders[0];

@@ -1,16 +1,22 @@
 import * as vscode from 'vscode';
-import { 
-    IpcMessage, 
-    SEARCH_METHOD, 
-    START_INDEX_METHOD, 
-    INDEX_STATUS_METHOD, 
+import {
+    IpcMessage,
+    SEARCH_METHOD,
+    START_INDEX_METHOD,
+    INDEX_STATUS_METHOD,
+    OPEN_FILE_METHOD,
+    LOAD_CONFIG_METHOD,
+    CONFIG_DATA_METHOD,
     SearchRequestParams,
-    Scope 
-} from './protocol';
-import { IndexingService } from '../services/IndexingService';
-import { WorkspaceManager } from '../services/WorkspaceManager';
+    OpenFileParams,
+    Scope
+} from './protocol.js'; // Fixed import extension
+import { IndexingService } from '../services/IndexingService.js';
+import { WorkspaceManager } from '../services/WorkspaceManager.js';
+import { ConfigService } from '../services/ConfigService.js';
 
 /**
+ * P2.1: Svelte Webview Setup and Hosting
  * Manages the Webview Panel (Sidebar) and handles IPC messaging.
  */
 export class WebviewController implements vscode.WebviewViewProvider {
@@ -20,7 +26,8 @@ export class WebviewController implements vscode.WebviewViewProvider {
     constructor(
         private readonly _extensionUri: vscode.Uri,
         private readonly _indexingService: IndexingService,
-        private readonly _workspaceManager: WorkspaceManager
+        private readonly _workspaceManager: WorkspaceManager,
+        private readonly _configService: ConfigService 
     ) {}
 
     public resolveWebviewView(
@@ -41,14 +48,24 @@ export class WebviewController implements vscode.WebviewViewProvider {
 
         // Listen for messages from the Webview (Guest)
         webviewView.webview.onDidReceiveMessage(async (data: IpcMessage) => {
+            // Security: Validate message scope
             if (data.scope !== Scope) return;
 
+            // Note: We cast data to 'any' here to access params because IpcMessage base type
+            // doesn't have params, but we know the methods imply specific subtypes.
+            // In a stricter implementation, we would use type guards.
             switch (data.method) {
                 case START_INDEX_METHOD:
                     await this.handleIndexRequest();
                     break;
                 case SEARCH_METHOD:
-                    await this.handleSearchRequest(data as any);
+                    await this.handleSearchRequest((data as any));
+                    break;
+                case OPEN_FILE_METHOD:
+                    await this.handleOpenFile((data as any));
+                    break;
+                case LOAD_CONFIG_METHOD:
+                    await this.handleLoadConfigRequest();
                     break;
                 default:
                     console.log(`Unknown message method: ${data.method}`);
@@ -60,17 +77,56 @@ export class WebviewController implements vscode.WebviewViewProvider {
         const folder = this._workspaceManager.getActiveWorkspaceFolder();
         if (folder) {
             this.sendNotification(INDEX_STATUS_METHOD, { status: 'indexing' });
-            await this._indexingService.indexWorkspace(folder);
-            this.sendNotification(INDEX_STATUS_METHOD, { status: 'ready' });
+            try {
+                await this._indexingService.indexWorkspace(folder);
+                this.sendNotification(INDEX_STATUS_METHOD, { status: 'ready' });
+            } catch (e) {
+                this.sendNotification(INDEX_STATUS_METHOD, { status: 'error', message: String(e) });
+            }
         } else {
             vscode.window.showErrorMessage('No active workspace folder to index.');
         }
     }
 
     private async handleSearchRequest(message: { params: SearchRequestParams }) {
-        // Mock response for P1
-        console.log(`Searching for: ${message.params.query}`);
-        // In P2, we will return real results via postMessage
+        if (!message.params || !message.params.query) return;
+        
+        try {
+            const results = await this._indexingService.search(message.params.query);
+            this.sendNotification(SEARCH_METHOD, { results });
+        } catch (error) {
+            console.error('Search error:', error);
+            this.sendNotification(SEARCH_METHOD, { results: [] });
+            vscode.window.showErrorMessage('Search failed. See output for details.');
+        }
+    }
+
+    private async handleLoadConfigRequest() {
+        const folder = this._workspaceManager.getActiveWorkspaceFolder();
+        if (folder) {
+            const config = await this._configService.loadConfig(folder);
+            this.sendNotification(CONFIG_DATA_METHOD, config || null);
+        } else {
+            this.sendNotification(CONFIG_DATA_METHOD, null);
+        }
+    }
+
+    private async handleOpenFile(message: { params: OpenFileParams }) {
+        const { uri, line } = message.params;
+        try {
+            const fileUri = uri.startsWith('/') || uri.match(/^[a-zA-Z]:/) 
+                ? vscode.Uri.file(uri) 
+                : vscode.Uri.parse(uri);
+
+            const doc = await vscode.workspace.openTextDocument(fileUri);
+            const editor = await vscode.window.showTextDocument(doc);
+            const position = new vscode.Position(Math.max(0, line - 1), 0);
+            editor.selection = new vscode.Selection(position, position);
+            editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+        } catch (error) {
+            console.error(`Failed to open file: ${uri}`, error);
+            vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
+        }
     }
 
     public sendNotification(method: string, params: any) {
@@ -87,6 +143,7 @@ export class WebviewController implements vscode.WebviewViewProvider {
     }
 
     private _getHtmlForWebview(webview: vscode.Webview) {
+        // P2.1: Hosting - loading bundled assets
         const scriptUri = webview.asWebviewUri(
             vscode.Uri.joinPath(this._extensionUri, 'out', 'webview', 'assets', 'index.js')
         );
@@ -99,6 +156,7 @@ export class WebviewController implements vscode.WebviewViewProvider {
             <head>
                 <meta charset="UTF-8">
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+                <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src ${webview.cspSource} 'unsafe-inline';">
                 <title>Qdrant Search</title>
                 <link href="${stylesUri}" rel="stylesheet">
             </head>

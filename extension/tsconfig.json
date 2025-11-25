@@ -19,12 +19,13 @@
     "moduleResolution": "Node16",
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
-    "types": ["vite/client", "node"],
+    "types": ["vite/client", "node", "svelte"],
     "ignoreDeprecations": "6.0"
   },
   "include": [
     "src/**/*",
     "vite.config.ts",
+    "svelte.config.js",
     "../shared/**/*"
   ],
   "exclude": [

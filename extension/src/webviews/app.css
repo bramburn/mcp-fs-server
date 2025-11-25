@@ -1,4 +1,5 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+// !AI: MVP assumes a configured Tailwind CSS build process handles these directives. For a design system integration, this setup needs to be explicitly documented or controlled via a dedicated theme file.
 

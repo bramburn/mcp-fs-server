@@ -71,3 +71,4 @@ export class ConfigService {
         }
     }
 }
+// !AI: MVP connection validation assumes authentication issues for Qdrant collection listing (401/403) are correctly handled later by IndexingService.
