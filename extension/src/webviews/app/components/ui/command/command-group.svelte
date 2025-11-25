@@ -40,7 +40,7 @@
   {#if heading}
     <div id={headingId} class="command-group-heading">{heading}</div>
   {/if}
-  {@render $$slots.default()}
+  <slot />
 </CommandPrimitive.Group>
 
 <style>

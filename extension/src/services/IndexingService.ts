@@ -85,6 +85,9 @@ export class IndexingService implements vscode.Disposable {
         this._isIndexing = true;
         this._cancellationTokenSource = new vscode.CancellationTokenSource();
         const token = this._cancellationTokenSource.token;
+        
+        // Track if operation was cancelled
+        let wasCancelled = false;
 
         try {
             this.notifyProgress({
@@ -164,6 +167,7 @@ export class IndexingService implements vscode.Disposable {
             for (const fileUri of files) {
                 // Check for cancellation before each file
                 if (token.isCancellationRequested) {
+                    wasCancelled = true;
                     throw new Error('Indexing cancelled');
                 }
 
@@ -183,24 +187,29 @@ export class IndexingService implements vscode.Disposable {
                     });
 
                 } catch (err) {
-                    // FIX: Re-throw cancellation errors so they are caught by the outer catch
+                    // Enhanced error handling for both cancellation and other errors
                     if (err instanceof Error && err.message === 'Indexing cancelled') {
+                        wasCancelled = true;
                         throw err;
                     }
                     if (token.isCancellationRequested) {
+                        wasCancelled = true;
                         throw new Error('Indexing cancelled');
                     }
                     console.error(`Failed to index file ${fileUri.fsPath}:`, err);
                 }
             }
 
-            this.notifyProgress({
-                current: processedCount,
-                total: files.length,
-                status: 'completed'
-            });
+            // Only show success message if not cancelled
+            if (!wasCancelled && !token.isCancellationRequested) {
+                this.notifyProgress({
+                    current: processedCount,
+                    total: files.length,
+                    status: 'completed'
+                });
 
-            vscode.window.showInformationMessage(`Indexed ${processedCount} files successfully to collection '${collectionName}'.`);
+                vscode.window.showInformationMessage(`Indexed ${processedCount} files successfully to collection '${collectionName}'.`);
+            }
 
         } catch (error) {
             if (error instanceof Error && error.message === 'Indexing cancelled') {
@@ -222,6 +231,16 @@ export class IndexingService implements vscode.Disposable {
         } finally {
             this._isIndexing = false;
             this._cancellationTokenSource = undefined;
+            
+            // If we were cancelled but didn't throw (edge case), handle it here
+            if (wasCancelled || token.isCancellationRequested) {
+                this.notifyProgress({
+                    current: 0,
+                    total: 0,
+                    status: 'cancelled'
+                });
+                vscode.window.showInformationMessage('Indexing was cancelled');
+            }
         }
     }
 

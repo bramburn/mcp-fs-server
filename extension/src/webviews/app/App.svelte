@@ -1,18 +1,17 @@
 <script lang="ts">
     // P2.2: Main App and Routing
     import { onMount } from 'svelte';
-    import { appState } from './store.svelte.ts';
+    import appState from './store.svelte.ts';
     import Search from './views/Search.svelte';
     import Settings from './views/Settings.svelte';
     import CommandPaletteTest from './components/CommandPaletteTest.svelte';
-    import { vscode, hostIpc } from './lib/vscode.ts';
+    import { hostIpc } from './lib/vscode.ts';
     import { setIpcContext } from './contexts/ipc';
     import {
         SEARCH_METHOD,
         INDEX_STATUS_METHOD,
         LOAD_CONFIG_METHOD,
-        CONFIG_DATA_METHOD,
-        Scope
+        CONFIG_DATA_METHOD
     } from '../protocol.ts';
     import type {
         IpcMessage,
@@ -27,14 +26,14 @@
         setIpcContext(hostIpc);
         
         // Initial Data Fetch
-        vscode.postMessage(LOAD_CONFIG_METHOD, {}, 'request');
+        hostIpc.sendRequest(LOAD_CONFIG_METHOD, 'webview-mgmt', {});
 
         // Listen for messages from the Extension Host
         const handleMessage = (event: MessageEvent) => {
             const message = event.data as IpcMessage;
 
             // Security: Validate origin/scope
-            if (message.scope !== Scope) return;
+            if (message.scope !== 'webview-mgmt') return;
 
             // Fixed: Type guard to safely access params
             // We assume backend messages with payloads are Notifications for these methods
@@ -45,19 +44,22 @@
                     case SEARCH_METHOD:
                         if (notification.params) {
                             const params = notification.params as SearchResponseParams;
-                            appState.setResults(params.results || []);
+                            appState.searchResults = params.results || [];
                         }
                         break;
-                    
+
                     case INDEX_STATUS_METHOD:
                         if (notification.params) {
                             const params = notification.params as IndexStatusParams;
-                            appState.setIndexStatus(params.status);
+                            appState.indexStatus = params.status;
+                            if (params.progress !== undefined) {
+                                appState.indexProgress = params.progress;
+                            }
                         }
                         break;
-                    
+
                     case CONFIG_DATA_METHOD:
-                        appState.setConfig(notification.params as QdrantOllamaConfig | null);
+                        appState.config = (notification.params as QdrantOllamaConfig | null) || undefined;
                         break;
                 }
             }

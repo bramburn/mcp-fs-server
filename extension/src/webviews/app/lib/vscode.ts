@@ -9,7 +9,7 @@ interface VsCodeApi<T = unknown> {
   setState(state: T): void;
 }
 
-const vscode = acquireVsCodeApi();
+export const vscode = acquireVsCodeApi();
 
 // Map to store pending request callbacks
 const pendingRequests = new Map<string, { resolve: (value: any) => void; reject: (reason?: any) => void }>();
