@@ -8,15 +8,24 @@
       "DOM"
     ],
     "sourceMap": true,
-    "rootDir": "src",
+    "rootDir": "..",
+    "baseUrl": "..",
+    "paths": {
+        "shared/*": ["packages/shared/*"]
+    },
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "strict": true,
     "moduleResolution": "Node16",
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
-    "types": ["vite/client", "node"] 
+    "types": ["vite/client", "node"],
+    "ignoreDeprecations": "6.0"
   },
   "include": [
-    "src/**/*"
+    "src/**/*",
+    "vite.config.ts",
+    "../shared/**/*"
   ],
   "exclude": [
     "node_modules",

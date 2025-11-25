@@ -1,28 +1,25 @@
-import * as vscode from 'vscode';
+import * as vscode from 'vscode'; // eslint-disable-line no-unused-vars
 import { ConfigService } from './ConfigService.js';
 import { QdrantOllamaConfig } from '../webviews/protocol.js';
-import * as crypto from 'crypto';
-
-interface Chunk {
-    id: string; // UUID
-    content: string;
-    lineStart: number;
-    lineEnd: number;
-    filePath: string;
-}
+import { QdrantClient } from '@qdrant/js-client-rest'; // eslint-disable-line no-unused-vars
+import { CodeSplitter } from 'shared/code-splitter.js';
 
 /**
  * Core service to handle file indexing and interaction with Qdrant/Ollama.
- * Implements actual vector logic and API calls.
+ * Refactored to use shared chunking logic.
  */
 export class IndexingService {
     private _isIndexing = false;
-    private _client: any | null = null;
+    private _client: QdrantClient | null = null;
     private _activeConfig: QdrantOllamaConfig | null = null;
+    private _splitter: CodeSplitter;
 
     constructor(
-        private readonly _configService: ConfigService
-    ) {}
+        private readonly _configService: ConfigService,
+        private readonly _context: vscode.ExtensionContext
+    ) {
+        this._splitter = new CodeSplitter();
+    }
 
     /**
      * Triggers the indexing process for the given workspace folder.
@@ -39,7 +36,7 @@ export class IndexingService {
             return;
         }
         
-        // P1.2: Validate connections before starting heavy work
+        // Validate connections before starting heavy work
         const isHealthy = await this._configService.validateConnection(config);
         if (!isHealthy) {
             vscode.window.showErrorMessage('Could not connect to Qdrant or Ollama. Check your configuration and ensure services are running.');
@@ -48,12 +45,19 @@ export class IndexingService {
 
         this._isIndexing = true;
         this._activeConfig = config;
-        const qdrantModule = await import('@qdrant/js-client-rest');
-        const QdrantClient = qdrantModule.QdrantClient;
         this._client = new QdrantClient({
             url: config.qdrant_config.url,
             apiKey: config.qdrant_config.api_key,
         });
+
+        // Initialize Splitter with WASM paths
+        try {
+            const wasmPath = vscode.Uri.joinPath(this._context.extensionUri, 'resources', 'tree-sitter.wasm').fsPath;
+            const langPath = vscode.Uri.joinPath(this._context.extensionUri, 'resources', 'tree-sitter-typescript.wasm').fsPath;
+            await this._splitter.initialize(wasmPath, langPath);
+        } catch (e) {
+            console.warn('Failed to init splitter WASM (falling back to line split):', e);
+        }
 
         vscode.window.setStatusBarMessage('$(sync~spin) Qdrant: Indexing...', 3000);
 
@@ -61,19 +65,18 @@ export class IndexingService {
             const collectionName = config.index_info?.name || 'codebase';
             
             // Ensure Collection Exists
-            await this.ensureCollection(collectionName, 768); // Assuming 768 dim for nomic-embed-text/nomic-embed-text-v1.5
+            await this.ensureCollection(collectionName, 768); 
 
             // Find files
             const excludePattern = new vscode.RelativePattern(folder, '**/{node_modules,.git,out,dist,build,.svelte-kit}/**');
             const files = await vscode.workspace.findFiles(
                 new vscode.RelativePattern(folder, '**/*.{ts,js,svelte,json,md,txt,html,css}'),
                 excludePattern,
-                500 // Safety limit for P1
+                500 
             );
 
             let processedCount = 0;
             
-            // Process files in batches to avoid overwhelming Ollama
             for (const fileUri of files) {
                 try {
                     const content = await vscode.workspace.fs.readFile(fileUri);
@@ -102,7 +105,7 @@ export class IndexingService {
         
         try {
             const collections = await this._client.getCollections();
-            const exists = collections.collections.some((c: any) => c.name === name);
+            const exists = collections.collections.some(c => c.name === name);
             
             if (!exists) {
                 await this._client.createCollection(name, {
@@ -122,7 +125,9 @@ export class IndexingService {
      * Breaks file content into chunks, embeds them, and uploads to Qdrant.
      */
     private async indexFile(collectionName: string, filePath: string, content: string) {
-        const chunks = this.chunkFile(content, filePath);
+        // Use the shared splitter logic
+        const chunks = this._splitter.split(content, filePath);
+        
         if (chunks.length === 0) return;
 
         const points = [];
@@ -150,38 +155,6 @@ export class IndexingService {
         }
     }
 
-    /**
-     * Simple sliding window chunker for P1.
-     * Can be improved with AST parsing in future.
-     */
-    private chunkFile(content: string, filePath: string): Chunk[] {
-        const lines = content.split('\n');
-        const chunks: Chunk[] = [];
-        const CHUNK_SIZE = 20; // lines
-        const OVERLAP = 5;
-
-        for (let i = 0; i < lines.length; i += (CHUNK_SIZE - OVERLAP)) {
-            const end = Math.min(i + CHUNK_SIZE, lines.length);
-            const chunkLines = lines.slice(i, end);
-            const chunkText = chunkLines.join('\n').trim();
-
-            if (chunkText.length > 10) { // Skip tiny chunks
-                chunks.push({
-                    id: crypto.randomUUID(),
-                    content: chunkText,
-                    lineStart: i + 1,
-                    lineEnd: end,
-                    filePath: filePath
-                });
-            }
-        }
-
-        return chunks;
-    }
-
-    /**
-     * Calls Ollama API to get embeddings.
-     */
     private async generateEmbedding(text: string): Promise<number[] | null> {
         if (!this._activeConfig) return null;
 
@@ -210,7 +183,6 @@ export class IndexingService {
     }
 
     public async search(query: string): Promise<any[]> {
-        // Stub for P2 usage
         return [];
     }
 }

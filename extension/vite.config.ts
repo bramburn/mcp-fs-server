@@ -4,7 +4,7 @@ import path from 'path';
 
 // P0.2: Configure Build System for Svelte Webview
 export default defineConfig({
-  plugins: [svelte()],
+  plugins: [svelte({ compilerOptions: { emitCss: false } })],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/webviews'),
