@@ -11,7 +11,10 @@
     "rootDir": "..",
     
     "paths": {
-        "shared/*": ["../packages/shared/*"]
+        "$lib": ["./src/lib"],
+        "$lib/*": ["./src/lib/*"],
+        "shared/*": ["../packages/shared/*"],
+        "$app/*": ["./src/webviews/app/*"]
     },
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,

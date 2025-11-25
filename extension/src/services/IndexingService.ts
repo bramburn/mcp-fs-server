@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { ConfigService } from './ConfigService.ts';
-import { QdrantOllamaConfig } from '../webviews/protocol.ts';
+import { ConfigService } from './ConfigService.js';
+import { QdrantOllamaConfig } from '../webviews/protocol.js';
 import { QdrantClient } from '@qdrant/js-client-rest';
 // !AI: MVP assumption: The shared code splitter logic (which might use WASM) is robust and handles context splitting optimally for all target languages.
 import { CodeSplitter } from 'shared/code-splitter.js';

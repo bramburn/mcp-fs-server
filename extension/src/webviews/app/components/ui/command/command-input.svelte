@@ -1,0 +1,31 @@
+<script lang="ts">
+  import { Command as CommandPrimitive } from "cmdk-sv";
+  import type { CommandInputEvents } from "cmdk-sv";
+  import type { HTMLAttributes } from "svelte/elements";
+  import { cn } from "../../../lib/utils.js";
+
+  type $$Props = HTMLAttributes<HTMLInputElement>;
+
+  type $$Events = CommandInputEvents;
+
+  let className: $$Props["class"] = undefined;
+  export { className as class };
+  export let value: string = "";
+</script>
+
+<div class="flex items-center border-b px-3" data-cmdk-input-wrapper="">
+  <CommandPrimitive.Input
+    bind:value
+    class={cn(
+      "flex h-11 w-full rounded-md bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-50",
+      className
+    )}
+    {...$$restProps}
+    on:input
+    on:keydown
+    on:keypress
+    on:focus
+    on:blur
+    on:click
+  />
+</div>

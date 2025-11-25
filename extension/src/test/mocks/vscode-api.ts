@@ -238,7 +238,7 @@ export const vscode = {
   },
   ExtensionContext: mockExtensionContext,
   TreeItem: class TreeItem {
-    collapsibleState?: any;
+    collapsibleState: any;
     tooltip?: string;
     description?: string;
     command?: { command: string; title: string };
@@ -290,7 +290,7 @@ export const vscode = {
     }
   },
   CompletionItem: class CompletionItem {
-    kind?: any;
+    kind: any;
 
     constructor(public label: string, kind?: any) {
       this.kind = kind;
@@ -304,7 +304,7 @@ export const vscode = {
     Constant: 21, Struct: 22, Event: 23, Operator: 24, TypeParameter: 25
   },
   CodeAction: class CodeAction {
-    kind?: any;
+    kind: any;
 
     constructor(public title: string, kind?: any) {
       this.kind = kind;
@@ -322,7 +322,7 @@ export const vscode = {
   },
   Diagnostic: class Diagnostic {
     message: string;
-    severity?: any;
+    severity: any;
     source?: string;
     code?: string | number;
     relatedInformation?: any[];
@@ -343,7 +343,7 @@ export const vscode = {
     constructor(public uri: any, public range: any) {}
   },
   CodeLens: class CodeLens {
-    command?: { command: string; title: string };
+    command: { command: string; title: string } | undefined;
 
     constructor(public range: any, command?: { command: string; title: string }) {
       this.command = command;
@@ -370,7 +370,10 @@ global.acquireVsCodeApi = vi.fn(() => ({
 if (!global.crypto) {
   global.crypto = {} as any;
 }
-global.crypto.randomUUID = vi.fn(() => 'test-uuid-' + Math.random().toString(36).substr(2, 9)) as any;
+global.crypto.randomUUID = vi.fn(() => {
+  const uuid = 'test-uuid-' + Math.random().toString(36).substr(2, 9);
+  return uuid as `${string}-${string}-${string}-${string}-${string}`;
+}) as any;
 
 // Mock fetch for API calls
 global.fetch = vi.fn();

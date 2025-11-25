@@ -3,18 +3,17 @@
     import { appState } from '../store.svelte.ts';
     import { vscode } from '../lib/vscode.ts';
     import { START_INDEX_METHOD, LOAD_CONFIG_METHOD } from '../../protocol.ts';
+    
+    // Import shadcn components
+    import { Button } from '../components/ui/button/button.svelte';
     import SettingsIcon from 'lucide-svelte/icons/settings';
     import ChevronLeft from 'lucide-svelte/icons/chevron-left';
 
-    // We use derived state from appState instead of local mocked loading
     let loading = false; 
 
     async function refreshConfig() {
         loading = true;
         vscode.postMessage(LOAD_CONFIG_METHOD, {}, 'request');
-        
-        // Simple timeout to reset loading state since we don't have a direct promise ack here
-        // In a perfect world, we'd use a request ID mapping.
         setTimeout(() => {
             loading = false;
         }, 1000);
@@ -32,7 +31,6 @@
         appState.setView('search');
     }
 
-    // Attempt to load if missing on mount
     onMount(() => {
         if (!appState.config) {
              refreshConfig();
@@ -44,13 +42,9 @@
     <!-- Header -->
     <div class="sticky top-0 z-10 border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <div class="flex items-center gap-3 p-4">
-            <button
-                onclick={goBack}
-                class="p-1 hover:bg-secondary/50 rounded transition-colors"
-                title="Back to search"
-            >
+            <Button variant="ghost" size="icon" on:click={goBack} class="p-1" title="Back to search">
                 <ChevronLeft class="w-5 h-5" />
-            </button>
+            </Button>
             <div class="flex items-center gap-2">
                 <SettingsIcon class="w-5 h-5 text-primary" />
                 <h2 class="text-sm font-semibold tracking-tight">Settings</h2>
@@ -65,7 +59,9 @@
             <div class="flex flex-col gap-3">
                 <div class="flex items-center justify-between">
                     <h3 class="text-sm font-semibold text-foreground/90">Configuration</h3>
-                    <button onclick={refreshConfig} class="text-xs text-primary hover:underline">Refresh</button>
+                    <Button variant="link" size="sm" on:click={refreshConfig} class="text-xs p-0 h-auto">
+                        Refresh
+                    </Button>
                 </div>
                 
                 {#if loading && !appState.config}
@@ -87,20 +83,17 @@
             <div class="flex flex-col gap-3">
                 <h3 class="text-sm font-semibold text-foreground/90">Actions</h3>
                 
-                <button
-                    onclick={handleOpenSettings}
-                    class="w-full px-3 py-2 bg-secondary/30 hover:bg-secondary/50 border border-border/50 rounded text-sm transition-colors text-left"
-                >
+                <Button variant="outline" on:click={handleOpenSettings} class="w-full justify-start">
                     Open Workspace Settings
-                </button>
+                </Button>
 
-                <button
-                    onclick={handleReindex}
+                <Button 
+                    on:click={handleReindex}
                     disabled={appState.indexStatus === 'indexing'}
-                    class="w-full px-3 py-2 bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50 rounded text-sm transition-colors disabled:cursor-not-allowed"
+                    class="w-full"
                 >
                     {appState.indexStatus === 'indexing' ? 'Indexing...' : 'Force Re-index'}
-                </button>
+                </Button>
             </div>
 
             <!-- Status Section -->
