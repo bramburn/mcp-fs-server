@@ -5,8 +5,8 @@
     "version": "1.0"
   },
   "qdrant_config": {
-    "url": "https://qdrant.icelabz.co.uk", 
-    "api_key": "V5A+DBkRGFh2oUzlZLOLbW0DMLO0X2J9" 
+    "url": "http://localhost:6333", 
+    "api_key": "" 
   },
   "ollama_config": {
     "base_url": "http://localhost:11434",

@@ -28,6 +28,8 @@
     "glob": "^11.1.0",
     "ignore": "^6.0.2",
     "node-fetch": "^3.3.2",
+    "ollama": "^0.6.3",
+    "posthog-node": "^5.14.0",
     "web-tree-sitter": "^0.22.6",
     "zod": "^3.25.76"
   },

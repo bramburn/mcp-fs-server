@@ -246,24 +246,25 @@ export function initializeServices(context: vscode.ExtensionContext): void {
     dispose: (svc) => svc.dispose()
   });
 
-  // Phase 2: Register IndexingService (depends on ConfigService)
-  container.register('IndexingService', (c) =>
-    new IndexingService(
-      c.get('ConfigService'),
-      c.context
-    ),
-    {
-      lifetime: ServiceLifetime.Singleton,
-      dispose: (svc) => svc.dispose?.()
-    }
-  );
-
-  // Phase 3: Register AnalyticsService (no dependencies on other services)
+  // Phase 2: Register AnalyticsService (no dependencies on other services)
   container.register('AnalyticsService', (c) =>
     new AnalyticsService(c.context),
     {
       lifetime: ServiceLifetime.Singleton,
       dispose: (svc) => svc.dispose()
+    }
+  );
+
+  // Phase 3: Register IndexingService (depends on ConfigService, AnalyticsService)
+  container.register('IndexingService', (c) =>
+    new IndexingService(
+      c.get('ConfigService'),
+      c.context,
+      c.get('AnalyticsService')
+    ),
+    {
+      lifetime: ServiceLifetime.Singleton,
+      dispose: (svc) => svc.dispose?.()
     }
   );
 

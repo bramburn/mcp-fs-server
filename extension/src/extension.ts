@@ -13,13 +13,15 @@ export async function activate(context: vscode.ExtensionContext) {
         const configService = useService('ConfigService');
         const indexingService = useService('IndexingService');
         const workspaceManager = useService('WorkspaceManager');
+        const analyticsService = useService('AnalyticsService');
 
         // Create webview controller
         const webviewController = new WebviewController(
             context.extensionUri,
             indexingService,
             workspaceManager,
-            configService
+            configService,
+            analyticsService
         );
 
         // Register webview provider FIRST and SYNCHRONOUSLY before any other operations
@@ -50,28 +52,46 @@ export async function activate(context: vscode.ExtensionContext) {
         // Register commands
         context.subscriptions.push(
             vscode.commands.registerCommand('qdrant.index.start', async () => {
+                analyticsService.trackCommand('qdrant.index.start');
+
                 const folder = workspaceManager.getActiveWorkspaceFolder();
                 if (!folder) {
                     vscode.window.showErrorMessage('No workspace folder found');
+                    analyticsService.trackError('no_workspace_folder', 'qdrant.index.start');
                     return;
                 }
 
                 // Update status
                 statusBarItem.text = "$(sync~spin) Qdrant: Indexing...";
+                const startTime = Date.now();
 
                 try {
                     await indexingService.startIndexing(folder);
+                    const duration = Date.now() - startTime;
                     statusBarItem.text = "$(database) Qdrant: Ready";
                     vscode.window.showInformationMessage('Workspace indexed successfully!');
+
+                    analyticsService.trackIndexing({
+                        duration,
+                        success: true
+                    });
                 } catch (error) {
+                    const duration = Date.now() - startTime;
                     statusBarItem.text = "$(database) Qdrant: Error";
                     vscode.window.showErrorMessage(`Indexing failed: ${error}`);
+
+                    analyticsService.trackIndexing({
+                        duration,
+                        success: false
+                    });
+                    analyticsService.trackError('indexing_failed', 'qdrant.index.start');
                 }
             })
         );
 
         context.subscriptions.push(
             vscode.commands.registerCommand('qdrant.openSettings', () => {
+                analyticsService.trackCommand('qdrant.openSettings');
                 vscode.commands.executeCommand('workbench.action.openSettings', 'qdrant');
             })
         );

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SemanticWatcher } from './index.js';
+import { AnalyticsService } from './analytics.js';
 
 // --- Mocks ---
 
@@ -87,7 +88,18 @@ describe('SemanticWatcher', () => {
       get: vi.fn(),
     });
 
-    watcher = new SemanticWatcher();
+    // Create mock AnalyticsService
+    const mockAnalyticsService = {
+      trackEvent: vi.fn(),
+      trackToolUse: vi.fn(),
+      trackFileIndexed: vi.fn(),
+      trackSearchPerformed: vi.fn(),
+      trackConnection: vi.fn(),
+      trackError: vi.fn(),
+      dispose: vi.fn()
+    } as any;
+
+    watcher = new SemanticWatcher(mockAnalyticsService);
   });
 
   describe('Initialization', () => {

@@ -25,6 +25,7 @@ import {
 import { IndexingService } from "../services/IndexingService.js";
 import { WorkspaceManager } from "../services/WorkspaceManager.js";
 import { ConfigService } from "../services/ConfigService.js";
+import { AnalyticsService } from "../services/AnalyticsService.js";
 
 /**
  * Generate a cryptographically random nonce for CSP
@@ -54,7 +55,8 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
     private readonly _extensionUri: vscode.Uri,
     private readonly _indexingService: IndexingService,
     private readonly _workspaceManager: WorkspaceManager,
-    private readonly _configService: ConfigService
+    private readonly _configService: ConfigService,
+    private readonly _analyticsService: AnalyticsService
   ) {}
 
   public dispose() {
@@ -74,6 +76,9 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
     try {
       this._view = webviewView;
 
+      // Track page view when webview is resolved
+      this._analyticsService.trackPageView('search_view');
+
       // 5. Context Keys: Set visible context key on view creation
       vscode.commands.executeCommand('setContext', 'qdrant.searchView.visible', true);
 
@@ -90,7 +95,26 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
         ],
       };
 
-      webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+      try {
+        webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+      } catch (error) {
+        console.error('Failed to generate webview HTML:', error);
+        this._analyticsService.trackError('webview_html_generation_failed', 'resolveWebviewView');
+
+        // Fallback HTML with error message
+        webviewView.webview.html = `
+          <html>
+            <body style="padding: 20px; font-family: sans-serif;">
+              <h3>Failed to load Qdrant Search</h3>
+              <p>There was an error loading the webview. Please try restarting the extension.</p>
+              <details>
+                <summary>Error Details</summary>
+                <pre>${String(error)}</pre>
+              </details>
+            </body>
+          </html>
+        `;
+      }
 
       // Listen for messages from the Webview (Guest)
       const listener = webviewView.webview.onDidReceiveMessage(
@@ -122,6 +146,7 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
       this._disposables.push(listener);
     } catch (error) {
       console.error('Error resolving webview view:', error);
+      this._analyticsService.trackError('webview_resolution_failed', 'resolveWebviewView');
       vscode.window.showErrorMessage(`Failed to initialize Qdrant search view: ${error instanceof Error ? error.message : String(error)}`);
     }
   }
@@ -219,7 +244,15 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
     }
 
     try {
-      const results = await this._indexingService.search(request.params.query);
+      const query = request.params.query;
+      const results = await this._indexingService.search(query);
+
+      // Track search analytics
+      this._analyticsService.trackSearch({
+        queryLength: query.length,
+        resultsCount: results?.length || 0
+      });
+
       return {
           kind: 'response',
           scope: request.scope,
@@ -230,6 +263,10 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
       };
     } catch (error) {
       console.error("Search error:", error);
+
+      // Track search error
+      this._analyticsService.trackError('search_failed', 'handleSearchRequest');
+
       return {
           kind: 'response',
           scope: request.scope,
@@ -290,6 +327,11 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
   }
 
   private handleDidChangeConfiguration(notification: DidChangeConfigurationNotification) {
+    // Track configuration changes
+    this._analyticsService.trackEvent('settings_changed', {
+      configKey: notification.params.configKey
+    });
+
     // Placeholder for logic to react to configuration changes (e.g., reloading a service)
     console.log(`Configuration changed for key: ${notification.params.configKey}`);
   }
