@@ -75,6 +75,7 @@
     "@qdrant/js-client-rest": "^1.16.1",
     "clsx": "^2.1.1",
     "lucide-svelte": "^0.554.0",
+    "posthog-node": "^5.14.0",
     "svelte-radix": "^1.1.1"
   },
   "devDependencies": {

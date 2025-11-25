@@ -1,0 +1,15 @@
+{
+  "$schema": "../extension/schemas/qdrant-config.schema.json",
+  "index_info": {
+    "name": "my-project-index-2",
+    "version": "1.0"
+  },
+  "qdrant_config": {
+    "url": "https://qdrant.icelabz.co.uk", 
+    "api_key": "V5A+DBkRGFh2oUzlZLOLbW0DMLO0X2J9" 
+  },
+  "ollama_config": {
+    "base_url": "http://localhost:11434",
+    "model": "nomic-embed-text" 
+  }
+}

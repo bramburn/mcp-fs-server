@@ -70,55 +70,60 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
     webviewView: vscode.WebviewView,
     context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
-  ) {
-    this._view = webviewView;
+  ): void {
+    try {
+      this._view = webviewView;
 
-    // 5. Context Keys: Set visible context key on view creation
-    vscode.commands.executeCommand('setContext', 'qdrant.searchView.visible', true);
+      // 5. Context Keys: Set visible context key on view creation
+      vscode.commands.executeCommand('setContext', 'qdrant.searchView.visible', true);
 
-    // Correctly handle webview visibility changes
-    webviewView.onDidChangeVisibility(() => {
-        this._isViewVisible = webviewView.visible;
-        vscode.commands.executeCommand('setContext', 'qdrant.searchView.focused', webviewView.visible); // Assuming focused when visible
-    });
+      // Correctly handle webview visibility changes
+      webviewView.onDidChangeVisibility(() => {
+          this._isViewVisible = webviewView.visible;
+          vscode.commands.executeCommand('setContext', 'qdrant.searchView.focused', webviewView.visible); // Assuming focused when visible
+      });
 
-    webviewView.webview.options = {
-      enableScripts: true,
-      localResourceRoots: [
-        vscode.Uri.joinPath(this._extensionUri, "out", "webview"),
-      ],
-    };
+      webviewView.webview.options = {
+        enableScripts: true,
+        localResourceRoots: [
+          vscode.Uri.joinPath(this._extensionUri, "out", "webview"),
+        ],
+      };
 
-    webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+      webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
 
-    // Listen for messages from the Webview (Guest)
-    const listener = webviewView.webview.onDidReceiveMessage(
-      async (data: IpcMessage) => {
-        // Security: Validate message scope
-        // IpcScope is a union type, direct Object.values() won't work.
-        // Instead, we ensure the data.scope is one of the valid literal strings.
-        const validScopes: IpcScope[] = ['qdrantIndex', 'webview-mgmt'];
-        if (!validScopes.includes(data.scope)) {
-            console.warn(`Received message with unknown scope: ${data.scope}`);
-            return;
-        }
+      // Listen for messages from the Webview (Guest)
+      const listener = webviewView.webview.onDidReceiveMessage(
+        async (data: IpcMessage) => {
+          // Security: Validate message scope
+          // IpcScope is a union type, direct Object.values() won't work.
+          // Instead, we ensure the data.scope is one of the valid literal strings.
+          const validScopes: IpcScope[] = ['qdrantIndex', 'webview-mgmt'];
+          if (!validScopes.includes(data.scope)) {
+              console.warn(`Received message with unknown scope: ${data.scope}`);
+              return;
+          }
 
-        // 5. IPC Handler: Use type guards for stricter handling
-        if (data.kind === 'command') {
-            await this.handleCommand(data as IpcCommand<any>);
-        } else if (data.kind === 'request') {
-            await this.handleRequest(data as IpcRequest<any>);
-        } else if (data.kind === 'notification') {
-            await this.handleNotification(data as IpcNotification<any>);
-        }
-        // Responses are typically handled by caller logic, not controller here
-      },
-      undefined,
-      this._disposables
-    );
+          // 5. IPC Handler: Use type guards for stricter handling
+          if (data.kind === 'command') {
+              await this.handleCommand(data as IpcCommand<any>);
+          } else if (data.kind === 'request') {
+              await this.handleRequest(data as IpcRequest<any>);
+          } else if (data.kind === 'notification') {
+              await this.handleNotification(data as IpcNotification<any>);
+          }
+          // Responses are typically handled by caller logic, not controller here
+        },
+        undefined,
+        this._disposables
+      );
 
-    // Add listeners/disposables here
-    this._disposables.push(listener);
+      // Add listeners/disposables here
+      this._disposables.push(listener);
+    } catch (error) {
+      console.error('Error resolving webview view:', error);
+      vscode.window.showErrorMessage(`Failed to initialize Qdrant search view: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   // --- IPC Handlers ---
