@@ -32,7 +32,7 @@ export class ConfigService implements vscode.Disposable {
 
     private _deepClone<T>(obj: T): T {
         // Use JSON methods for reliable deep cloning of JSON-safe objects to ensure immutability.
-        // This is a standard and safe way for configuration objects.
+        if (obj === undefined || obj === null) return obj;
         return JSON.parse(JSON.stringify(obj)) as T;
     }
 
@@ -43,7 +43,7 @@ export class ConfigService implements vscode.Disposable {
         // Validate the loaded configuration
         if (!ConfigurationFactory.validate(this._config)) {
             console.warn('Invalid configuration detected, falling back to defaults');
-            this._config = DefaultConfiguration;
+            this._config = this._deepClone(DefaultConfiguration);
         }
     }
 
@@ -68,13 +68,13 @@ export class ConfigService implements vscode.Disposable {
         }
 
         if (shouldReload) {
-            const oldConfig = { ...this._config };
+            const oldConfig = this._deepClone(this._config);
             this.loadConfiguration();
             
             // Notify listeners of the configuration change
             const event: ConfigurationChangeEvent = {
                 section: changedSection,
-                value: this._config
+                value: this.config // Use getter to pass clone
             };
 
             this._listeners.forEach(listener => {
@@ -122,7 +122,7 @@ export class ConfigService implements vscode.Disposable {
             config.ollama_config.base_url = config.ollama_config.base_url.replace(/\/$/, "");
 
             this._qdrantConfig = config;
-            return config;
+            return this._deepClone(config);
 
         } catch (error) {
             console.warn(`Could not load config from ${folder.name}:`, error);
@@ -157,7 +157,7 @@ export class ConfigService implements vscode.Disposable {
      * Get the current VS Code configuration
      */
     public get config(): Configuration {
-        // Use the deep clone helper to ensure immutability
+        // Explicitly clone to ensure immutability
         return this._deepClone(this._config); 
     }
 
@@ -166,7 +166,7 @@ export class ConfigService implements vscode.Disposable {
      */
     public get qdrantConfig(): QdrantOllamaConfig | null {
         // Use the deep clone helper to ensure immutability
-        return this._qdrantConfig ? this._deepClone(this._qdrantConfig) : null;
+        return this._deepClone(this._qdrantConfig);
     }
 
     /**
@@ -191,7 +191,7 @@ export class ConfigService implements vscode.Disposable {
      */
     public get<T>(key: string): T {
         const keys = key.split('.');
-        let value: any = this._config;
+        let value: any = this._deepClone(this._config);
         
         for (const k of keys) {
             if (value && typeof value === 'object' && k in value) {

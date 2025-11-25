@@ -33,5 +33,4 @@
   )}
   {...rest}
 >
-  <slot />
 </ButtonPrimitive>

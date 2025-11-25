@@ -70,7 +70,7 @@
   onblur
   {...rest}
 >
-  <slot />
+  {@render $$slots.default()}
 </CommandPrimitive.Item>
 
 <style>

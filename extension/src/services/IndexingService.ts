@@ -183,6 +183,13 @@ export class IndexingService implements vscode.Disposable {
                     });
 
                 } catch (err) {
+                    // FIX: Re-throw cancellation errors so they are caught by the outer catch
+                    if (err instanceof Error && err.message === 'Indexing cancelled') {
+                        throw err;
+                    }
+                    if (token.isCancellationRequested) {
+                        throw new Error('Indexing cancelled');
+                    }
                     console.error(`Failed to index file ${fileUri.fsPath}:`, err);
                 }
             }

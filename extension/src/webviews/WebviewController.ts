@@ -154,7 +154,7 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
         response = { // Send error response for unknown request
             kind: 'response',
             scope: request.scope,
-            id: vscode.env.createUuid(),
+            id: crypto.randomUUID(),
             responseId: request.id,
             timestamp: Date.now(),
             error: `Unknown request method: ${request.method}`
@@ -206,7 +206,7 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
         return {
             kind: 'response',
             scope: request.scope,
-            id: vscode.env.createUuid(),
+            id: crypto.randomUUID(),
             responseId: request.id,
             timestamp: Date.now(),
             error: "Missing search query."
@@ -218,7 +218,7 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
       return {
           kind: 'response',
           scope: request.scope,
-          id: vscode.env.createUuid(),
+          id: crypto.randomUUID(),
           responseId: request.id,
           timestamp: Date.now(),
           data: { results }
@@ -246,7 +246,7 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
     return {
       kind: 'response',
       scope: request.scope,
-      id: vscode.env.createUuid(),
+      id: crypto.randomUUID(),
       responseId: request.id,
       timestamp: Date.now(),
       data: config || null
@@ -295,7 +295,7 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
     if (this._view) {
       this._view.webview.postMessage({
         scope: 'qdrantIndex', // Explicitly cast to IpcScope if necessary, or ensure 'qdrantIndex' is within the union
-        id: vscode.env.createUuid(),
+        id: crypto.randomUUID(),
         method: method,
         kind: "notification",
         params: params,
