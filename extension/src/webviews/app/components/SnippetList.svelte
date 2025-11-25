@@ -4,8 +4,8 @@
     import { vscode } from '../lib/vscode.ts';
     import { OPEN_FILE_METHOD } from '../../protocol.ts';
     
-    // Fix: Import Command directly from the main 'bits-ui' package
-    import { Command } from 'bits-ui';
+    // FIX: Import Command components as a namespace
+    import * as Command from 'bits-ui/command';
     
     import FileCode from 'lucide-svelte/icons/file-code';
     import CornerDownRight from 'lucide-svelte/icons/corner-down-right';
@@ -15,8 +15,9 @@
         vscode.postMessage(OPEN_FILE_METHOD, { uri, line }, 'command');
     }
 
-    // Safe access for results
-    let results = $derived(appState.results || []);
+    // FIX: Replace $derived with standard reactive statement
+    let results = [];
+    $: results = appState.results || [];
 </script>
 
 <div class="flex flex-col gap-1 w-full">

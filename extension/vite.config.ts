@@ -5,8 +5,6 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// P0.2: Configure Build System for Svelte Webview
-// Fixed: Ensure compatibility with Vite 5.x and Svelte 5
 export default defineConfig({
   plugins: [
     svelte({
@@ -16,23 +14,26 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src/webviews'),
+      'shared': path.resolve(__dirname, '../packages/shared')
     },
   },
   build: {
-    // Output compiled webview assets to 'out/webview'
     outDir: 'out/webview',
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        // Entry point for the webview
         index: path.resolve(__dirname, 'src/webviews/index.html'),
       },
       output: {
-        // Ensure predictable filenames for VS Code to load
-        entryFileNames: 'assets/[name].js',
-        chunkFileNames: 'assets/[name].js',
-        assetFileNames: 'assets/[name].[ext]',
+        // Use hash-based filenames for security and cache busting
+        entryFileNames: 'assets/[name].[hash].js',
+        chunkFileNames: 'assets/[name].[hash].js',
+        assetFileNames: 'assets/[name].[hash].[ext]',
       },
     },
   },
+  server: {
+    // Disable HMR client for VS Code webview
+    hmr: false
+  }
 });

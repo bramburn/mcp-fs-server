@@ -1,5 +1,5 @@
 import * as vscode from 'vscode';
-import { QdrantOllamaConfig } from '../webviews/protocol';
+import { QdrantOllamaConfig } from '../webviews/protocol.js';
 
 /**
  * Responsible for reading and validating the .qdrant/configuration.json file

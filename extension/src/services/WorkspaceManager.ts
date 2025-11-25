@@ -1,6 +1,6 @@
 import * as vscode from 'vscode';
-import { ConfigService } from './ConfigService';
-import { IndexingService } from './IndexingService';
+import { ConfigService } from './ConfigService.js';
+import { IndexingService } from './IndexingService.js';
 
 /**
  * Manages the workspace context, specifically handling multi-root workspaces

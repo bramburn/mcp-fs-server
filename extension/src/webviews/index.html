@@ -2,12 +2,19 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" /> <!-- !AI: Assumes Vite correctly resolves assets to root path. MVP context requires checking if this path is correct post-build/packaging for extension bundling. -->
+    <!-- Note: CSP nonce is dynamically injected by WebviewController.ts at runtime -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}' ${webview.cspSource}; script-src 'nonce-${nonce}' ${webview.cspSource}; img-src ${webview.cspSource} https:; font-src ${webview.cspSource};">
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Qdrant Search Webview</title> <!-- !AI: Missing essential VS Code webview meta tags (e.g., CSP nonce handling, theme color) which are usually injected or required for proper initialization/styling in an extension context. -->
+    <title>Qdrant Search</title>
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="./main.ts"></script> <!-- !AI: Scope gap - This relies entirely on main.ts containing the VS Code Webview API setup (e.g., vscode.postMessage/acquireVsCodeApi). If webview setup logic is distributed, this single script reference might be an incomplete workflow step. -->
+    <script>
+      // Acquire VS Code API
+      const vscode = acquireVsCodeApi();
+      // Make it available globally
+      window.vscode = vscode;
+    </script>
+    <script type="module" src="./main.ts"></script>
   </body>
 </html>

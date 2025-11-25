@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import { appState } from '../store.svelte.ts';
     import { vscode } from '../lib/vscode.ts';
     import { START_INDEX_METHOD, LOAD_CONFIG_METHOD } from '../../protocol.ts';
@@ -6,7 +7,7 @@
     import ChevronLeft from 'lucide-svelte/icons/chevron-left';
 
     // We use derived state from appState instead of local mocked loading
-    let loading = $state(false); 
+    let loading = false; 
 
     async function refreshConfig() {
         loading = true;
@@ -32,7 +33,7 @@
     }
 
     // Attempt to load if missing on mount
-    $effect(() => {
+    onMount(() => {
         if (!appState.config) {
              refreshConfig();
         }

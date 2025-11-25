@@ -1,5 +1,5 @@
-import type { IpcMessage, IpcScope } from '../../protocol';
-import { Scope } from '../../protocol';
+import type { IpcMessage, IpcScope } from '../../protocol.js';
+import { Scope } from '../../protocol.js';
 
 /**
  * Type definition for the VS Code Webview API.
@@ -36,15 +36,14 @@ class VsCodeWrapper {
      * Sends a typed IPC message to the Extension Host.
      */
     public postMessage(method: string, params: any = {}, kind: 'command' | 'request' = 'command') {
-        const message: IpcMessage = {
+        const message = {
             id: crypto.randomUUID(),
             scope: Scope,
             method,
             timestamp: Date.now(),
-            // @ts-ignore - structural typing overlap handled by receiver
-            kind, 
+            kind,
             params
-        };
+        } as IpcMessage;
         this._vscode.postMessage(message);
     }
 }
