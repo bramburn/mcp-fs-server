@@ -13,6 +13,7 @@ import chokidar from "chokidar";
 import Parser from "web-tree-sitter";
 import ollama from "ollama";
 import fs from "fs/promises";
+import fsSync from "fs";
 import path from "path";
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
@@ -55,6 +56,7 @@ const CONFIG = {
   repoPath: process.env.REPO_PATH || "./target-repo",
   wasmPath: process.env.WASM_PATH || "./wasm",
   dbPath: process.env.DB_PATH || "mcp-cache.db",
+  logPath: process.env.LOG_PATH || "./logs",
   maxFileSize: parseInt(process.env.MAX_FILE_SIZE || "1048576"), // 1MB default
   minChunkSize: parseInt(process.env.MIN_CHUNK_SIZE || "50"),
   chunkOverlap: parseInt(process.env.CHUNK_OVERLAP || "10"),
@@ -65,24 +67,154 @@ const CONFIG = {
 };
 
 // --- Logger Utility ---
-const logger = {
-  info: (message: string, ...args: any[]) => {
+class Logger {
+  private logFilePath: string;
+  private logStream: fsSync.WriteStream | null = null;
+
+  constructor() {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    const logDir = path.resolve(CONFIG.logPath);
+    const logFileName = `mcp-server-${today}.log`;
+    this.logFilePath = path.join(logDir, logFileName);
+
+    this.ensureLogDirectory();
+    this.initializeLogStream();
+  }
+
+  private ensureLogDirectory(): void {
+    const logDir = path.resolve(CONFIG.logPath);
+    if (!fsSync.existsSync(logDir)) {
+      try {
+        fsSync.mkdirSync(logDir, { recursive: true });
+      } catch (error) {
+        console.error(`[MCP-ERROR] Failed to create log directory ${logDir}:`, error);
+      }
+    }
+  }
+
+  private initializeLogStream(): void {
+    try {
+      // Open file in append mode with UTF-8 encoding
+      this.logStream = fsSync.createWriteStream(this.logFilePath, {
+        flags: 'a', // Append mode
+        encoding: 'utf8',
+        autoClose: false // Keep stream open
+      });
+
+      // Write header if file is empty or new
+      const stats = fsSync.statSync(this.logFilePath, { throwIfNoEntry: false });
+      if (!stats || stats.size === 0) {
+        this.writeToFile('='.repeat(80));
+        this.writeToFile(`MCP Semantic Watcher Server - Log Started: ${new Date().toISOString()}`);
+        this.writeToFile('='.repeat(80));
+        this.writeToFile(''); // Empty line after header
+      }
+
+      // Handle stream errors
+      this.logStream.on('error', (error) => {
+        console.error(`[MCP-ERROR] Log stream error:`, error);
+      });
+
+    } catch (error) {
+      console.error(`[MCP-ERROR] Failed to initialize log stream:`, error);
+    }
+  }
+
+  private writeToFile(message: string): void {
+    if (this.logStream && !this.logStream.destroyed) {
+      try {
+        this.logStream.write(message + '\n');
+      } catch (error) {
+        console.error(`[MCP-ERROR] Failed to write to log file:`, error);
+      }
+    }
+  }
+
+  private formatMessage(level: string, message: string): string {
+    const timestamp = new Date().toISOString();
+    const argsStr = '';
+    return `[${timestamp}] [${level}] [MCP-SEMANTIC-WATCHER] ${message}${argsStr}`;
+  }
+
+  info(message: string, ...args: any[]): void {
+    const formattedMessage = this.formatMessage('INFO', message);
+
+    // Always log to console error (MCP protocol expects important logs on stderr)
     if (CONFIG.logLevel === "info" || CONFIG.logLevel === "debug") {
       console.error(`[MCP-INFO] ${message}`, ...args);
     }
-  },
-  error: (message: string, ...args: any[]) => {
+
+    // Always log to file
+    this.writeToFile(formattedMessage);
+
+    // Log additional args to file if provided
+    if (args.length > 0) {
+      this.writeToFile(`  Additional data: ${JSON.stringify(args, null, 2)}`);
+    }
+  }
+
+  error(message: string, ...args: any[]): void {
+    const formattedMessage = this.formatMessage('ERROR', message);
+
+    // Always log to console error
     console.error(`[MCP-ERROR] ${message}`, ...args);
-  },
-  debug: (message: string, ...args: any[]) => {
+
+    // Always log to file
+    this.writeToFile(formattedMessage);
+
+    // Log additional args to file if provided
+    if (args.length > 0) {
+      this.writeToFile(`  Error details: ${JSON.stringify(args, null, 2)}`);
+    }
+  }
+
+  debug(message: string, ...args: any[]): void {
+    const formattedMessage = this.formatMessage('DEBUG', message);
+
+    // Only log to console if debug level is enabled
     if (CONFIG.logLevel === "debug") {
       console.error(`[MCP-DEBUG] ${message}`, ...args);
     }
-  },
-  warn: (message: string, ...args: any[]) => {
+
+    // Always log to file regardless of log level
+    this.writeToFile(formattedMessage);
+
+    // Log additional args to file if provided
+    if (args.length > 0) {
+      this.writeToFile(`  Debug data: ${JSON.stringify(args, null, 2)}`);
+    }
+  }
+
+  warn(message: string, ...args: any[]): void {
+    const formattedMessage = this.formatMessage('WARN', message);
+
+    // Always log to console error
     console.error(`[MCP-WARN] ${message}`, ...args);
-  },
-};
+
+    // Always log to file
+    this.writeToFile(formattedMessage);
+
+    // Log additional args to file if provided
+    if (args.length > 0) {
+      this.writeToFile(`  Warning details: ${JSON.stringify(args, null, 2)}`);
+    }
+  }
+
+  close(): void {
+    if (this.logStream && !this.logStream.destroyed) {
+      try {
+        this.writeToFile(`Log closed: ${new Date().toISOString()}`);
+        this.logStream.end();
+        this.logStream = null;
+      } catch (error) {
+        console.error(`[MCP-ERROR] Error closing log stream:`, error);
+      }
+    }
+  }
+}
+
+// Global logger instance
+const logger = new Logger();
 
 // --- Language Definitions ---
 const LANGUAGES: Record<string, { lang: string; query: string }> = {
@@ -156,6 +288,7 @@ class SemanticWatcher {
     this.qdrant = new QdrantClient({
       url: CONFIG.qdrantUrl,
       apiKey: CONFIG.qdrantApiKey,
+      checkCompatibility: false,
     });
 
     // Initialize SQLite Database
@@ -186,7 +319,7 @@ class SemanticWatcher {
     // 1. Init Tree Sitter (WASM)
     try {
       await Parser.init({
-        locateFile(scriptName: string, scriptDirectory: string) {
+        locateFile(scriptName: string) {
           const resolvedPath = path.resolve(CONFIG.wasmPath, scriptName);
           logger.debug(`Loading WASM: ${resolvedPath}`);
           return resolvedPath;
@@ -219,6 +352,7 @@ class SemanticWatcher {
 
     // 2. Init Qdrant Collection
     try {
+      logger.info(`Connecting to Qdrant at ${CONFIG.qdrantUrl}...`);
       const collections = await this.qdrant.getCollections();
       const exists = collections.collections.find(
         (c: any) => c.name === CONFIG.collectionName
@@ -240,7 +374,13 @@ class SemanticWatcher {
         );
       }
     } catch (e) {
-      logger.error("Qdrant connection error. Ensure Qdrant is running.", e);
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      logger.error(
+        `Qdrant connection error at ${CONFIG.qdrantUrl}. Ensure Qdrant is running and accessible. Error: ${errorMsg}`
+      );
+      logger.warn(
+        "Continuing without Qdrant. Semantic search will not be available until connection is restored."
+      );
     }
 
     // 3. Start Watcher
@@ -496,25 +636,33 @@ class SemanticWatcher {
   async search(query: string, limit?: number) {
     const searchLimit = limit || CONFIG.searchLimit;
 
-    const embeddingResponse = await ollama.embeddings({
-      model: CONFIG.ollamaModel,
-      prompt: query,
-    });
+    try {
+      const embeddingResponse = await ollama.embeddings({
+        model: CONFIG.ollamaModel,
+        prompt: query,
+      });
 
-    const searchResults = await this.qdrant.search(CONFIG.collectionName, {
-      vector: (embeddingResponse as EmbeddingResponse).embedding,
-      limit: searchLimit,
-      with_payload: true,
-    });
+      const searchResults = await this.qdrant.search(CONFIG.collectionName, {
+        vector: (embeddingResponse as EmbeddingResponse).embedding,
+        limit: searchLimit,
+        with_payload: true,
+      });
 
-    return searchResults
-      .map((res: any) => {
-        const payload = res.payload;
-        return `Path: ${payload.filePath}\nLines: ${payload.startLine}-${
-          payload.endLine
-        }\nScore: ${res.score.toFixed(4)}\n\n${payload.content}\n---`;
-      })
-      .join("\n");
+      return searchResults
+        .map((res: any) => {
+          const payload = res.payload;
+          return `Path: ${payload.filePath}\nLines: ${payload.startLine}-${
+            payload.endLine
+          }\nScore: ${res.score.toFixed(4)}\n\n${payload.content}\n---`;
+        })
+        .join("\n");
+    } catch (e) {
+      const errorMsg = e instanceof Error ? e.message : String(e);
+      logger.error(`Search failed: ${errorMsg}`);
+      throw new Error(
+        `Semantic search unavailable. Ensure Qdrant is running at ${CONFIG.qdrantUrl} and Ollama is accessible. Error: ${errorMsg}`
+      );
+    }
   }
 
   // Add a new method for refreshing the index
@@ -673,8 +821,36 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     console.error("[MCP-INFO] MCP Semantic Watcher Server running on stdio");
   }
 
+  // Add cleanup handlers for graceful shutdown
+  const cleanup = () => {
+    logger.close();
+  };
+
+  process.on('exit', cleanup);
+  process.on('SIGINT', () => {
+    logger.info('Received SIGINT, shutting down gracefully...');
+    cleanup();
+    process.exit(0);
+  });
+  process.on('SIGTERM', () => {
+    logger.info('Received SIGTERM, shutting down gracefully...');
+    cleanup();
+    process.exit(0);
+  });
+  process.on('uncaughtException', (error) => {
+    logger.error('Uncaught exception:', error);
+    cleanup();
+    process.exit(1);
+  });
+  process.on('unhandledRejection', (reason, promise) => {
+    logger.error('Unhandled rejection at:', promise, 'reason:', reason);
+    cleanup();
+    process.exit(1);
+  });
+
   run().catch((error) => {
-    console.error("[MCP-ERROR] Fatal error:", error);
+    logger.error('Fatal error:', error);
+    cleanup();
     process.exit(1);
   });
 }

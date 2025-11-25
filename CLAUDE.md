@@ -77,10 +77,18 @@ The server requires:
 Environment variables:
 - `REPO_PATH`: Target repository to watch (default: `./target-repo`)
 - `QDRANT_URL`: Qdrant instance URL
-- `OLLAMA_MODEL`: Embedding model name
+- `QDRANT_API_KEY`: Qdrant authentication key (optional)
+- `QDRANT_COLLECTION`: Qdrant collection name (default: `codebase_context`)
+- `OLLAMA_MODEL`: Embedding model name (default: `nomic-embed-text`)
 - `WASM_PATH`: Tree-sitter WASM files location (default: `./wasm`)
+- `LOG_PATH`: Directory for log files (default: `./logs`). Creates daily logs: `mcp-server-YYYY-MM-DD.log`
+- `DB_PATH`: SQLite cache database path (default: `mcp-cache.db`)
 - `MAX_FILE_SIZE`: Maximum file size to index (default: 1MB)
+- `MIN_CHUNK_SIZE`: Minimum character length for code chunks (default: 50)
+- `CHUNK_OVERLAP`: Line overlap between chunks (default: 10)
+- `CHUNK_LINES`: Lines per chunk (default: 50)
 - `VECTOR_SIZE`: Embedding dimension (default: 768)
+- `SEARCH_LIMIT`: Default search result limit (default: 5)
 - `LOG_LEVEL`: Logging verbosity (default: `info`)
 
 ## Testing

@@ -75,8 +75,7 @@
     "@qdrant/js-client-rest": "^1.16.1",
     "clsx": "^2.1.1",
     "lucide-svelte": "^0.554.0",
-    "svelte-radix": "^1.1.1",
-    "tailwind-merge": "^3.4.0"
+    "svelte-radix": "^1.1.1"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",

@@ -78,7 +78,73 @@ This project provides an MCP server that watches a code repository, indexes code
 
 ## Usage
 
-The server operates as an MCP service, communicating via STDIN/STDOUT. You can interact with it by sending MCP requests. The primary way to use this server is by calling the tools it exposes.
+### MCP Server Configuration
+
+This MCP server can be configured and used with MCP-compatible clients (like Claude Desktop) through JSON configuration. Add the server to your MCP client configuration:
+
+#### Claude Desktop Configuration
+
+Add to your Claude Desktop `claude_desktop_config.json` file:
+
+```json
+{
+  "mcpServers": {
+    "semantic-watcher": {
+      "command": "node",
+      "args": ["/path/to/mcp-fs-server/build/index.js"],
+      "env": {
+        "REPO_PATH": "/path/to/your/codebase",
+        "QDRANT_URL": "http://localhost:6333",
+        "QDRANT_COLLECTION": "my_codebase",
+        "OLLAMA_MODEL": "nomic-embed-text",
+        "LOG_LEVEL": "info"
+      }
+    }
+  }
+}
+```
+
+#### Example with Multiple Environments
+
+```json
+{
+  "mcpServers": {
+    "semantic-watcher-dev": {
+      "command": "node",
+      "args": ["/path/to/mcp-fs-server/build/index.js"],
+      "env": {
+        "REPO_PATH": "/path/to/dev/project",
+        "QDRANT_COLLECTION": "dev_codebase",
+        "OLLAMA_MODEL": "nomic-embed-text",
+        "LOG_LEVEL": "debug"
+      }
+    },
+    "semantic-watcher-prod": {
+      "command": "node",
+      "args": ["/path/to/mcp-fs-server/build/index.js"],
+      "env": {
+        "REPO_PATH": "/path/to/production/project",
+        "QDRANT_URL": "https://qdrant.example.com",
+        "QDRANT_API_KEY": "your-api-key-here",
+        "QDRANT_COLLECTION": "prod_codebase",
+        "OLLAMA_MODEL": "nomic-embed-text",
+        "LOG_LEVEL": "warn"
+      }
+    }
+  }
+}
+```
+
+### Configuration Requirements
+
+1. **Command Path**: Use the absolute path to the built `index.js` file
+2. **Environment Variables**: Set all required environment variables in the `env` section
+3. **Repository Path**: `REPO_PATH` must point to the codebase you want to index
+4. **Dependencies**: Ensure Qdrant and Ollama are running and accessible
+
+### Direct Usage
+
+The server can also be run directly as an MCP service, communicating via STDIN/STDOUT. You can interact with it by sending MCP requests. The primary way to use this server is by calling the tools it exposes.
 
 ## Tools
 
@@ -145,6 +211,7 @@ The server's behavior can be customized using environment variables:
 | `QDRANT_COLLECTION`| Name of the Qdrant collection to use for storing embeddings.                                            | `codebase_context`    |
 | `REPO_PATH`        | Path to the code repository to watch and index.                                                         | `./target-repo`       |
 | `WASM_PATH`        | Path to the directory containing Tree-sitter WASM grammars.                                             | `./wasm`              |
+| `LOG_PATH`         | Directory where log files are stored. Creates daily log files with name format `mcp-server-YYYY-MM-DD.log`. | `./logs`              |
 | `MAX_FILE_SIZE`    | Maximum file size in bytes to index (e.g., `1048576` for 1MB).                                          | `1048576`             |
 | `MIN_CHUNK_SIZE`   | Minimum character length for a code chunk to be considered for indexing.                                | `50`                  |
 | `CHUNK_OVERLAP`    | Number of lines to overlap between chunks when using simple line-based splitting.                       | `10`                  |
