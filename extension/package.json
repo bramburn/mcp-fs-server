@@ -16,7 +16,7 @@
     "Other"
   ],
   "activationEvents": [
-    "onView:qdrant.searchView"
+    "onView:qdrant.search.view"
   ],
   "main": "./out/extension/src/extension.js",
   "contributes": {
@@ -32,7 +32,7 @@
     "views": {
       "qdrant-sidebar": [
         {
-          "id": "qdrant.searchView",
+          "id": "qdrant.search.view",
           "name": "Search",
           "icon": "$(search-view)"
         }

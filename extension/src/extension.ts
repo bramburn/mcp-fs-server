@@ -1,19 +1,40 @@
 import * as vscode from 'vscode';
 import { WebviewController } from './webviews/WebviewController.js';
 import { initializeServices, useService, Container } from './container/Container.js';
+import { AnalyticsService } from './services/AnalyticsService.js';
 
 export async function activate(context: vscode.ExtensionContext) {
-    console.log('Qdrant Code Search extension is now active!');
+    const outputChannel = vscode.window.createOutputChannel('Qdrant Code Search', { log: true });
+    context.subscriptions.push(outputChannel);
+
+    const traceEnabled = vscode.workspace.getConfiguration('qdrant.search').get('trace', false) as boolean;
+
+    // Helper function to conditionally log based on trace setting
+    const log = (message: string, level: 'INFO' | 'ERROR' | 'WARN' | 'COMMAND' | 'SEARCH' | 'OPEN' | 'CONFIG' | 'FATAL' = 'INFO') => {
+        if (traceEnabled || level === 'ERROR' || level === 'FATAL') {
+            outputChannel.appendLine(`[${level}] ${message}`);
+        }
+    };
+
+    log('Qdrant Code Search extension is now active!');
+
+    // Initialize analytics as early as possible
+    const analytics = new AnalyticsService(context);
+    analytics.trackEvent('extension.activated');
 
     try {
+        log('Initializing DI container and services...');
         // Initialize DI container with all services
         initializeServices(context);
+        log('DI container and services initialized successfully.');
 
+        log('Retrieving services from container...');
         // Get services via container (lazy initialization with proper dependency resolution)
         const configService = useService('ConfigService');
         const indexingService = useService('IndexingService');
         const workspaceManager = useService('WorkspaceManager');
         const analyticsService = useService('AnalyticsService');
+        log('Services retrieved from container.');
 
         // Create webview controller
         const webviewController = new WebviewController(
@@ -21,22 +42,37 @@ export async function activate(context: vscode.ExtensionContext) {
             indexingService,
             workspaceManager,
             configService,
-            analyticsService
+            analyticsService,
+            outputChannel
         );
+        log('WebviewController created.');
 
         // Register webview provider FIRST and SYNCHRONOUSLY before any other operations
         // This ensures the provider is available when the view is activated
-        const webviewProviderDisposable = vscode.window.registerWebviewViewProvider(
-            WebviewController.viewType,
-            webviewController,
-            {
-                webviewOptions: {
-                    retainContextWhenHidden: true
+        analytics.trackEvent('provider.beforeRegister', { viewType: WebviewController.viewType });
+        log(`Registering webview provider for ${WebviewController.viewType}`);
+
+        try {
+            const webviewProviderDisposable = vscode.window.registerWebviewViewProvider(
+                WebviewController.viewType,
+                webviewController,
+                {
+                    webviewOptions: {
+                        retainContextWhenHidden: true
+                    }
                 }
-            }
-        );
-        context.subscriptions.push(webviewProviderDisposable);
-        console.log(`Registered webview provider for view: ${WebviewController.viewType}`);
+            );
+            context.subscriptions.push(webviewProviderDisposable);
+            log(`Webview provider registered successfully for ${WebviewController.viewType}`);
+            analytics.trackEvent('provider.registered', { success: true, viewType: WebviewController.viewType });
+        } catch (error) {
+            const errorMsg = error instanceof Error ? error.message : String(error);
+            log(`Failed to register webview provider: ${errorMsg} | viewType=${WebviewController.viewType}`, 'ERROR');
+            analytics.trackError(
+                'provider.register.failed',
+                errorMsg + ' | viewType=' + WebviewController.viewType
+            );
+        }
 
         // Create status bar item
         const statusBarItem = vscode.window.createStatusBarItem(
@@ -50,8 +86,10 @@ export async function activate(context: vscode.ExtensionContext) {
         context.subscriptions.push(statusBarItem);
 
         // Register commands
+        log('Registering command: qdrant.index.start');
         context.subscriptions.push(
             vscode.commands.registerCommand('qdrant.index.start', async () => {
+                log('qdrant.index.start invoked', 'COMMAND');
                 analyticsService.trackCommand('qdrant.index.start');
 
                 const folder = workspaceManager.getActiveWorkspaceFolder();
@@ -77,8 +115,10 @@ export async function activate(context: vscode.ExtensionContext) {
                     });
                 } catch (error) {
                     const duration = Date.now() - startTime;
+                    const errorMsg = error instanceof Error ? error.message : String(error);
                     statusBarItem.text = "$(database) Qdrant: Error";
                     vscode.window.showErrorMessage(`Indexing failed: ${error}`);
+                    log(`Indexing failed: ${errorMsg} (duration: ${duration}ms)`, 'ERROR');
 
                     analyticsService.trackIndexing({
                         duration,
@@ -89,8 +129,10 @@ export async function activate(context: vscode.ExtensionContext) {
             })
         );
 
+        log('Registering command: qdrant.openSettings');
         context.subscriptions.push(
             vscode.commands.registerCommand('qdrant.openSettings', () => {
+                log('qdrant.openSettings invoked', 'COMMAND');
                 analyticsService.trackCommand('qdrant.openSettings');
                 vscode.commands.executeCommand('workbench.action.openSettings', 'qdrant');
             })
@@ -98,13 +140,25 @@ export async function activate(context: vscode.ExtensionContext) {
 
         // Send initial status to webview
         webviewController.sendNotification('index/status', { status: 'ready' });
-        console.log('Qdrant Code Search extension activated successfully');
+        log('Qdrant Code Search extension activated successfully');
     } catch (error) {
         const errorMessage = error instanceof Error ? error.message : String(error);
+        outputChannel.appendLine(`[ERROR] Failed to activate Qdrant Code Search extension: ${errorMessage}`);
         console.error('Failed to activate Qdrant Code Search extension:', error);
+        analytics.trackError('activate.failed', errorMessage);
         vscode.window.showErrorMessage(`Failed to activate Qdrant Code Search: ${errorMessage}`);
         throw error;
     }
+
+    // Global error handler for unexpected errors in the extension host
+    process.on('uncaughtException', (err: any) => {
+        outputChannel.appendLine(`[FATAL] Uncaught exception in extension host: ${err instanceof Error ? err.message : String(err)}`);
+        console.error('Uncaught exception in extension host', err);
+        analytics.trackError(
+            'global.uncaught',
+            err instanceof Error ? err.message : String(err)
+        );
+    });
 }
 
 export async function deactivate() {
