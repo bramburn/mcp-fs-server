@@ -138,10 +138,10 @@ export class WebviewController
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
-    console.log(
-      `[WebviewController] resolveWebviewView called for ${WebviewController.viewType}`
+    this.log(
+      `🎯 resolveWebviewView called for ${WebviewController.viewType}`,
+      "WEBVIEW"
     );
-    this.log(`resolveWebviewView called for ${WebviewController.viewType}`);
     this._analyticsService.trackEvent("provider.resolve.called", {
       viewType: WebviewController.viewType,
     });
@@ -177,8 +177,9 @@ export class WebviewController
       };
 
       const html = this._getHtmlForWebview(webviewView.webview);
-      console.log(
-        `[WebviewController] Setting webview HTML, length: ${html.length}`
+      this.log(
+        `📝 Setting webview HTML, length: ${html.length} bytes`,
+        "WEBVIEW"
       );
       webviewView.webview.html = html;
 
