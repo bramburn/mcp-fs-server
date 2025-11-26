@@ -2,25 +2,19 @@ import "reflect-metadata";
 import type { InjectionToken } from "tsyringe";
 import { container } from "tsyringe";
 import * as vscode from "vscode";
-import { LoggerService } from "./LoggerService.js";
-import { ConfigService } from "./ConfigService.js";
-import { AnalyticsService } from "./AnalyticsService.js";
-import { IndexingService } from "./IndexingService.js";
-import { WorkspaceManager } from "./WorkspaceManager.js";
-import {
-  OUTPUT_CHANNEL_TOKEN,
-  EXTENSION_CONTEXT_TOKEN,
-  TRACE_ENABLED_TOKEN,
-  ILOGGER_TOKEN,
-} from "./ServiceTokens.js";
 
-// Re‑export tokens so existing imports from ServiceContainer remain valid
-export {
-  OUTPUT_CHANNEL_TOKEN,
-  EXTENSION_CONTEXT_TOKEN,
-  TRACE_ENABLED_TOKEN,
-  ILOGGER_TOKEN,
-} from "./ServiceTokens.js";
+// ============================================================================
+// TOKENS: Use these to inject infrastructure dependencies into services
+// ============================================================================
+
+export const OUTPUT_CHANNEL_TOKEN: InjectionToken<vscode.OutputChannel> =
+  "outputChannel";
+export const EXTENSION_CONTEXT_TOKEN: InjectionToken<vscode.ExtensionContext> =
+  "extensionContext";
+export const TRACE_ENABLED_TOKEN: InjectionToken<boolean> = "traceEnabled";
+
+// Service identifiers
+export const ILOGGER_TOKEN = "ILogger";
 
 // ============================================================================
 // CONTAINER INITIALIZATION
@@ -28,12 +22,13 @@ export {
 
 /**
  * Initialize the tsyringe dependency injection container
+ * Uses dynamic imports to break circular dependencies
  */
-export function initializeServiceContainer(
+export async function initializeServiceContainer(
   context: vscode.ExtensionContext,
   outputChannel: vscode.OutputChannel,
   traceEnabled: boolean
-): void {
+): Promise<void> {
   // Clear previous registrations (important for hot reload)
   container.reset();
 
@@ -55,12 +50,19 @@ export function initializeServiceContainer(
   // ========================================================================
   // Phase 2: Register LoggerService as ILogger (SINGLETON)
   // ========================================================================
+  // Use dynamic imports to avoid circular dependencies
+  const { LoggerService } = await import("./LoggerService.js");
   container.registerSingleton(ILOGGER_TOKEN, LoggerService);
   container.registerSingleton("LoggerService", LoggerService);
 
   // ========================================================================
   // Phase 3: Register Domain Services (SINGLETONS)
   // ========================================================================
+  const { ConfigService } = await import("./ConfigService.js");
+  const { AnalyticsService } = await import("./AnalyticsService.js");
+  const { IndexingService } = await import("./IndexingService.js");
+  const { WorkspaceManager } = await import("./WorkspaceManager.js");
+
   container.registerSingleton("ConfigService", ConfigService);
   container.registerSingleton("AnalyticsService", AnalyticsService);
   container.registerSingleton("IndexingService", IndexingService);
@@ -73,15 +75,10 @@ export function initializeServiceContainer(
 
 /**
  * Get a service instance from the container (synchronous)
- *
- * Overloads ensure we preserve type information for known tokens while still
- * allowing string-based service identifiers for legacy usages.
  */
-export function getService<T>(token: InjectionToken<T>): T;
-export function getService<T>(token: string): T;
 export function getService<T>(token: string | InjectionToken<T>): T {
   try {
-    return container.resolve<T>(token as InjectionToken<T>);
+    return container.resolve(token as any);
   } catch (error) {
     const tokenName = typeof token === "string" ? token : token.toString();
     const err = error instanceof Error ? error : new Error(String(error));
@@ -91,54 +88,13 @@ export function getService<T>(token: string | InjectionToken<T>): T {
 
 /**
  * Dispose the container (call in deactivate)
- * Properly disposes all services before clearing registrations
+ * Clears all registrations
  */
-interface Disposable {
-  dispose: () => Promise<void> | void;
-}
-
-function isDisposable(value: unknown): value is Disposable {
-  return !!value && typeof (value as any).dispose === "function";
-}
-
 export async function disposeContainer(): Promise<void> {
   try {
-    console.log("[ServiceContainer] Starting container disposal...");
-
-    // Dispose services in reverse order of dependency
-    const servicesToDispose = [
-      "AnalyticsService",
-      "IndexingService",
-      "WorkspaceManager",
-      "ConfigService",
-      "LoggerService",
-    ];
-
-    for (const serviceName of servicesToDispose) {
-      try {
-        const service = container.resolve<unknown>(
-          serviceName as InjectionToken<unknown>
-        );
-        if (isDisposable(service)) {
-          console.log(`[ServiceContainer] Disposing ${serviceName}...`);
-          await service.dispose();
-          console.log(
-            `[ServiceContainer] ${serviceName} disposed successfully`
-          );
-        }
-      } catch (error) {
-        console.warn(
-          `[ServiceContainer] Error disposing ${serviceName}:`,
-          error
-        );
-      }
-    }
-
-    console.log("[ServiceContainer] Clearing container registrations...");
     container.reset();
-    console.log("[ServiceContainer] Container disposed successfully");
   } catch (error) {
-    console.error("[ServiceContainer] Error disposing container:", error);
+    console.error("Error disposing container:", error);
   }
 }
 
@@ -150,15 +106,14 @@ export async function disposeContainer(): Promise<void> {
  * Check if a service is registered
  */
 export function isServiceRegistered(
-  token: string | InjectionToken<unknown>
+  token: string | InjectionToken<any>
 ): boolean {
-  // Prefer container's registration metadata instead of attempting resolution,
-  // which could trigger expensive constructors or side effects.
-  if (typeof token === "string") {
-    return container.isRegistered(token);
+  try {
+    const service = container.resolve(token as any);
+    return service !== undefined && service !== null;
+  } catch {
+    return false;
   }
-
-  return container.isRegistered(token);
 }
 
 /**

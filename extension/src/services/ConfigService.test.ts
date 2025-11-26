@@ -65,13 +65,6 @@ vi.mock("vscode", () => {
       dispose = vi.fn();
     },
     ConfigurationChangeEvent: class {},
-    // Add FileType to the mock if it's used in the test file
-    FileType: {
-      Unknown: 0,
-      File: 1,
-      Directory: 2,
-      SymbolicLink: 64,
-    },
   };
 });
 

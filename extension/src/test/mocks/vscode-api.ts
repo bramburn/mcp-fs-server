@@ -1,14 +1,87 @@
 import { vi } from 'vitest';
 
-// Mock VS Code API for unit tests
+export enum FileType {
+  Unknown = 0,
+  File = 1,
+  Directory = 2,
+  SymbolicLink = 64
+}
+
+ // Mock VS Code API for unit tests
+type MockUriInit = {
+  fsPath: string;
+  scheme?: string;
+  authority?: string;
+  path?: string;
+  query?: string;
+  fragment?: string;
+};
+
+const createMockUri = (init: MockUriInit) => {
+  const scheme = init.scheme ?? 'file';
+  const authority = init.authority ?? '';
+  const path = init.path ?? init.fsPath;
+  const query = init.query ?? '';
+  const fragment = init.fragment ?? '';
+
+  const base: any = {
+    fsPath: init.fsPath,
+    scheme,
+    authority,
+    path,
+    query,
+    fragment
+  };
+
+  base.with = (change: Partial<MockUriInit>) =>
+    createMockUri({
+      fsPath: change.fsPath ?? base.fsPath,
+      scheme: change.scheme ?? base.scheme,
+      authority: change.authority ?? base.authority,
+      path: change.path ?? base.path,
+      query: change.query ?? base.query,
+      fragment: change.fragment ?? base.fragment
+    });
+
+  base.toString = () => base.fsPath;
+  base.toJSON = () => ({
+    scheme: base.scheme,
+    authority: base.authority,
+    path: base.path,
+    query: base.query,
+    fragment: base.fragment,
+    fsPath: base.fsPath
+  });
+
+  return base;
+};
+
+export const mockUri = {
+  file: vi.fn((path: string) =>
+    createMockUri({
+      fsPath: path
+    })
+  ),
+  parse: vi.fn((uri: string) =>
+    createMockUri({
+      fsPath: uri,
+      path: uri
+    })
+  ),
+  joinPath: vi.fn((base: any, ...segments: string[]) => {
+    const joined = [base.fsPath, ...segments].join('/');
+    return createMockUri({
+      fsPath: joined,
+      path: joined
+    });
+  }),
+  repoUri: vi.fn((uri: string) => uri)
+};
+
 export const mockWorkspace = {
   workspaceFolders: [
     {
-      uri: {
-        fsPath: '/test/workspace',
-        scheme: 'file',
-        path: '/test/workspace'
-      },
+      uri: mockUri.file('/test/workspace'),
       name: 'test-workspace',
       index: 0
     }
@@ -19,7 +92,12 @@ export const mockWorkspace = {
   findFiles: vi.fn().mockResolvedValue([]), // ✅ FIX #3: Return iterable array by default
   fs: {
     readFile: vi.fn(),
-    stat: vi.fn(),
+    stat: vi.fn().mockResolvedValue({
+      type: FileType.Unknown,
+      ctime: 0,
+      mtime: 0,
+      size: 0
+    }),
     createDirectory: vi.fn(),
     writeFile: vi.fn()
   },
@@ -112,37 +190,6 @@ export const mockEnv = {
   shell: '/bin/bash',
   uriScheme: 'vscode',
   remoteName: undefined
-};
-
-export const mockUri = {
-  file: vi.fn((path: string) => ({
-    fsPath: path,
-    scheme: 'file',
-    path: path,
-    query: '',
-    fragment: '',
-    with: vi.fn(),
-    toString: vi.fn(() => path)
-  })),
-  parse: vi.fn((uri: string) => ({
-    fsPath: uri,
-    scheme: 'file',
-    path: uri,
-    query: '',
-    fragment: '',
-    with: vi.fn(),
-    toString: vi.fn(() => uri)
-  })),
-  joinPath: vi.fn((base: any, ...segments: string[]) => ({
-    fsPath: [base.fsPath, ...segments].join('/'),
-    scheme: 'file',
-    path: [base.fsPath, ...segments].join('/'),
-    query: '',
-    fragment: '',
-    with: vi.fn(),
-    toString: vi.fn(() => [base.fsPath, ...segments].join('/'))
-  })),
-  repoUri: vi.fn((uri: string) => uri)
 };
 
 export const mockWebview = {
@@ -390,7 +437,8 @@ export const vscode = {
     String: 14, Number: 15, Boolean: 16, Array: 17, Object: 18,
     Key: 19, Null: 20, EnumMember: 21, Struct: 22, Event: 23,
     Operator: 24, TypeParameter: 25
-  }
+  },
+  FileType
 };
 
 declare global {

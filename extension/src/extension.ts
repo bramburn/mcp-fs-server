@@ -1,18 +1,18 @@
 import "reflect-metadata";
 
 import * as vscode from "vscode";
-import type { AnalyticsService } from "./services/AnalyticsService";
-import type { ConfigService } from "./services/ConfigService";
-import type { IndexingService } from "./services/IndexingService";
-import type { ILogger } from "./services/LoggerService";
+import type { AnalyticsService } from "./services/AnalyticsService.js";
+import type { ConfigService } from "./services/ConfigService.js";
+import type { IndexingService } from "./services/IndexingService.js";
+import type { ILogger } from "./services/LoggerService.js";
 import {
   disposeContainer,
   getService,
   ILOGGER_TOKEN,
   initializeServiceContainer,
-} from "./services/ServiceContainer";
-import type { WorkspaceManager } from "./services/WorkspaceManager";
-import { WebviewController } from "./webviews/WebviewController";
+} from "./services/ServiceContainer.js";
+import type { WorkspaceManager } from "./services/WorkspaceManager.js";
+import { WebviewController } from "./webviews/WebviewController.js";
 
 // Maximum retry attempts for failed operations
 const MAX_RETRY_ATTEMPTS = 3;
@@ -136,7 +136,7 @@ export async function activate(
     // Initialize service container with retry logic
     await retryWithBackoff(async () => {
       try {
-        initializeServiceContainer(context, outputChannel, traceEnabled);
+        await initializeServiceContainer(context, outputChannel, traceEnabled);
         outputChannel.appendLine("✅ DI container initialized");
         return true;
       } catch (error) {
@@ -184,7 +184,9 @@ export async function activate(
       );
       try {
         await disposeContainer();
-        outputChannel.appendLine("✅ Partial service initialization cleaned up");
+        outputChannel.appendLine(
+          "✅ Partial service initialization cleaned up"
+        );
       } catch (cleanupError) {
         const cleanupErrorMsg =
           cleanupError instanceof Error
