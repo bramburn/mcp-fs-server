@@ -132,13 +132,12 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
             switch (message.command) {
               case 'extension.reload': {
                 this.log('Received extension.reload from webview fallback', 'WEBVIEW');
-                break;
-              }
                 this._analyticsService.trackEvent('webview.fallback.reloadClicked', {
                   viewType: WebviewController.viewType
                 });
                 vscode.commands.executeCommand('workbench.action.reloadWindow');
                 return;
+              }
               case 'debug.error': {
                 this.log(`Received debug.error from webview fallback: ${JSON.stringify(message.data)}`, 'WEBVIEW');
                 this._analyticsService.trackError(

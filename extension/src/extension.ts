@@ -4,8 +4,19 @@ import { initializeServices, useService, Container } from './container/Container
 import { AnalyticsService } from './services/AnalyticsService.js';
 
 export async function activate(context: vscode.ExtensionContext) {
+    // Create output channel with log flag for auto-categorization
     const outputChannel = vscode.window.createOutputChannel('Qdrant Code Search', { log: true });
     context.subscriptions.push(outputChannel);
+
+    // IMPORTANT: Show it immediately so user sees logs
+    outputChannel.show(false);  // false = don't steal focus
+
+    // Add timestamp and startup message
+    outputChannel.appendLine("════════════════════════════════════════════════════════");
+    outputChannel.appendLine(`🚀 Qdrant Code Search Extension Starting...`);
+    outputChannel.appendLine(`📅 Time: ${new Date().toISOString()}`);
+    outputChannel.appendLine(`📍 Extension URI: ${context.extensionUri.fsPath}`);
+    outputChannel.appendLine("════════════════════════════════════════════════════════");
 
     const traceEnabled = vscode.workspace.getConfiguration('qdrant.search').get('trace', false) as boolean;
 
