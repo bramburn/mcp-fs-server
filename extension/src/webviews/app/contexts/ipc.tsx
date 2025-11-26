@@ -1,26 +1,32 @@
-import { getContext, setContext } from 'svelte';
+import { createContext, useContext, type ReactNode } from 'react';
 import type { IpcScope } from '../../protocol';
 
-// Define the context key for IPC
-export const ipcContext = Symbol('ipc');
-
-// Define the interface for the IPC host
 export interface HostIpc {
-    sendCommand<TParams>(method: string, scope: IpcScope, params: TParams): void;
-    sendRequest<TParams, TResponseParams>(method: string, scope: IpcScope, params: TParams): Promise<TResponseParams>;
-    onNotification<TParams>(method: string, handler: (params: TParams) => void): void;
+  sendCommand<TParams>(method: string, scope: IpcScope, params: TParams): void;
+  sendRequest<TParams, TResponseParams>(
+    method: string,
+    scope: IpcScope,
+    params: TParams
+  ): Promise<TResponseParams>;
+  onNotification<TParams>(method: string, handler: (params: TParams) => void): void;
 }
 
-// Function to set the IPC context (typically called at app initialization)
-export function setIpcContext(ipc: HostIpc): void {
-    setContext(ipcContext, ipc);
+// Internal React context
+const IpcContext = createContext<HostIpc | undefined>(undefined);
+
+export interface IpcProviderProps {
+  value: HostIpc;
+  children: ReactNode;
 }
 
-// Function to get the IPC context from any component
-export function getIpcContext(): HostIpc {
-    const ipc = getContext<HostIpc>(ipcContext);
-    if (!ipc) {
-        throw new Error('IPC context not found. Make sure setIpcContext was called in a parent component.');
-    }
-    return ipc;
+export function IpcProvider({ value, children }: IpcProviderProps) {
+  return <IpcContext.Provider value={value}>{children}</IpcContext.Provider>;
+}
+
+export function useIpc(): HostIpc {
+  const ctx = useContext(IpcContext);
+  if (!ctx) {
+    throw new Error('useIpc must be used within an IpcProvider');
+  }
+  return ctx;
 }
