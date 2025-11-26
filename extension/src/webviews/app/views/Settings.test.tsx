@@ -32,7 +32,8 @@ type MockHostIpc = HostIpc & {
 function createMockIpc(): MockHostIpc {
   return {
     sendCommand: vi.fn(),
-    sendRequest: vi.fn(),
+    // Default to a resolved promise so components can safely call `.then`
+    sendRequest: vi.fn().mockResolvedValue(null),
     onNotification: vi.fn(),
   } as unknown as MockHostIpc;
 }
@@ -59,10 +60,6 @@ describe('Settings view (React)', () => {
         setView: vi.fn(),
       })
     );
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   it('renders basic layout sections', () => {
@@ -137,7 +134,7 @@ describe('Settings view (React)', () => {
     expect(setConfig).toHaveBeenCalledWith(cfg);
   });
 
-  it('renders configuration details when config is present', () => {
+  it('renders configuration details when config is present', async () => {
     const cfg: QdrantOllamaConfig = {
       index_info: { name: 'test-index' },
       qdrant_config: { url: 'http://localhost:6333' },
@@ -156,9 +153,10 @@ describe('Settings view (React)', () => {
 
     renderWithIpc(<Settings />);
 
-    expect(screen.getByText(/Index Name:/i)).toHaveTextContent('test-index');
-    expect(screen.getByText(/Qdrant URL:/i)).toHaveTextContent('http://localhost:6333');
-    expect(screen.getByText(/Ollama Model:/i)).toHaveTextContent('nomic-embed-text');
+    // Assert that the concrete values are rendered, not just the labels
+    await screen.findByText('test-index');
+    await screen.findByText('http://localhost:6333');
+    await screen.findByText('nomic-embed-text');
   });
 
   it('triggers re-index when Force Re-index is clicked', async () => {
@@ -192,7 +190,6 @@ describe('Settings view (React)', () => {
   });
 
   it('updates showStale via DID_CHANGE_CONFIG_NOTIFICATION and sends update/preferences command', async () => {
-    vi.useFakeTimers();
     const ipc = createMockIpc();
 
     renderWithIpc(<Settings />, ipc);
@@ -207,9 +204,8 @@ describe('Settings view (React)', () => {
     );
     const prefHandler = prefHandlerCall?.[1] as (params: { configKey: string; value: unknown }) => void;
 
+    // Simulate host notifying about stale preference change
     prefHandler({ configKey: 'overview.stale.show', value: true });
-
-    vi.advanceTimersByTime(10);
 
     await waitFor(() => {
       expect(ipc.sendCommand).toHaveBeenCalledWith(

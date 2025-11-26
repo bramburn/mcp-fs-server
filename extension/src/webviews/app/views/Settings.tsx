@@ -27,7 +27,7 @@ export default function Settings() {
   const refreshConfig = useCallback(() => {
     setLoading(true);
     ipc
-      .sendRequest<{}, QdrantOllamaConfig | null>(LOAD_CONFIG_METHOD, 'qdrantIndex', {})
+      .sendRequest<Record<string, never>, QdrantOllamaConfig | null>(LOAD_CONFIG_METHOD, 'qdrantIndex', {})
       .then((cfg) => {
         setConfig(cfg ?? undefined);
       })

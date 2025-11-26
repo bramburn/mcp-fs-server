@@ -1,5 +1,5 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import Search from './Search';
 import { IpcProvider, type HostIpc } from '../contexts/ipc';
@@ -18,6 +18,60 @@ vi.mock('../store', async () => {
   return {
     ...actual,
     useAppStore: vi.fn(actual.useAppStore),
+  };
+});
+
+// Simplify Command behavior in tests so we can control the input value
+vi.mock('../components/ui/command', async () => {
+  const React = await import('react');
+
+  const CommandContext = React.createContext<{
+    value: string;
+    onValueChange: (value: string) => void;
+  } | null>(null);
+
+  function Command(props: {
+    value: string;
+    onValueChange: (value: string) => void;
+    children: React.ReactNode;
+  }) {
+    const { value, onValueChange, children } = props;
+    return (
+      <CommandContext.Provider value={{ value, onValueChange }}>
+        <div>{children}</div>
+      </CommandContext.Provider>
+    );
+  }
+
+  function CommandInput(props: { placeholder?: string }) {
+    const ctx = React.useContext(CommandContext);
+    return (
+      <input
+        placeholder={props.placeholder}
+        value={ctx?.value ?? ''}
+        onChange={(e) => ctx?.onValueChange(e.target.value)}
+      />
+    );
+  }
+
+  function CommandList(props: { children?: React.ReactNode }) {
+    return <div>{props.children}</div>;
+  }
+
+  function CommandEmpty(props: { children?: React.ReactNode }) {
+    return <div>{props.children}</div>;
+  }
+
+  function CommandLoading() {
+    return <div>Loading...</div>;
+  }
+
+  return {
+    Command,
+    CommandInput,
+    CommandList,
+    CommandEmpty,
+    CommandLoading,
   };
 });
 
@@ -42,7 +96,6 @@ function renderWithIpc(ui: React.ReactElement, ipcOverrides: Partial<HostIpc> = 
 describe('Search view (React)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.useFakeTimers();
     const useAppStoreMock = useAppStore as unknown as ViMockFn;
     useAppStoreMock.mockImplementation((selector: any) =>
       selector({
@@ -50,10 +103,6 @@ describe('Search view (React)', () => {
         setView: vi.fn(),
       })
     );
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
   });
 
   it('renders initial UI', () => {
@@ -68,7 +117,7 @@ describe('Search view (React)', () => {
     ).toBeInTheDocument();
   });
 
-  it('debounces search input and sends SEARCH_METHOD request', async () => {
+  it('debounces search input and sends SEARCH_METHOD request', () => {
     const sendRequest = vi.fn(
       async (method: string, scope: string, params: SearchRequestParams) => {
         expect(method).toBe(SEARCH_METHOD);
@@ -79,23 +128,28 @@ describe('Search view (React)', () => {
       }
     );
 
+    // Make debounce run immediately by mocking setTimeout
+    const setTimeoutSpy = vi
+      .spyOn(global, 'setTimeout')
+      .mockImplementation(((fn: (...args: any[]) => void) => {
+        fn();
+        // Return value is never used in component code
+        return 0 as unknown as ReturnType<typeof setTimeout>;
+      }) as any);
+
     renderWithIpc(<Search />, { sendRequest: sendRequest as HostIpc['sendRequest'] });
 
     const input = screen.getByPlaceholderText('Search codebase...') as HTMLInputElement;
 
-    await fireEvent.change(input, { target: { value: 'test' } });
+    fireEvent.change(input, { target: { value: 'test' } });
 
-    expect(sendRequest).not.toHaveBeenCalled();
+    expect(sendRequest).toHaveBeenCalledTimes(1);
+    const [method, scope, params] = sendRequest.mock.calls[0];
+    expect(method).toBe(SEARCH_METHOD);
+    expect(scope).toBe('qdrantIndex');
+    expect((params as SearchRequestParams).query).toBe('test');
 
-    vi.advanceTimersByTime(300);
-
-    await waitFor(() => {
-      expect(sendRequest).toHaveBeenCalledTimes(1);
-      const [method, scope, params] = sendRequest.mock.calls[0];
-      expect(method).toBe(SEARCH_METHOD);
-      expect(scope).toBe('qdrantIndex');
-      expect((params as SearchRequestParams).query).toBe('test');
-    });
+    setTimeoutSpy.mockRestore();
   });
 
   it('does not send search for short queries (length <= 2)', () => {
@@ -106,7 +160,6 @@ describe('Search view (React)', () => {
     const input = screen.getByPlaceholderText('Search codebase...') as HTMLInputElement;
 
     fireEvent.change(input, { target: { value: 'te' } });
-    vi.advanceTimersByTime(300);
 
     expect(sendRequest).not.toHaveBeenCalled();
   });

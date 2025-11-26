@@ -13,10 +13,8 @@ import {
   CONFIG_DATA_METHOD,
   SearchRequestParams,
   OpenFileParams,
-  WebviewReadyRequest,
   ExecuteCommand,
   DidChangeConfigurationNotification,
-  WEBVIEW_READY_METHOD,
   EXECUTE_COMMAND_METHOD,
   DID_CHANGE_CONFIG_NOTIFICATION,
   IpcScope,
@@ -70,7 +68,7 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
 
   public resolveWebviewView(
     webviewView: vscode.WebviewView,
-    context: vscode.WebviewViewResolveContext,
+    _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
     try {

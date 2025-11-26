@@ -29,3 +29,32 @@ if (typeof window !== 'undefined' && !window.acquireVsCodeApi) {
 
   window.acquireVsCodeApi = defaultApi;
 }
+
+// jsdom polyfills for webview React components
+
+// 1) ResizeObserver used internally by cmdk
+if (typeof window !== 'undefined' && typeof (window as any).ResizeObserver === 'undefined') {
+  class ResizeObserver {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    observe(_target: any) {}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    unobserve(_target: any) {}
+    disconnect() {}
+  }
+  (window as any).ResizeObserver = ResizeObserver;
+}
+
+// 2) scrollIntoView used by cmdk to keep active item visible
+if (typeof window !== 'undefined') {
+  const protoTargets = [
+    (Element.prototype as any),
+    (window as any).HTMLElement?.prototype,
+  ].filter(Boolean);
+
+  for (const proto of protoTargets) {
+    if (typeof proto.scrollIntoView !== 'function') {
+      // eslint-disable-next-line @typescript-eslint/no-empty-function
+      proto.scrollIntoView = () => {};
+    }
+  }
+}

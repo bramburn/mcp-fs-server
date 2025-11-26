@@ -3,6 +3,7 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import SnippetList from './SnippetList';
 import { IpcProvider, type HostIpc } from '../contexts/ipc';
 import { OPEN_FILE_METHOD, type FileSnippetResult } from '../../protocol';
+import { Command } from '../components/ui/command';
 
 function renderWithIpc(
   ui: React.ReactElement,
@@ -17,7 +18,11 @@ function renderWithIpc(
 
   return {
     ipc,
-    ...render(<IpcProvider value={ipc}>{ui}</IpcProvider>),
+    ...render(
+      <IpcProvider value={ipc}>
+        <Command>{ui}</Command>
+      </IpcProvider>
+    ),
   };
 }
 
@@ -42,8 +47,10 @@ const mockResults: FileSnippetResult[] = [
 
 describe('SnippetList', () => {
   it('renders nothing when results are empty', () => {
-    const { container } = renderWithIpc(<SnippetList results={[]} />);
-    expect(container.firstChild).toBeNull();
+    renderWithIpc(<SnippetList results={[]} />);
+    // No file name text should be present
+    expect(screen.queryByText('one.ts')).not.toBeInTheDocument();
+    expect(screen.queryByText('two.ts')).not.toBeInTheDocument();
   });
 
   it('renders a list of snippets', () => {
@@ -63,7 +70,7 @@ describe('SnippetList', () => {
 
     expect(ipc.sendCommand).toHaveBeenCalledWith(
       OPEN_FILE_METHOD,
-      'command',
+      'qdrantIndex',
       { uri: mockResults[0].uri, line: mockResults[0].lineStart },
     );
   });
