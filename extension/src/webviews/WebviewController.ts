@@ -275,6 +275,9 @@ export class WebviewController
         '\\"'
       );
 
+      // Generate a nonce for the error page CSP
+      const errorNonce = getNonce();
+
       webviewView.webview.options = {
         ...webviewView.webview.options,
         enableScripts: true,
@@ -284,7 +287,7 @@ export class WebviewController
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; script-src 'unsafe-inline' vscode-resource:; style-src 'unsafe-inline';">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; script-src 'nonce-${errorNonce}' vscode-resource:; style-src vscode-resource:;">
   <title>Qdrant Code Search - Error</title>
 </head>
 <body style="font-family: sans-serif; padding: 16px;">
@@ -292,7 +295,7 @@ export class WebviewController
   <p>The sidebar view failed to initialize.</p>
   <pre style="background: #f5f5f5; padding: 8px; white-space: wrap;">${errorMessage}</pre>
   <button id="reload-btn">Reload Extension Window</button>
-  <script>
+  <script nonce="${errorNonce}">
     (function() {
       var vscode = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
       var reloadBtn = document.getElementById('reload-btn');
@@ -717,6 +720,11 @@ export class WebviewController
         "index.css"
       )
     );
+
+    // Note: The main webview doesn't need an explicit CSP meta tag
+    // because VS Code automatically sets a secure CSP for webviews
+    // that only allows resources from the extension's localResourceRoots
+    // The nonce is applied to the script and link tags for additional security
 
     return `<!DOCTYPE html>
             <html lang="en">

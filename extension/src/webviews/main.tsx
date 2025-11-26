@@ -19,20 +19,8 @@ function render() {
   );
 }
 
-// Initialize VS Code API for webview communication once on startup
-if (typeof window !== 'undefined') {
-  const vscode = window.acquireVsCodeApi?.();
-
-  // Optional: notify host that the webview is ready
-  try {
-    vscode?.postMessage({
-      command: 'ipc:ready-request',
-      payload: undefined,
-    });
-  } catch (error) {
-    console.error('Failed to send ipc:ready-request', error);
-  }
-}
+// Note: VS Code API initialization is now handled in App.tsx using the useVSCodeApi hook
+// to prevent singleton errors during React hot reload
 
 // Initial render
 render();

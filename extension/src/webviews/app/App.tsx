@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { IpcProvider } from './contexts/ipc';
-import { hostIpc } from './lib/vscode';
+import { useVSCodeApi } from './hooks/useVSCodeApi';
+import { createHostIpc } from './lib/vscode';
 import { useAppStore } from './store';
 import {
   SEARCH_METHOD,
@@ -20,6 +21,9 @@ import Settings from './views/Settings';
 import CommandPaletteTest from './components/CommandPaletteTest';
 
 export default function App() {
+  const vscodeApi = useVSCodeApi();
+  const hostIpc = createHostIpc(vscodeApi);
+  
   const view = useAppStore((state) => state.view);
   const setSearchResults = useAppStore((state) => state.setSearchResults);
   const setIndexStatus = useAppStore((state) => state.setIndexStatus);
@@ -27,6 +31,22 @@ export default function App() {
   const setConfig = useAppStore((state) => state.setConfig);
 
   useEffect(() => {
+    // Send ready notification when VS Code API is available
+    if (vscodeApi) {
+      try {
+        vscodeApi.postMessage({
+          id: 'ready-request',
+          scope: 'webview-mgmt',
+          method: 'ipc:ready-request',
+          params: undefined,
+          kind: 'command',
+          timestamp: Date.now()
+        });
+      } catch (error) {
+        console.error('Failed to send ipc:ready-request', error);
+      }
+    }
+
     // Initial config load
     hostIpc.sendRequest(LOAD_CONFIG_METHOD, 'webview-mgmt', {}).catch((error) => {
       console.error('Failed to load initial config:', error);
@@ -71,7 +91,7 @@ export default function App() {
 
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
-  }, [setSearchResults, setIndexStatus, setIndexProgress, setConfig]);
+  }, [vscodeApi, hostIpc, setSearchResults, setIndexStatus, setIndexProgress, setConfig]);
 
   return (
     <IpcProvider value={hostIpc}>
