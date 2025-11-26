@@ -3,6 +3,24 @@ import { Configuration, ConfigPath, ConfigurationFactory, DefaultConfiguration }
 import { QdrantOllamaConfig } from '../webviews/protocol.js';
 
 /**
+ * Ensures a URL has a proper protocol (http:// or https://)
+ * @param url The URL to check and fix
+ * @returns The URL with proper protocol
+ */
+function ensureAbsoluteUrl(url: string): string {
+    if (!url) return url;
+    
+    // Check if URL already starts with http:// or https:// (case-insensitive)
+    if (/^https?:\/\//i.test(url)) {
+        return url;
+    }
+    
+    // Remove any leading slashes and prepend http://
+    const cleanUrl = url.replace(/^\/+/, '');
+    return `http://${cleanUrl}`;
+}
+
+/**
  * Configuration change event emitter
  */
 export interface ConfigurationChangeEvent {
@@ -117,6 +135,10 @@ export class ConfigService implements vscode.Disposable {
                 return null;
             }
 
+            // Ensure URLs have proper protocols
+            config.qdrant_config.url = ensureAbsoluteUrl(config.qdrant_config.url);
+            config.ollama_config.base_url = ensureAbsoluteUrl(config.ollama_config.base_url);
+            
             // Ensure URLs do not have trailing slashes for easier concatenation
             config.qdrant_config.url = config.qdrant_config.url.replace(/\/$/, "");
             config.ollama_config.base_url = config.ollama_config.base_url.replace(/\/$/, "");

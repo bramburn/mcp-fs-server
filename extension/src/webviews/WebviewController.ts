@@ -41,7 +41,7 @@ function getNonce(): string {
 }
 
 /**
- * P2.1: Svelte Webview Setup and Hosting
+ * P2.1: React Webview Setup and Hosting
  * Manages the Webview Panel (Sidebar) and handles IPC messaging.
  */
 export class WebviewController

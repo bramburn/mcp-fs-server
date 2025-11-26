@@ -6,7 +6,7 @@ export type InputProps = React.InputHTMLAttributes<HTMLInputElement>;
 const Input = React.forwardRef<HTMLInputElement, InputProps>(
   ({ className, type = 'text', onFocus, ...props }, ref) => {
     const handleFocus: React.FocusEventHandler<HTMLInputElement> = (event) => {
-      // Mirror the Svelte version's placeholder logging hook where we could
+      // Mirror React version's placeholder logging hook where we could
       // later send a WebviewFocusChanged command if desired.
       // eslint-disable-next-line no-console
       console.log(

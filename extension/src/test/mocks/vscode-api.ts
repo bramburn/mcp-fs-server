@@ -426,7 +426,7 @@ Object.defineProperty(window, 'location', {
   writable: true
 });
 
-// Mock matchMedia for Svelte components
+// Mock matchMedia for React components
 Object.defineProperty(window, 'matchMedia', {
   writable: true,
   value: vi.fn().mockImplementation(query => ({

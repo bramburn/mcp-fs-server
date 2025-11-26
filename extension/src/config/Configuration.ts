@@ -40,8 +40,8 @@ export const DefaultConfiguration: Configuration = {
     indexing: {
         enabled: true,
         maxFiles: 500,
-        excludePatterns: ['**/{node_modules,.git,out,dist,build,.svelte-kit}/**'],
-        includeExtensions: ['ts', 'js', 'svelte', 'json', 'md', 'txt', 'html', 'css']
+        excludePatterns: ['**/{node_modules,.git,out,dist,build}/**'],
+        includeExtensions: ['ts', 'js', 'tsx', 'jsx', 'json', 'md', 'txt', 'html', 'css']
     },
     search: {
         limit: 10,

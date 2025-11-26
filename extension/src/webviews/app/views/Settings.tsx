@@ -78,7 +78,7 @@ export default function Settings() {
     );
   }, [ipc, config, refreshConfig, setConfig]);
 
-  // Mirror the Svelte effect that pushes stale preference changes to host
+  // Mirror React effect that pushes stale preference changes to host
   useEffect(() => {
     ipc.sendCommand('update/preferences', 'webview-mgmt', {
       'overview.stale.show': showStale,

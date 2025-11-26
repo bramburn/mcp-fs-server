@@ -1,6 +1,6 @@
 /**
  * Defines the communication contract between the VS Code Extension (Host)
- * and the Svelte Webview (Guest).
+ * and React Webview (Guest).
  */
 
 // --- Scope Definitions ---

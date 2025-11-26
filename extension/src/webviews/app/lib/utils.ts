@@ -4,8 +4,7 @@ import { twMerge } from "tailwind-merge";
 /**
  * React-era webview utilities.
  *
- * Svelte-specific transition helpers (`flyAndScale`, `cubicOut`, `TransitionConfig`)
- * have been removed to keep the React webview build free of Svelte runtime types.
+ * React-specific transition helpers have been removed to keep the webview build free of Svelte runtime types.
  */
 export function cn(...inputs: ClassValue[]) {
 	return twMerge(clsx(inputs));
@@ -28,11 +27,11 @@ export function serializeContext<T>(context: T): string {
 }
 
 /**
- * Retrieves the current VS Code theme name from the webview body data attribute. 
+ * Retrieves current VS Code theme name from the webview body data attribute. 
  * This attribute is used by extensions to write theme-specific CSS.<br>
  */
 export function getCurrentThemeName(): string | undefined {
-  // Check the data attribute added to the body by VS Code
+  // Check for data attribute added to the body by VS Code
   return document.body.dataset.vscodeThemeName;
 }
 

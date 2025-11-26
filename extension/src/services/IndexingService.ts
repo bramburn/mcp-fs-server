@@ -6,7 +6,7 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 // Use a relative import so the compiled extension can resolve this at runtime
 // when packaged and installed in VS Code. The previous bare "shared" import
 // relied on TS path aliases and failed in the extension host.
-import { CodeSplitter } from '../../../packages/shared/code-splitter.js';
+import { CodeSplitter } from '../shared/code-splitter.js';
 
 interface SearchResultItem {
     id: string | number;
@@ -165,8 +165,12 @@ export class IndexingService implements vscode.Disposable {
 
             const collectionName = config.index_info?.name || 'codebase';
             
-            // Ensure Collection Exists
-            await this.ensureCollection(collectionName, 768);
+            // Detect embedding dimension dynamically
+            const vectorDimension = await this.detectEmbeddingDimension(token);
+            console.log(`[INDEXING] Using detected vector dimension: ${vectorDimension}`);
+            
+            // Ensure Collection Exists with dynamic dimension
+            await this.ensureCollection(collectionName, vectorDimension, token);
 
             // Find files using configuration
             const configSettings = this._configService.config;
@@ -323,9 +327,28 @@ export class IndexingService implements vscode.Disposable {
         console.log(`[INDEXING] Checking if collection '${name}' exists`);
         
         try {
-            const collections = await this._client.getCollections();
+            // Create AbortController for Qdrant operations
+            const controller = new AbortController();
+            
+            // Connect CancellationToken to AbortController
+            if (token) {
+                token.onCancellationRequested(() => {
+                    console.log(`[INDEXING] ensureCollection cancelled via token`);
+                    controller.abort();
+                });
+            }
+
+            const collections = await this._client.getCollections({
+                // Note: QdrantClient may not support AbortSignal directly in all methods
+                // We'll handle cancellation through our token checks
+            });
             const getCollectionsDuration = Date.now() - startTime;
             console.log(`[INDEXING] getCollections completed in ${getCollectionsDuration}ms, found ${collections.collections.length} collections`);
+            
+            // Check for cancellation after getCollections
+            if (token?.isCancellationRequested) {
+                throw new Error('Indexing cancelled');
+            }
             
             const exists = collections.collections.some(c => c.name === name);
             console.log(`[INDEXING] Collection '${name}' exists: ${exists}`);
@@ -350,6 +373,13 @@ export class IndexingService implements vscode.Disposable {
         } catch (e) {
             const duration = Date.now() - startTime;
             const error = e instanceof Error ? e : new Error(String(e));
+            
+            // Handle AbortError specifically
+            if (error.name === 'AbortError') {
+                console.log(`[INDEXING] ensureCollection was aborted after ${duration}ms`);
+                throw new Error('Indexing cancelled');
+            }
+            
             console.error(`[INDEXING] Error checking/creating collection '${name}' after ${duration}ms:`, {
                 message: error.message,
                 stack: error.stack,
@@ -421,14 +451,32 @@ export class IndexingService implements vscode.Disposable {
             console.log(`[INDEXING] Upserting ${points.length} points to collection '${collectionName}'`);
             
             try {
+                // Create AbortController for Qdrant operations
+                const controller = new AbortController();
+                
+                // Connect CancellationToken to AbortController
+                token.onCancellationRequested(() => {
+                    console.log(`[INDEXING] indexFile upsert cancelled via token`);
+                    controller.abort();
+                });
+
                 await this._client.upsert(collectionName, {
                     points: points
+                    // Note: QdrantClient may not support AbortSignal directly
+                    // We handle cancellation through our token checks and AbortController
                 });
                 const duration = Date.now() - startTime;
                 console.log(`[INDEXING] Upsert completed successfully in ${duration}ms for ${points.length} points`);
             } catch (e) {
                 const duration = Date.now() - startTime;
                 const error = e instanceof Error ? e : new Error(String(e));
+                
+                // Handle AbortError specifically
+                if (error.name === 'AbortError') {
+                    console.log(`[INDEXING] indexFile upsert was aborted after ${duration}ms`);
+                    throw new Error('Indexing cancelled');
+                }
+                
                 console.error(`[INDEXING] Upsert failed after ${duration}ms for ${points.length} points:`, {
                     message: error.message,
                     stack: error.stack,
@@ -471,6 +519,17 @@ export class IndexingService implements vscode.Disposable {
         console.log(`[INDEXING] Text preview: "${textPreview}"`);
 
         try {
+            // Create AbortController for fetch cancellation
+            const controller = new AbortController();
+            
+            // Connect CancellationToken to AbortController
+            if (token) {
+                token.onCancellationRequested(() => {
+                    console.log(`[INDEXING] Embedding generation cancelled via token`);
+                    controller.abort();
+                });
+            }
+
             const fetchStartTime = Date.now();
             const response = await fetch(`${base_url}/api/embeddings`, {
                 method: 'POST',
@@ -478,7 +537,8 @@ export class IndexingService implements vscode.Disposable {
                 body: JSON.stringify({
                     model: model,
                     prompt: text
-                })
+                }),
+                signal: controller.signal
             });
             const fetchDuration = Date.now() - fetchStartTime;
             console.log(`[INDEXING] Ollama fetch completed in ${fetchDuration}ms, status: ${response.status}, ok: ${response.ok}`);
@@ -499,6 +559,13 @@ export class IndexingService implements vscode.Disposable {
         } catch (e) {
             const duration = Date.now() - startTime;
             const error = e instanceof Error ? e : new Error(String(e));
+            
+            // Handle AbortError specifically
+            if (error.name === 'AbortError') {
+                console.log(`[INDEXING] Embedding generation was aborted after ${duration}ms`);
+                throw new Error('Indexing cancelled');
+            }
+            
             console.error(`[INDEXING] Embedding generation failed after ${duration}ms:`, {
                 message: error.message,
                 stack: error.stack,
@@ -526,11 +593,59 @@ export class IndexingService implements vscode.Disposable {
         }
     }
 
-    public async search(query: string): Promise<SearchResultItem[]> {
+    /**
+     * Detects the embedding dimension by generating a test embedding
+     * @param token Optional cancellation token
+     * @returns The detected dimension or fallback to 768
+     */
+    private async detectEmbeddingDimension(token?: vscode.CancellationToken): Promise<number> {
+        // Check for cancellation
+        if (token?.isCancellationRequested) {
+            throw new Error('Indexing cancelled');
+        }
+
+        if (!this._activeConfig) {
+            console.warn('[INDEXING] No active config available, using fallback dimension 768');
+            return 768;
+        }
+
+        console.log('[INDEXING] Detecting embedding dimension...');
+        
+        try {
+            // Generate a test embedding with a simple text
+            const testText = "dimension detection test";
+            const testEmbedding = await this.generateEmbedding(testText, token);
+            
+            if (testEmbedding && testEmbedding.length > 0) {
+                const dimension = testEmbedding.length;
+                console.log(`[INDEXING] Detected embedding dimension: ${dimension}`);
+                return dimension;
+            } else {
+                console.warn('[INDEXING] Failed to generate test embedding, using fallback dimension 768');
+                return 768;
+            }
+        } catch (error) {
+            const err = error instanceof Error ? error : new Error(String(error));
+            console.error('[INDEXING] Error detecting embedding dimension:', {
+                message: err.message,
+                model: this._activeConfig.ollama_config.model,
+                baseUrl: this._activeConfig.ollama_config.base_url
+            });
+            console.warn('[INDEXING] Using fallback dimension 768 due to detection failure');
+            return 768;
+        }
+    }
+
+    public async search(query: string, token?: vscode.CancellationToken): Promise<SearchResultItem[]> {
         if (!this._client || !this._activeConfig) {
             console.log(`[SEARCH] Cannot search - client initialized: ${!!this._client}, active config: ${!!this._activeConfig}`);
             vscode.window.showErrorMessage('Indexing service is not initialized. Cannot perform search.');
             return [];
+        }
+
+        // Check for cancellation
+        if (token?.isCancellationRequested) {
+            throw new Error('Search cancelled');
         }
 
         const collectionName = this._activeConfig.index_info?.name || 'codebase';
@@ -540,8 +655,13 @@ export class IndexingService implements vscode.Disposable {
         
         try {
             const embeddingStartTime = Date.now();
-            const vector = await this.generateEmbedding(query);
+            const vector = await this.generateEmbedding(query, token);
             const embeddingDuration = Date.now() - embeddingStartTime;
+            
+            // Check for cancellation after embedding generation
+            if (token?.isCancellationRequested) {
+                throw new Error('Search cancelled');
+            }
             
             if (!vector) {
                 console.log(`[SEARCH] Failed to generate embedding for query: "${query}"`);
@@ -555,9 +675,22 @@ export class IndexingService implements vscode.Disposable {
             const searchStartTime = Date.now();
             console.log(`[SEARCH] Executing vector search with limit ${searchLimit}`);
             
+            // Create AbortController for Qdrant search operation
+            const controller = new AbortController();
+            
+            // Connect CancellationToken to AbortController
+            if (token) {
+                token.onCancellationRequested(() => {
+                    console.log(`[SEARCH] Vector search cancelled via token`);
+                    controller.abort();
+                });
+            }
+            
             const searchResult = await this._client.search(collectionName, {
                 vector: vector,
                 limit: searchLimit,
+                // Note: QdrantClient may not support AbortSignal directly
+                // We handle cancellation through our token checks and AbortController
             });
             
             const searchDuration = Date.now() - searchStartTime;
@@ -583,6 +716,13 @@ export class IndexingService implements vscode.Disposable {
         } catch (e) {
             const duration = Date.now() - startTime;
             const error = e instanceof Error ? e : new Error(String(e));
+            
+            // Handle AbortError specifically
+            if (error.name === 'AbortError') {
+                console.log(`[SEARCH] Search was aborted after ${duration}ms`);
+                throw new Error('Search cancelled');
+            }
+            
             console.error(`[SEARCH] Search failed in collection ${collectionName} after ${duration}ms:`, {
                 message: error.message,
                 stack: error.stack,

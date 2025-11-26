@@ -3,7 +3,7 @@ import { ConfigService } from './ConfigService.js';
 import { ConfigPath, DefaultConfiguration } from '../config/Configuration.js';
 import * as vscode from 'vscode'; // Import vscode here for FileType
 
-// Mock Svelte store to prevent issues during import
+// Mock React store to prevent issues during import
 vi.mock('svelte/store', () => ({
   writable: vi.fn(() => ({
     subscribe: vi.fn(),
@@ -344,5 +344,95 @@ describe('ConfigService', () => {
             (qdrantConfig1 as any).qdrant_config.url = 'modified';
         }
         expect(configService.qdrantConfig?.qdrant_config.url).toBe('http://localhost:6333');
+    });
+
+    test('ConfigService.loadQdrantConfig adds http:// protocol to URLs missing protocol', async () => {
+        const mockConfig = {
+            index_info: { name: 'test-index' },
+            qdrant_config: { url: 'localhost:6333/' }, // Missing protocol
+            ollama_config: { base_url: 'localhost:11434/', model: 'nomic-embed-text' } // Missing protocol
+        };
+
+        const mockFolder = {
+            uri: { fsPath: '/test/workspace' },
+            name: 'test-workspace',
+            index: 0
+        } as any;
+
+        // Mock file exists and read operations
+        (vi.mocked(vscode.workspace.fs.stat)).mockResolvedValueOnce({ type: vscode.FileType.File, ctime: 1, mtime: 1, size: 1 });
+        (vi.mocked(vscode.workspace.fs.readFile)).mockResolvedValueOnce(
+            new TextEncoder().encode(JSON.stringify(mockConfig))
+        );
+
+        const result = await configService.loadQdrantConfig(mockFolder);
+
+        expect(result).toEqual({
+            index_info: { name: 'test-index' },
+            qdrant_config: { url: 'http://localhost:6333' }, // Protocol added, trailing slash removed
+            ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' } // Protocol added, trailing slash removed
+        });
+
+        expect(configService.qdrantConfig).toEqual(result);
+    });
+
+    test('ConfigService.loadQdrantConfig handles URLs with leading slashes correctly', async () => {
+        const mockConfig = {
+            index_info: { name: 'test-index' },
+            qdrant_config: { url: '//localhost:6333/' }, // Leading slashes
+            ollama_config: { base_url: '///localhost:11434/', model: 'nomic-embed-text' } // Multiple leading slashes
+        };
+
+        const mockFolder = {
+            uri: { fsPath: '/test/workspace' },
+            name: 'test-workspace',
+            index: 0
+        } as any;
+
+        // Mock file exists and read operations
+        (vi.mocked(vscode.workspace.fs.stat)).mockResolvedValueOnce({ type: vscode.FileType.File, ctime: 1, mtime: 1, size: 1 });
+        (vi.mocked(vscode.workspace.fs.readFile)).mockResolvedValueOnce(
+            new TextEncoder().encode(JSON.stringify(mockConfig))
+        );
+
+        const result = await configService.loadQdrantConfig(mockFolder);
+
+        expect(result).toEqual({
+            index_info: { name: 'test-index' },
+            qdrant_config: { url: 'http://localhost:6333' }, // Protocol added, leading slashes removed, trailing slash removed
+            ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' } // Protocol added, leading slashes removed, trailing slash removed
+        });
+
+        expect(configService.qdrantConfig).toEqual(result);
+    });
+
+    test('ConfigService.loadQdrantConfig preserves existing https protocol', async () => {
+        const mockConfig = {
+            index_info: { name: 'test-index' },
+            qdrant_config: { url: 'https://qdrant.example.com/' }, // HTTPS protocol
+            ollama_config: { base_url: 'https://ollama.example.com/', model: 'nomic-embed-text' } // HTTPS protocol
+        };
+
+        const mockFolder = {
+            uri: { fsPath: '/test/workspace' },
+            name: 'test-workspace',
+            index: 0
+        } as any;
+
+        // Mock file exists and read operations
+        (vi.mocked(vscode.workspace.fs.stat)).mockResolvedValueOnce({ type: vscode.FileType.File, ctime: 1, mtime: 1, size: 1 });
+        (vi.mocked(vscode.workspace.fs.readFile)).mockResolvedValueOnce(
+            new TextEncoder().encode(JSON.stringify(mockConfig))
+        );
+
+        const result = await configService.loadQdrantConfig(mockFolder);
+
+        expect(result).toEqual({
+            index_info: { name: 'test-index' },
+            qdrant_config: { url: 'https://qdrant.example.com' }, // HTTPS protocol preserved, trailing slash removed
+            ollama_config: { base_url: 'https://ollama.example.com', model: 'nomic-embed-text' } // HTTPS protocol preserved, trailing slash removed
+        });
+
+        expect(configService.qdrantConfig).toEqual(result);
     });
 });
