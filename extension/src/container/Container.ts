@@ -3,6 +3,7 @@ import { ConfigService } from '../services/ConfigService.js';
 import { WorkspaceManager } from '../services/WorkspaceManager.js';
 import { IndexingService } from '../services/IndexingService.js';
 import { AnalyticsService } from '../services/AnalyticsService.js';
+import { LoggerService, ILogger } from '../services/LoggerService.js';
 
 /**
  * Service lifetime options
@@ -40,6 +41,7 @@ export interface ServiceRegistry {
   WorkspaceManager: WorkspaceManager;
   IndexingService: IndexingService;
   AnalyticsService: AnalyticsService;
+  LoggerService: ILogger;
 }
 
 /**
@@ -64,12 +66,40 @@ export class Container {
    * Initialize container with extension context
    */
   public initialize(context: vscode.ExtensionContext): void {
+    const startTime = Date.now();
+    console.log(`[CONTAINER] Initializing DI container with context: ${context.extensionUri.fsPath}`);
+    
     if (this._isInitialized) {
-      console.warn('Container already initialized');
+      console.warn('[CONTAINER] Container already initialized, skipping');
       return;
     }
-    this._context = context;
-    this._isInitialized = true;
+    
+    try {
+      this._context = context;
+      this._isInitialized = true;
+      const duration = Date.now() - startTime;
+      console.log(`[CONTAINER] DI container initialized successfully in ${duration}ms`);
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(`[CONTAINER] Failed to initialize container after ${duration}ms:`, {
+        message: err.message,
+        stack: err.stack,
+        name: err.name
+      });
+      
+      // Special logging for network-related errors
+      if (err.message.includes('ECONNRESET') || err.message.includes('connection reset') ||
+          err.message.includes('network') || err.message.includes('fetch')) {
+        console.error(`[CONTAINER] NETWORK ERROR in initialization - Type: ${err.name}, Message: ${err.message}`);
+        console.error(`[CONTAINER] Network error details:`, {
+          timestamp: new Date().toISOString(),
+          duration
+        });
+      }
+      
+      throw err;
+    }
   }
 
   /**
@@ -102,38 +132,101 @@ export class Container {
    * Get a service instance with dependency resolution and caching
    */
   public get<T extends keyof ServiceRegistry>(key: T): ServiceRegistry[T] {
+    const startTime = Date.now();
+    console.log(`[CONTAINER] Getting service: ${String(key)}`);
+    
     const registration = this._registrations.get(key);
     if (!registration) {
-      throw new Error(`Service ${String(key)} is not registered`);
+      const error = new Error(`Service ${String(key)} is not registered`);
+      console.error(`[CONTAINER] Service not found: ${String(key)}`, {
+        availableServices: Array.from(this._registrations.keys()),
+        requestedService: String(key)
+      });
+      throw error;
     }
 
     // Return cached instance for singletons
     if (registration.lifetime === ServiceLifetime.Singleton && registration.instance) {
+      console.log(`[CONTAINER] Returning cached singleton instance: ${String(key)}`);
       return registration.instance;
     }
 
     // Create new instance
-    const instance = registration.factory(this);
+    console.log(`[CONTAINER] Creating new instance of service: ${String(key)}`);
+    const factoryStartTime = Date.now();
+    
+    try {
+      const instance = registration.factory(this);
+      const factoryDuration = Date.now() - factoryStartTime;
+      console.log(`[CONTAINER] Service factory completed for ${String(key)} in ${factoryDuration}ms`);
 
-    // Cache for singletons
-    if (registration.lifetime === ServiceLifetime.Singleton) {
-      registration.instance = instance;
-    }
+      // Cache for singletons
+      if (registration.lifetime === ServiceLifetime.Singleton) {
+        registration.instance = instance;
+        console.log(`[CONTAINER] Cached singleton instance: ${String(key)}`);
+      }
 
-    // Auto-dispose on extension deactivation
-    if (this._context && registration.disposeFn) {
-      this._context.subscriptions.push({
-        dispose: () => {
-          try {
-            registration.disposeFn!(instance);
-          } catch (error) {
-            console.error(`Error disposing service ${String(key)}:`, error);
+      // Auto-dispose on extension deactivation
+      if (this._context && registration.disposeFn) {
+        this._context.subscriptions.push({
+          dispose: () => {
+            const disposeStartTime = Date.now();
+            console.log(`[CONTAINER] Disposing service: ${String(key)}`);
+            try {
+              registration.disposeFn!(instance);
+              const disposeDuration = Date.now() - disposeStartTime;
+              console.log(`[CONTAINER] Service disposed successfully: ${String(key)} in ${disposeDuration}ms`);
+            } catch (error) {
+              const disposeDuration = Date.now() - disposeStartTime;
+              const err = error instanceof Error ? error : new Error(String(error));
+              console.error(`[CONTAINER] Error disposing service ${String(key)} after ${disposeDuration}ms:`, {
+                message: err.message,
+                stack: err.stack,
+                name: err.name
+              });
+              
+              // Special logging for network-related errors
+              if (err.message.includes('ECONNRESET') || err.message.includes('connection reset') ||
+                  err.message.includes('network') || err.message.includes('fetch')) {
+                console.error(`[CONTAINER] NETWORK ERROR in disposal - Type: ${err.name}, Message: ${err.message}`);
+                console.error(`[CONTAINER] Network error details:`, {
+                  serviceName: String(key),
+                  timestamp: new Date().toISOString(),
+                  duration: disposeDuration
+                });
+              }
+            }
           }
-        }
-      });
-    }
+        });
+      }
 
-    return instance;
+      const totalDuration = Date.now() - startTime;
+      console.log(`[CONTAINER] Service retrieval completed: ${String(key)} in ${totalDuration}ms`);
+      return instance;
+    } catch (error) {
+      const totalDuration = Date.now() - startTime;
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(`[CONTAINER] Failed to create service ${String(key)} after ${totalDuration}ms:`, {
+        message: err.message,
+        stack: err.stack,
+        name: err.name,
+        lifetime: registration.lifetime
+      });
+      
+      // Special logging for network-related errors
+      if (err.message.includes('ECONNRESET') || err.message.includes('connection reset') ||
+          err.message.includes('network') || err.message.includes('fetch')) {
+        console.error(`[CONTAINER] NETWORK ERROR in service creation - Type: ${err.name}, Message: ${err.message}`);
+        console.error(`[CONTAINER] Network error details:`, {
+          serviceName: String(key),
+          lifetime: registration.lifetime,
+          timestamp: new Date().toISOString(),
+          duration: totalDuration
+        });
+      }
+      
+      throw err;
+    }
   }
 
   /**
@@ -185,26 +278,78 @@ export class Container {
    * Dispose all services in reverse registration order
    */
   public async dispose(): Promise<void> {
+    const startTime = Date.now();
+    console.log(`[CONTAINER] Starting container disposal`);
+    
     const disposals: Promise<void>[] = [];
 
     // Dispose in reverse order to handle dependencies correctly
     const registrations = Array.from(this._registrations.values()).reverse();
+    console.log(`[CONTAINER] Disposing ${registrations.length} services in reverse dependency order`);
 
     for (const registration of registrations) {
       if (registration.instance && registration.disposeFn) {
+        const disposeStartTime = Date.now();
+        console.log(`[CONTAINER] Disposing service: ${registration.key}`);
+        
         try {
           const result = registration.disposeFn(registration.instance);
           if (result instanceof Promise) {
             disposals.push(result);
           }
+          const disposeDuration = Date.now() - disposeStartTime;
+          console.log(`[CONTAINER] Service disposal initiated: ${registration.key} in ${disposeDuration}ms`);
         } catch (error) {
-          console.error(`Error disposing service ${registration.key}:`, error);
+          const disposeDuration = Date.now() - disposeStartTime;
+          const err = error instanceof Error ? error : new Error(String(error));
+          console.error(`[CONTAINER] Error disposing service ${registration.key} after ${disposeDuration}ms:`, {
+            message: err.message,
+            stack: err.stack,
+            name: err.name
+          });
+          
+          // Special logging for network-related errors
+          if (err.message.includes('ECONNRESET') || err.message.includes('connection reset') ||
+              err.message.includes('network') || err.message.includes('fetch')) {
+            console.error(`[CONTAINER] NETWORK ERROR in container disposal - Type: ${err.name}, Message: ${err.message}`);
+            console.error(`[CONTAINER] Network error details:`, {
+              serviceName: registration.key,
+              timestamp: new Date().toISOString(),
+              duration: disposeDuration
+            });
+          }
         }
+      } else {
+        console.log(`[CONTAINER] Service ${registration.key} has no instance or dispose function, skipping`);
       }
     }
 
-    await Promise.all(disposals);
-    this._registrations.clear();
+    try {
+      await Promise.all(disposals);
+      const duration = Date.now() - startTime;
+      console.log(`[CONTAINER] Container disposal completed in ${duration}ms`);
+      this._registrations.clear();
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      const err = error instanceof Error ? error : new Error(String(error));
+      console.error(`[CONTAINER] Error during Promise.all in disposal after ${duration}ms:`, {
+        message: err.message,
+        stack: err.stack,
+        name: err.name
+      });
+      
+      // Special logging for network-related errors
+      if (err.message.includes('ECONNRESET') || err.message.includes('connection reset') ||
+          err.message.includes('network') || err.message.includes('fetch')) {
+        console.error(`[CONTAINER] NETWORK ERROR in Promise.all disposal - Type: ${err.name}, Message: ${err.message}`);
+        console.error(`[CONTAINER] Network error details:`, {
+          timestamp: new Date().toISOString(),
+          duration
+        });
+      }
+      
+      throw err;
+    }
   }
 
   /**
@@ -229,24 +374,36 @@ export const ServiceKeys: { [K in keyof ServiceRegistry]: K } = {
   ConfigService: 'ConfigService',
   WorkspaceManager: 'WorkspaceManager',
   IndexingService: 'IndexingService',
-  AnalyticsService: 'AnalyticsService'
+  AnalyticsService: 'AnalyticsService',
+  LoggerService: 'LoggerService'
 } as const;
 
 /**
  * Helper to register all services with proper dependency resolution
  * This uses a two-phase approach to avoid circular dependencies
  */
-export function initializeServices(context: vscode.ExtensionContext): void {
+export function initializeServices(
+    context: vscode.ExtensionContext, 
+    outputChannel: vscode.OutputChannel, 
+    traceEnabled: boolean
+): void {
   const container = Container.instance;
   container.initialize(context);
 
-  // Phase 1: Register ConfigService (no dependencies)
-  container.register('ConfigService', (c) => new ConfigService(), {
+  // Phase 1: Register ConfigService, LoggerService (no dependencies on other services)
+  container.register('ConfigService', () => new ConfigService(), {
     lifetime: ServiceLifetime.Singleton,
     dispose: (svc) => svc.dispose()
   });
 
-  // Phase 2: Register AnalyticsService (no dependencies on other services)
+  container.register('LoggerService', () =>
+    new LoggerService(outputChannel, traceEnabled),
+    {
+      lifetime: ServiceLifetime.Singleton,
+    }
+  );
+
+  // Phase 2: Register AnalyticsService (depends on ConfigService, LoggerService)
   container.register('AnalyticsService', (c) =>
     new AnalyticsService(c.context),
     {
@@ -255,7 +412,7 @@ export function initializeServices(context: vscode.ExtensionContext): void {
     }
   );
 
-  // Phase 3: Register IndexingService (depends on ConfigService, AnalyticsService)
+  // Phase 3: Register IndexingService (depends on ConfigService, AnalyticsService, LoggerService)
   container.register('IndexingService', (c) =>
     new IndexingService(
       c.get('ConfigService'),
@@ -268,10 +425,10 @@ export function initializeServices(context: vscode.ExtensionContext): void {
     }
   );
 
-  // Phase 4: Register WorkspaceManager (no dependencies on other services)
+  // Phase 4: Register WorkspaceManager (depends on ConfigService, LoggerService)
   // WorkspaceManager manages Git repositories and workspace context
   container.register('WorkspaceManager', (c) =>
-    new WorkspaceManager(c.context, c.get('ConfigService')), // Pass ConfigService
+    new WorkspaceManager(c.context, c.get('ConfigService')), // Pass ConfigService only
     {
       lifetime: ServiceLifetime.Singleton,
       dispose: (svc) => svc.dispose?.()

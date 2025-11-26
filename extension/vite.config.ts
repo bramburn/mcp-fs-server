@@ -1,7 +1,7 @@
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-import path from 'path';
-import { fileURLToPath } from 'url';
+import react from "@vitejs/plugin-react";
+import path from "path";
+import { fileURLToPath } from "url";
+import { defineConfig } from "vite";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -18,29 +18,29 @@ export default defineConfig({
   resolve: {
     alias: {
       // Legacy Svelte-era aliases (kept temporarily for gradual migration)
-      '$app': path.resolve(__dirname, './src/webviews/app'),
-      '$lib': path.resolve(__dirname, './src/lib'),
-      shared: path.resolve(__dirname, '../packages/shared'),
+      $app: path.resolve(__dirname, "./src/webviews/app"),
+      $lib: path.resolve(__dirname, "./src/lib"),
+      shared: path.resolve(__dirname, "../packages/shared"),
       // New React-era aliases
-      '@app': path.resolve(__dirname, './src/webviews/app'),
-      '@lib': path.resolve(__dirname, './src/lib'),
-      '@shared': path.resolve(__dirname, '../packages/shared'),
+      "@app": path.resolve(__dirname, "./src/webviews/app"),
+      "@lib": path.resolve(__dirname, "./src/lib"),
+      "@shared": path.resolve(__dirname, "../packages/shared"),
     },
   },
   build: {
-    outDir: 'out/webview',
+    outDir: "out/webview",
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        index: path.resolve(__dirname, 'src/webviews/index.html'),
+        index: path.resolve(__dirname, "src/webviews/index.html"),
       },
       output: {
-        entryFileNames: 'assets/[name].[hash].js',
-        chunkFileNames: 'assets/[name].[hash].js',
-        assetFileNames: 'assets/[name].[hash].[ext]',
+        entryFileNames: "assets/[name].js",
+        chunkFileNames: "assets/[name].js",
+        assetFileNames: "assets/[name].[ext]",
       },
     },
-    minify: 'esbuild',
+    minify: "esbuild",
     sourcemap: true,
   },
   server: {
@@ -48,6 +48,8 @@ export default defineConfig({
     hmr: false,
   },
   define: {
-    'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV || 'development'),
+    "process.env.NODE_ENV": JSON.stringify(
+      process.env.NODE_ENV || "development"
+    ),
   },
 });

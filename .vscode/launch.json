@@ -1,0 +1,74 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Run Extension (Debug)",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
+      "preLaunchTask": "npm: watch",
+      "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
+      "sourceMaps": true,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/extension/out/**",
+        "!**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Run Extension (Dev Env)",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
+      "preLaunchTask": "Setup Development Environment",
+      "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
+      "sourceMaps": true,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/extension/out/**",
+        "!**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Run Extension (No Watch)",
+      "type": "extensionHost",
+      "request": "launch",
+      "runtimeExecutable": "${execPath}",
+      "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
+      "preLaunchTask": "npm: compile",
+      "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
+      "sourceMaps": true,
+      "console": "integratedTerminal",
+      "internalConsoleOptions": "neverOpen",
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/extension/out/**",
+        "!**/node_modules/**"
+      ]
+    },
+    {
+      "name": "Debug Webview (Chrome)",
+      "type": "chrome",
+      "request": "attach",
+      "port": 9222,
+      "webRoot": "${workspaceFolder}/extension/src/webviews",
+      "sourceMaps": true,
+      "url": "file://${workspaceFolder}/extension/out/webview/index.html",
+      "timeout": 30000,
+      "resolveSourceMapLocations": [
+        "${workspaceFolder}/extension/src/webviews/**",
+        "!**/node_modules/**"
+      ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Dev Env: Extension + Webview Debug",
+      "configurations": ["Run Extension (Dev Env)", "Debug Webview (Chrome)"],
+      "stopAll": true
+    }
+  ]
+}

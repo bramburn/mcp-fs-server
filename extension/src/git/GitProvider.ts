@@ -132,6 +132,12 @@ export class VsCodeGitProvider implements GitProvider {
             return null;
         }
 
+        // Check if getRemotes function exists on the repository object
+        if (typeof repo.getRemotes !== 'function') {
+            console.warn('Repository object does not have getRemotes function, skipping remote URL discovery.');
+            return null;
+        }
+
         try {
             const remotes = await repo.getRemotes();
             if (remotes.length > 0) {

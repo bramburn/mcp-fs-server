@@ -1,29 +1,30 @@
 import * as vscode from "vscode";
+import { AnalyticsService } from "../services/AnalyticsService.js";
+import { ConfigService } from "../services/ConfigService.js";
+import { IndexingService } from "../services/IndexingService.js";
+import { ILogger } from "../services/LoggerService.js";
+import { WorkspaceManager } from "../services/WorkspaceManager.js";
 import {
-  IpcMessage,
-  IpcCommand,
-  IpcRequest,
-  IpcNotification,
-  IpcResponse,
-  SEARCH_METHOD,
-  START_INDEX_METHOD,
-  INDEX_STATUS_METHOD,
-  OPEN_FILE_METHOD,
-  LOAD_CONFIG_METHOD,
   CONFIG_DATA_METHOD,
-  SearchRequestParams,
-  OpenFileParams,
-  ExecuteCommand,
+  DID_CHANGE_CONFIG_NOTIFICATION,
   DidChangeConfigurationNotification,
   EXECUTE_COMMAND_METHOD,
-  DID_CHANGE_CONFIG_NOTIFICATION,
+  ExecuteCommand,
+  INDEX_STATUS_METHOD,
+  IpcCommand,
+  IpcMessage,
+  IpcNotification,
+  IpcRequest,
+  IpcResponse,
   IpcScope,
+  LOAD_CONFIG_METHOD,
+  OPEN_FILE_METHOD,
+  OpenFileParams,
   QdrantOllamaConfig,
+  SEARCH_METHOD,
+  SearchRequestParams,
+  START_INDEX_METHOD,
 } from "./protocol.js";
-import { IndexingService } from "../services/IndexingService.js";
-import { WorkspaceManager } from "../services/WorkspaceManager.js";
-import { ConfigService } from "../services/ConfigService.js";
-import { AnalyticsService } from "../services/AnalyticsService.js";
 
 /**
  * Generate a cryptographically random nonce for CSP
@@ -43,7 +44,9 @@ function getNonce(): string {
  * P2.1: Svelte Webview Setup and Hosting
  * Manages the Webview Panel (Sidebar) and handles IPC messaging.
  */
-export class WebviewController implements vscode.WebviewViewProvider, vscode.Disposable {
+export class WebviewController
+  implements vscode.WebviewViewProvider, vscode.Disposable
+{
   public static readonly viewType = "qdrant.search.view";
   private _view?: vscode.WebviewView;
   private _disposables: vscode.Disposable[] = [];
@@ -56,23 +59,69 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
     private readonly _workspaceManager: WorkspaceManager,
     private readonly _configService: ConfigService,
     private readonly _analyticsService: AnalyticsService,
-    private readonly _outputChannel: vscode.OutputChannel
+    private readonly _outputChannel: vscode.OutputChannel,
+    private readonly _logger: ILogger // Added logger dependency
   ) {
-    this._traceEnabled = vscode.workspace.getConfiguration('qdrant.search').get('trace', false) as boolean;
-    
-    this.log(`WebviewController created for viewType ${WebviewController.viewType} with extensionUri ${this._extensionUri.toString()}`);
-    this._analyticsService.trackEvent('controller.created', {
-      viewType: WebviewController.viewType
+    this._traceEnabled = vscode.workspace
+      .getConfiguration("qdrant.search")
+      .get("trace", false) as boolean;
+
+    this._logger.log(
+      `WebviewController created for viewType ${
+        WebviewController.viewType
+      } with extensionUri ${this._extensionUri.toString()}`
+    );
+    this._analyticsService.trackEvent("controller.created", {
+      viewType: WebviewController.viewType,
     });
   }
 
   /**
    * Helper method to conditionally log based on trace setting
    */
-  private log(message: string, level: 'INFO' | 'ERROR' | 'WARN' | 'WEBVIEW' | 'IPC' | 'SEARCH' | 'OPEN' | 'COMMAND' | 'CONFIG' = 'INFO') {
-    if (this._traceEnabled || level === 'ERROR') {
-      this._outputChannel.appendLine(`[${level}] ${message}`);
+  private log(
+    message: string,
+    level:
+      | "INFO"
+      | "ERROR"
+      | "WARN"
+      | "WEBVIEW"
+      | "IPC"
+      | "SEARCH"
+      | "OPEN"
+      | "COMMAND"
+      | "CONFIG" = "INFO"
+  ) {
+    // Map controller-specific log levels to ILogger-compatible levels
+    let loggerLevel:
+      | "INFO"
+      | "ERROR"
+      | "WARN"
+      | "COMMAND"
+      | "SEARCH"
+      | "OPEN"
+      | "CONFIG"
+      | "FATAL";
+
+    switch (level) {
+      case "WEBVIEW":
+      case "IPC":
+        loggerLevel = "INFO"; // Map these to INFO for now
+        break;
+      default:
+        loggerLevel = level as
+          | "INFO"
+          | "ERROR"
+          | "WARN"
+          | "COMMAND"
+          | "SEARCH"
+          | "OPEN"
+          | "CONFIG"
+          | "FATAL";
+        break;
     }
+
+    this._logger.log(message, loggerLevel);
   }
 
   public dispose() {
@@ -89,26 +138,33 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
+    console.log(
+      `[WebviewController] resolveWebviewView called for ${WebviewController.viewType}`
+    );
     this.log(`resolveWebviewView called for ${WebviewController.viewType}`);
-    this._analyticsService.trackEvent('provider.resolve.called', {
-      viewType: WebviewController.viewType
+    this._analyticsService.trackEvent("provider.resolve.called", {
+      viewType: WebviewController.viewType,
     });
 
     try {
       this._view = webviewView;
 
       // Track page view when webview is resolved
-      this._analyticsService.trackPageView('search_view');
+      this._analyticsService.trackPageView("search_view");
 
       // Context Keys: Set visible context key on view creation
-      vscode.commands.executeCommand('setContext', 'qdrant.searchView.visible', true);
+      vscode.commands.executeCommand(
+        "setContext",
+        "qdrant.searchView.visible",
+        true
+      );
 
       // Correctly handle webview visibility changes
       webviewView.onDidChangeVisibility(() => {
         this._isViewVisible = webviewView.visible;
         vscode.commands.executeCommand(
-          'setContext',
-          'qdrant.searchView.focused',
+          "setContext",
+          "qdrant.searchView.focused",
           webviewView.visible // Assuming focused when visible
         );
       });
@@ -120,7 +176,11 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
         ],
       };
 
-      webviewView.webview.html = this._getHtmlForWebview(webviewView.webview);
+      const html = this._getHtmlForWebview(webviewView.webview);
+      console.log(
+        `[WebviewController] Setting webview HTML, length: ${html.length}`
+      );
+      webviewView.webview.html = html;
 
       // Listen for messages from the Webview (Guest)
       const listener = webviewView.webview.onDidReceiveMessage(
@@ -128,26 +188,42 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
           const message: any = data;
 
           // Handle simple debug/fallback commands from the error HTML
-          if (message && typeof message.command === 'string') {
+          if (message && typeof message.command === "string") {
             switch (message.command) {
-              case 'extension.reload': {
-                this.log('Received extension.reload from webview fallback', 'WEBVIEW');
-                this._analyticsService.trackEvent('webview.fallback.reloadClicked', {
-                  viewType: WebviewController.viewType
-                });
-                vscode.commands.executeCommand('workbench.action.reloadWindow');
+              case "extension.reload": {
+                this.log(
+                  "Received extension.reload from webview fallback",
+                  "WEBVIEW"
+                );
+                this._analyticsService.trackEvent(
+                  "webview.fallback.reloadClicked",
+                  {
+                    viewType: WebviewController.viewType,
+                  }
+                );
+                vscode.commands.executeCommand("workbench.action.reloadWindow");
                 return;
               }
-              case 'debug.error': {
-                this.log(`Received debug.error from webview fallback: ${JSON.stringify(message.data)}`, 'WEBVIEW');
+              case "debug.error": {
+                this.log(
+                  `Received debug.error from webview fallback: ${JSON.stringify(
+                    message.data
+                  )}`,
+                  "WEBVIEW"
+                );
                 this._analyticsService.trackError(
-                  'webview_fallback_error',
-                  typeof message.data === 'string' ? message.data : JSON.stringify(message.data)
+                  "webview_fallback_error",
+                  typeof message.data === "string"
+                    ? message.data
+                    : JSON.stringify(message.data)
                 );
                 return;
               }
               default: {
-                this.log(`Received unknown fallback command from webview: ${message.command}`, 'WEBVIEW');
+                this.log(
+                  `Received unknown fallback command from webview: ${message.command}`,
+                  "WEBVIEW"
+                );
                 break;
               }
             }
@@ -156,18 +232,21 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
           const typed = data as IpcMessage;
 
           // Security: Validate message scope
-          const validScopes: IpcScope[] = ['qdrantIndex', 'webview-mgmt'];
+          const validScopes: IpcScope[] = ["qdrantIndex", "webview-mgmt"];
           if (!validScopes.includes(typed.scope)) {
-            this.log(`Received message with unknown scope: ${typed.scope}`, 'WARN');
+            this.log(
+              `Received message with unknown scope: ${typed.scope}`,
+              "WARN"
+            );
             return;
           }
 
           // IPC Handler: Use type guards for stricter handling
-          if (typed.kind === 'command') {
+          if (typed.kind === "command") {
             await this.handleCommand(typed as IpcCommand<any>);
-          } else if (typed.kind === 'request') {
+          } else if (typed.kind === "request") {
             await this.handleRequest(typed as IpcRequest<any>);
-          } else if (typed.kind === 'notification') {
+          } else if (typed.kind === "notification") {
             await this.handleNotification(typed as IpcNotification<any>);
           }
           // Responses are typically handled by caller logic, not controller here
@@ -179,24 +258,25 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
       // Add listeners/disposables here
       this._disposables.push(listener);
 
-      this._analyticsService.trackEvent('provider.resolve.completed', {
+      this._analyticsService.trackEvent("provider.resolve.completed", {
         success: true,
-        viewType: WebviewController.viewType
+        viewType: WebviewController.viewType,
       });
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.log(`Error in resolveWebviewView: ${errorMsg}`, 'ERROR');
-      this._analyticsService.trackError(
-        'provider.resolve.failed',
-        errorMsg
-      );
+      this.log(`Error in resolveWebviewView: ${errorMsg}`, "ERROR");
+      this._analyticsService.trackError("provider.resolve.failed", errorMsg);
 
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const serializedError = JSON.stringify({ message: errorMessage }).replace(/"/g, '\\"');
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const serializedError = JSON.stringify({ message: errorMessage }).replace(
+        /"/g,
+        '\\"'
+      );
 
       webviewView.webview.options = {
         ...webviewView.webview.options,
-        enableScripts: true
+        enableScripts: true,
       };
 
       webviewView.webview.html = `<!DOCTYPE html>
@@ -209,7 +289,7 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
 <body style="font-family: sans-serif; padding: 16px;">
   <h2>Qdrant Code Search - Debug Error</h2>
   <p>The sidebar view failed to initialize.</p>
-  <pre style="background: #f5f5f5; padding: 8px; white-space: pre-wrap;">${errorMessage}</pre>
+  <pre style="background: #f5f5f5; padding: 8px; white-space: wrap;">${errorMessage}</pre>
   <button id="reload-btn">Reload Extension Window</button>
   <script>
     (function() {
@@ -230,9 +310,9 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
 </body>
 </html>`;
 
-      this._analyticsService.trackEvent('provider.resolve.completed', {
+      this._analyticsService.trackEvent("provider.resolve.completed", {
         success: false,
-        viewType: WebviewController.viewType
+        viewType: WebviewController.viewType,
       });
 
       vscode.window.showErrorMessage(
@@ -254,11 +334,13 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
         await this.handleExecuteCommand(command as ExecuteCommand);
         break;
       default:
-        this.log(`Unknown command method: ${command.method}`, 'IPC');
+        this.log(`Unknown command method: ${command.method}`, "IPC");
     }
   }
 
-  private async handleRequest(request: IpcRequest<any>): Promise<IpcResponse<any> | void> {
+  private async handleRequest(
+    request: IpcRequest<any>
+  ): Promise<IpcResponse<any> | void> {
     let response: IpcResponse<any> | undefined;
     switch (request.method) {
       case SEARCH_METHOD:
@@ -269,38 +351,47 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
         // Corrected access to request.scope and request.id
         response = await this.handleLoadConfigRequest(request);
         break;
+      case "ipc:ready-request":
+        // Webview is ready, send initial state
+        this.log("Webview ready, sending initial status", "IPC");
+        this.sendNotification(INDEX_STATUS_METHOD, { status: "ready" });
+        // No response needed for this request
+        break;
       default: {
-        this.log(`Unknown request method: ${request.method}`, 'IPC');
-        response = { // Send error response for unknown request
-            kind: 'response',
-            scope: request.scope,
-            id: crypto.randomUUID(),
-            responseId: request.id,
-            timestamp: Date.now(),
-            error: `Unknown request method: ${request.method}`
+        this.log(`Unknown request method: ${request.method}`, "IPC");
+        response = {
+          // Send error response for unknown request
+          kind: "response",
+          scope: request.scope,
+          id: crypto.randomUUID(),
+          responseId: request.id,
+          timestamp: Date.now(),
+          error: `Unknown request method: ${request.method}`,
         };
         break;
       }
     }
-    
+
     if (response) {
-        this.sendResponse(response);
+      this.sendResponse(response);
     }
   }
 
   private async handleNotification(notification: IpcNotification<any>) {
     switch (notification.method) {
-        case INDEX_STATUS_METHOD:
-            // Handled by sendNotification in handleIndexRequest
-            break;
-        case CONFIG_DATA_METHOD:
-            // Handled by sendNotification in handleLoadConfigRequest
-            break;
-        case DID_CHANGE_CONFIG_NOTIFICATION:
-            this.handleDidChangeConfiguration(notification as DidChangeConfigurationNotification);
-            break;
-        default:
-            this.log(`Unknown notification method: ${notification.method}`, 'IPC');
+      case INDEX_STATUS_METHOD:
+        // Handled by sendNotification in handleIndexRequest
+        break;
+      case CONFIG_DATA_METHOD:
+        // Handled by sendNotification in handleLoadConfigRequest
+        break;
+      case DID_CHANGE_CONFIG_NOTIFICATION:
+        this.handleDidChangeConfiguration(
+          notification as DidChangeConfigurationNotification
+        );
+        break;
+      default:
+        this.log(`Unknown notification method: ${notification.method}`, "IPC");
     }
   }
 
@@ -323,57 +414,61 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
     }
   }
 
-  private async handleSearchRequest(request: IpcRequest<SearchRequestParams>): Promise<IpcResponse<any>> {
+  private async handleSearchRequest(
+    request: IpcRequest<SearchRequestParams>
+  ): Promise<IpcResponse<any>> {
     if (!request.params || !request.params.query) {
-        return {
-            kind: 'response',
-            scope: request.scope,
-            id: crypto.randomUUID(),
-            responseId: request.id,
-            timestamp: Date.now(),
-            error: "Missing search query."
-        };
+      return {
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        error: "Missing search query.",
+      };
     }
 
     try {
       const query = request.params.query;
-      this.log(`Executing search for query: "${query}"`, 'SEARCH');
+      this.log(`Executing search for query: "${query}"`, "SEARCH");
       const results = await this._indexingService.search(query);
 
       // Track search analytics
       this._analyticsService.trackSearch({
         queryLength: query.length,
-        resultsCount: results?.length || 0
+        resultsCount: results?.length || 0,
       });
 
-      this.log(`Search completed: ${results?.length || 0} results`, 'SEARCH');
+      this.log(`Search completed: ${results?.length || 0} results`, "SEARCH");
       return {
-          kind: 'response',
-          scope: request.scope,
-          id: crypto.randomUUID(),
-          responseId: request.id,
-          timestamp: Date.now(),
-          data: { results }
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        data: { results },
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.log(`Search error: ${errorMsg}`, 'ERROR');
+      this.log(`Search error: ${errorMsg}`, "ERROR");
 
       // Track search error
-      this._analyticsService.trackError('search_failed', 'handleSearchRequest');
+      this._analyticsService.trackError("search_failed", "handleSearchRequest");
 
       return {
-          kind: 'response',
-          scope: request.scope,
-          id: crypto.randomUUID(),
-          responseId: request.id,
-          timestamp: Date.now(),
-          error: `Search failed: ${errorMsg}`
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        error: `Search failed: ${errorMsg}`,
       };
     }
   }
 
-  private async handleLoadConfigRequest(request: IpcRequest<any>): Promise<IpcResponse<any>> {
+  private async handleLoadConfigRequest(
+    request: IpcRequest<any>
+  ): Promise<IpcResponse<any>> {
     const folder = this._workspaceManager.getActiveWorkspaceFolder();
     let config: QdrantOllamaConfig | null = null;
     if (folder) {
@@ -381,22 +476,43 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
     }
 
     return {
-      kind: 'response',
+      kind: "response",
       scope: request.scope,
       id: crypto.randomUUID(),
       responseId: request.id,
       timestamp: Date.now(),
-      data: config || null
+      data: config || null,
     };
   }
 
   private async handleOpenFile(command: IpcCommand<OpenFileParams>) {
     const { uri, line } = command.params;
     try {
-      const fileUri =
-        uri.startsWith("/") || uri.match(/^[a-zA-Z]:/)
-          ? vscode.Uri.file(uri)
-          : vscode.Uri.parse(uri);
+      let fileUri: vscode.Uri;
+
+      // Handle different URI schemes properly
+      if (uri.startsWith("vscode-userdata:")) {
+        // Skip vscode-userdata URIs as they're not accessible via normal file operations
+        this.log(`Skipping vscode-userdata URI: ${uri}`, "WARN");
+        vscode.window.showInformationMessage(
+          `Cannot open VS Code user data files: ${uri}`
+        );
+        return;
+      } else if (uri.startsWith("/") || uri.match(/^[a-zA-Z]:/)) {
+        // Handle absolute file paths
+        fileUri = vscode.Uri.file(uri);
+      } else if (uri.startsWith("file://")) {
+        // Handle file:// URIs
+        fileUri = vscode.Uri.parse(uri);
+      } else {
+        // Handle other URI schemes or relative paths
+        try {
+          fileUri = vscode.Uri.parse(uri);
+        } catch {
+          // If parsing fails, try treating it as a file path
+          fileUri = vscode.Uri.file(uri);
+        }
+      }
 
       const doc = await vscode.workspace.openTextDocument(fileUri);
       const editor = await vscode.window.showTextDocument(doc);
@@ -406,61 +522,174 @@ export class WebviewController implements vscode.WebviewViewProvider, vscode.Dis
         new vscode.Range(position, position),
         vscode.TextEditorRevealType.InCenter
       );
-      this.log(`Opened file ${uri} at line ${line}`, 'OPEN');
+      this.log(`Opened file ${uri} at line ${line}`, "OPEN");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.log(`Failed to open file ${uri}: ${errorMsg}`, 'ERROR');
+      this.log(`Failed to open file ${uri}: ${errorMsg}`, "ERROR");
       vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
     }
   }
 
   private async handleExecuteCommand(command: ExecuteCommand) {
     try {
-        await vscode.commands.executeCommand(command.params.command, ...(command.params.args || []));
-        this.log(`Executed VSCode command: ${command.params.command}`, 'COMMAND');
+      await vscode.commands.executeCommand(
+        command.params.command,
+        ...(command.params.args || [])
+      );
+      this.log(`Executed VSCode command: ${command.params.command}`, "COMMAND");
     } catch (error) {
-        const errorMsg = error instanceof Error ? error.message : String(error);
-        this.log(`Failed to execute command ${command.params.command}: ${errorMsg}`, 'ERROR');
-        vscode.window.showErrorMessage(`Failed to execute command: ${command.params.command}`);
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.log(
+        `Failed to execute command ${command.params.command}: ${errorMsg}`,
+        "ERROR"
+      );
+      vscode.window.showErrorMessage(
+        `Failed to execute command: ${command.params.command}`
+      );
     }
   }
 
-  private handleDidChangeConfiguration(notification: DidChangeConfigurationNotification) {
+  private handleDidChangeConfiguration(
+    notification: DidChangeConfigurationNotification
+  ) {
     // Track configuration changes
-    this._analyticsService.trackEvent('settings_changed', {
-      configKey: notification.params.configKey
+    this._analyticsService.trackEvent("settings_changed", {
+      configKey: notification.params.configKey,
     });
 
     // Placeholder for logic to react to configuration changes (e.g., reloading a service)
-    this.log(`Configuration changed for key: ${notification.params.configKey}`, 'CONFIG');
+    this.log(
+      `Configuration changed for key: ${notification.params.configKey}`,
+      "CONFIG"
+    );
   }
 
   // --- Messaging Helpers ---
 
   public sendNotification(method: string, params: any) {
     if (this._view) {
-      this._view.webview.postMessage({
-        scope: 'qdrantIndex', // Explicitly cast to IpcScope if necessary, or ensure 'qdrantIndex' is within the union
+      const notification = {
+        scope: "qdrantIndex", // Explicitly cast to IpcScope if necessary, or ensure 'qdrantIndex' is within the union
         id: crypto.randomUUID(),
         method: method,
         kind: "notification",
         params: params,
         timestamp: Date.now(),
-      } as IpcNotification<any>);
+      } as IpcNotification<any>;
+
+      const notificationStr = JSON.stringify(notification);
+      const notificationPreview =
+        notificationStr.length > 200
+          ? notificationStr.substring(0, 200) + "..."
+          : notificationStr;
+
+      this.log(`[IPC] Sending notification: ${method}`, "IPC");
+      this.log(`[IPC] Notification data: ${notificationPreview}`, "IPC");
+
+      try {
+        this._view.webview.postMessage(notification);
+        this.log(`[IPC] Notification sent successfully: ${method}`, "IPC");
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.log(
+          `[IPC] Failed to send notification ${method}: ${err.message}`,
+          "ERROR"
+        );
+        console.error(`[IPC] Notification send error:`, {
+          message: err.message,
+          stack: err.stack,
+          method,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Special logging for network-related errors
+        if (
+          err.message.includes("ECONNRESET") ||
+          err.message.includes("connection reset") ||
+          err.message.includes("network") ||
+          err.message.includes("fetch")
+        ) {
+          this.log(
+            `[IPC] NETWORK ERROR in sendNotification - Type: ${err.name}, Message: ${err.message}`,
+            "ERROR"
+          );
+          console.error(`[IPC] Network error details:`, {
+            method,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+    } else {
+      this.log(
+        `[IPC] Cannot send notification ${method} - webview not available`,
+        "WARN"
+      );
     }
   }
 
   private sendResponse(response: IpcResponse<any>) {
     if (this._view) {
-      this._view.webview.postMessage(response);
+      const responseStr = JSON.stringify(response);
+      const responsePreview =
+        responseStr.length > 200
+          ? responseStr.substring(0, 200) + "..."
+          : responseStr;
+
+      this.log(
+        `[IPC] Sending response for request: ${response.responseId}`,
+        "IPC"
+      );
+      this.log(`[IPC] Response data: ${responsePreview}`, "IPC");
+
+      try {
+        this._view.webview.postMessage(response);
+        this.log(
+          `[IPC] Response sent successfully for request: ${response.responseId}`,
+          "IPC"
+        );
+      } catch (error) {
+        const err = error instanceof Error ? error : new Error(String(error));
+        this.log(
+          `[IPC] Failed to send response ${response.responseId}: ${err.message}`,
+          "ERROR"
+        );
+        console.error(`[IPC] Response send error:`, {
+          message: err.message,
+          stack: err.stack,
+          responseId: response.responseId,
+          timestamp: new Date().toISOString(),
+        });
+
+        // Special logging for network-related errors
+        if (
+          err.message.includes("ECONNRESET") ||
+          err.message.includes("connection reset") ||
+          err.message.includes("network") ||
+          err.message.includes("fetch")
+        ) {
+          this.log(
+            `[IPC] NETWORK ERROR in sendResponse - Type: ${err.name}, Message: ${err.message}`,
+            "ERROR"
+          );
+          console.error(`[IPC] Network error details:`, {
+            responseId: response.responseId,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+    } else {
+      this.log(
+        `[IPC] Cannot send response ${response.responseId} - webview not available`,
+        "WARN"
+      );
     }
   }
 
   // --- Telemetry & Context Keys ---
   public getTelemetryContext(): { [key: string]: string } {
     return {
-        webviewVisible: this._isViewVisible.toString(),
-        webviewFocused: this._isViewVisible.toString(), // Reuse for now
+      webviewVisible: this._isViewVisible.toString(),
+      webviewFocused: this._isViewVisible.toString(), // Reuse for now
     };
   }
 

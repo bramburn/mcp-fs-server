@@ -134,21 +134,62 @@ export class ConfigService implements vscode.Disposable {
      * Verifies that the configured services are reachable.
      */
     public async validateConnection(config: QdrantOllamaConfig): Promise<boolean> {
+        const startTime = Date.now();
+        console.log(`[CONFIG] Starting connection validation - Ollama: ${config.ollama_config.base_url}, Qdrant: ${config.qdrant_config.url}`);
+        
         try {
             // Check Ollama
+            console.log(`[CONFIG] Testing Ollama connection to ${config.ollama_config.base_url}/api/tags`);
+            const ollamaStartTime = Date.now();
             const ollamaRes = await fetch(`${config.ollama_config.base_url}/api/tags`);
-            if (!ollamaRes.ok) throw new Error('Ollama unreachable');
-
-            // Check Qdrant (Basic health check via collections list or telemetry)
-            const qdrantRes = await fetch(`${config.qdrant_config.url}/collections`);
-            if (!qdrantRes.ok && qdrantRes.status !== 401 && qdrantRes.status !== 403) {
-                 // 401/403 might just mean we need the API key which IndexingService handles
-                 throw new Error('Qdrant unreachable');
+            const ollamaDuration = Date.now() - ollamaStartTime;
+            console.log(`[CONFIG] Ollama fetch completed in ${ollamaDuration}ms, status: ${ollamaRes.status}, ok: ${ollamaRes.ok}`);
+            
+            if (!ollamaRes.ok) {
+                const errorText = await ollamaRes.text().catch(() => 'Unable to read error response');
+                console.error(`[CONFIG] Ollama connection failed - Status: ${ollamaRes.status}, Response: ${errorText}`);
+                throw new Error(`Ollama unreachable: ${ollamaRes.status} ${ollamaRes.statusText}`);
             }
 
+            // Check Qdrant (Basic health check via collections list or telemetry)
+            console.log(`[CONFIG] Testing Qdrant connection to ${config.qdrant_config.url}/collections`);
+            const qdrantStartTime = Date.now();
+            const qdrantRes = await fetch(`${config.qdrant_config.url}/collections`);
+            const qdrantDuration = Date.now() - qdrantStartTime;
+            console.log(`[CONFIG] Qdrant fetch completed in ${qdrantDuration}ms, status: ${qdrantRes.status}, ok: ${qdrantRes.ok}`);
+            
+            if (!qdrantRes.ok && qdrantRes.status !== 401 && qdrantRes.status !== 403) {
+                 // 401/403 might just mean we need the API key which IndexingService handles
+                 const errorText = await qdrantRes.text().catch(() => 'Unable to read error response');
+                 console.error(`[CONFIG] Qdrant connection failed - Status: ${qdrantRes.status}, Response: ${errorText}`);
+                 throw new Error(`Qdrant unreachable: ${qdrantRes.status} ${qdrantRes.statusText}`);
+            }
+
+            const totalDuration = Date.now() - startTime;
+            console.log(`[CONFIG] Connection validation successful in ${totalDuration}ms`);
             return true;
         } catch (e) {
-            console.error('Connection validation failed:', e);
+            const totalDuration = Date.now() - startTime;
+            const error = e instanceof Error ? e : new Error(String(e));
+            console.error(`[CONFIG] Connection validation failed after ${totalDuration}ms:`, {
+                message: error.message,
+                stack: error.stack,
+                name: error.name,
+                cause: error.cause
+            });
+            
+            // Special logging for network-related errors
+            if (error.message.includes('ECONNRESET') || error.message.includes('connection reset') ||
+                error.message.includes('network') || error.message.includes('fetch')) {
+                console.error(`[CONFIG] NETWORK ERROR DETECTED - Type: ${error.name}, Message: ${error.message}`);
+                console.error(`[CONFIG] Network error details:`, {
+                    ollamaUrl: config.ollama_config.base_url,
+                    qdrantUrl: config.qdrant_config.url,
+                    timestamp: new Date().toISOString(),
+                    duration: totalDuration
+                });
+            }
+            
             return false;
         }
     }

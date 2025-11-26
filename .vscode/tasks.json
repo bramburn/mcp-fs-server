@@ -1,0 +1,148 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "npm: watch",
+      "type": "npm",
+      "script": "watch",
+      "path": "extension",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": false,
+        "clear": true
+      },
+      "isBackground": true,
+      "problemMatcher": [
+        "$tsc-watch",
+        {
+          "owner": "vite",
+          "fileLocation": ["relative", "${workspaceFolder}/extension"],
+          "pattern": {
+            "regexp": "^(.*):(\\d+):(\\d+) - (error|warning|info) (.+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4,
+            "message": 5
+          }
+        }
+      ]
+    },
+    {
+      "label": "npm: compile",
+      "type": "npm",
+      "script": "compile",
+      "path": "extension",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": false,
+        "clear": true
+      },
+      "problemMatcher": [
+        "$tsc",
+        {
+          "owner": "vite",
+          "fileLocation": ["relative", "${workspaceFolder}/extension"],
+          "pattern": {
+            "regexp": "^(.*):(\\d+):(\\d+) - (error|warning|info) (.+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4,
+            "message": 5
+          }
+        }
+      ]
+    },
+    {
+      "label": "npm: watch:extension",
+      "type": "npm",
+      "script": "watch:extension",
+      "path": "extension",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": false,
+        "clear": true
+      },
+      "isBackground": true,
+      "problemMatcher": ["$tsc-watch"]
+    },
+    {
+      "label": "npm: watch:webview",
+      "type": "npm",
+      "script": "watch:webview",
+      "path": "extension",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": false,
+        "clear": true
+      },
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "owner": "vite",
+          "fileLocation": ["relative", "${workspaceFolder}/extension"],
+          "pattern": {
+            "regexp": "^(.*):(\\d+):(\\d+) - (error|warning|info) (.+)$",
+            "file": 1,
+            "line": 2,
+            "column": 3,
+            "severity": 4,
+            "message": 5
+          },
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": "VITE.*",
+            "endsPattern": ".*ready in.*"
+          }
+        }
+      ]
+    },
+    {
+      "label": "Setup Development Environment",
+      "dependsOrder": "parallel",
+      "dependsOn": ["npm: watch:extension", "npm: watch:webview"],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    },
+    {
+      "label": "Clean Output",
+      "type": "shell",
+      "command": "rm",
+      "args": ["-rf", "out"],
+      "options": {
+        "cwd": "${workspaceFolder}/extension"
+      },
+      "group": "build",
+      "presentation": {
+        "reveal": "silent",
+        "panel": "dedicated",
+        "focus": false,
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Full Rebuild",
+      "dependsOrder": "sequence",
+      "dependsOn": ["Clean Output", "npm: compile"],
+      "group": {
+        "kind": "build",
+        "isDefault": false
+      }
+    }
+  ]
+}

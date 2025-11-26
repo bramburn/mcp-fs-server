@@ -133,10 +133,24 @@ export class IndexingService implements vscode.Disposable {
             }
 
             this._activeConfig = config;
-            this._client = new QdrantClient({
-                url: config.qdrant_config.url,
-                apiKey: config.qdrant_config.api_key,
-            });
+            console.log(`[INDEXING] Initializing Qdrant client with URL: ${config.qdrant_config.url}`);
+            try {
+                this._client = new QdrantClient({
+                    url: config.qdrant_config.url,
+                    apiKey: config.qdrant_config.api_key,
+                });
+                console.log(`[INDEXING] Qdrant client initialized successfully`);
+            } catch (error) {
+                const err = error instanceof Error ? error : new Error(String(error));
+                console.error(`[INDEXING] Failed to initialize Qdrant client:`, {
+                    message: err.message,
+                    stack: err.stack,
+                    name: err.name,
+                    url: config.qdrant_config.url,
+                    hasApiKey: !!config.qdrant_config.api_key
+                });
+                throw err;
+            }
 
             // Initialize Splitter with WASM paths
             try {
@@ -305,9 +319,16 @@ export class IndexingService implements vscode.Disposable {
             throw new Error('Indexing cancelled');
         }
         
+        const startTime = Date.now();
+        console.log(`[INDEXING] Checking if collection '${name}' exists`);
+        
         try {
             const collections = await this._client.getCollections();
+            const getCollectionsDuration = Date.now() - startTime;
+            console.log(`[INDEXING] getCollections completed in ${getCollectionsDuration}ms, found ${collections.collections.length} collections`);
+            
             const exists = collections.collections.some(c => c.name === name);
+            console.log(`[INDEXING] Collection '${name}' exists: ${exists}`);
             
             if (!exists) {
                 // Check for cancellation again
@@ -315,15 +336,40 @@ export class IndexingService implements vscode.Disposable {
                     throw new Error('Indexing cancelled');
                 }
                 
+                const createStartTime = Date.now();
+                console.log(`[INDEXING] Creating collection '${name}' with vector size ${vectorSize}`);
                 await this._client.createCollection(name, {
                     vectors: {
                         size: vectorSize,
                         distance: 'Cosine',
                     },
                 });
+                const createDuration = Date.now() - createStartTime;
+                console.log(`[INDEXING] Collection '${name}' created successfully in ${createDuration}ms`);
             }
         } catch (e) {
-            console.error('Error checking/creating collection:', e);
+            const duration = Date.now() - startTime;
+            const error = e instanceof Error ? e : new Error(String(e));
+            console.error(`[INDEXING] Error checking/creating collection '${name}' after ${duration}ms:`, {
+                message: error.message,
+                stack: error.stack,
+                name: error.name,
+                collectionName: name,
+                vectorSize
+            });
+            
+            // Special logging for network-related errors
+            if (error.message.includes('ECONNRESET') || error.message.includes('connection reset') ||
+                error.message.includes('network') || error.message.includes('fetch')) {
+                console.error(`[INDEXING] NETWORK ERROR in ensureCollection - Type: ${error.name}, Message: ${error.message}`);
+                console.error(`[INDEXING] Network error details:`, {
+                    collectionName: name,
+                    qdrantUrl: this._activeConfig?.qdrant_config.url,
+                    timestamp: new Date().toISOString(),
+                    duration
+                });
+            }
+            
             throw e;
         }
     }
@@ -371,9 +417,41 @@ export class IndexingService implements vscode.Disposable {
                 throw new Error('Indexing cancelled');
             }
             
-            await this._client.upsert(collectionName, {
-                points: points
-            });
+            const startTime = Date.now();
+            console.log(`[INDEXING] Upserting ${points.length} points to collection '${collectionName}'`);
+            
+            try {
+                await this._client.upsert(collectionName, {
+                    points: points
+                });
+                const duration = Date.now() - startTime;
+                console.log(`[INDEXING] Upsert completed successfully in ${duration}ms for ${points.length} points`);
+            } catch (e) {
+                const duration = Date.now() - startTime;
+                const error = e instanceof Error ? e : new Error(String(e));
+                console.error(`[INDEXING] Upsert failed after ${duration}ms for ${points.length} points:`, {
+                    message: error.message,
+                    stack: error.stack,
+                    name: error.name,
+                    collectionName,
+                    pointsCount: points.length
+                });
+                
+                // Special logging for network-related errors
+                if (error.message.includes('ECONNRESET') || error.message.includes('connection reset') ||
+                    error.message.includes('network') || error.message.includes('fetch')) {
+                    console.error(`[INDEXING] NETWORK ERROR in upsert - Type: ${error.name}, Message: ${error.message}`);
+                    console.error(`[INDEXING] Network error details:`, {
+                        collectionName,
+                        qdrantUrl: this._activeConfig?.qdrant_config.url,
+                        pointsCount: points.length,
+                        timestamp: new Date().toISOString(),
+                        duration
+                    });
+                }
+                
+                throw e;
+            }
         }
     }
 
@@ -386,8 +464,14 @@ export class IndexingService implements vscode.Disposable {
         if (!this._activeConfig) return null;
 
         const { base_url, model } = this._activeConfig.ollama_config;
+        const startTime = Date.now();
+        const textPreview = text.length > 100 ? text.substring(0, 100) + '...' : text;
+        
+        console.log(`[INDEXING] Generating embedding with model '${model}' from ${base_url}, text length: ${text.length}`);
+        console.log(`[INDEXING] Text preview: "${textPreview}"`);
 
         try {
+            const fetchStartTime = Date.now();
             const response = await fetch(`${base_url}/api/embeddings`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -396,47 +480,99 @@ export class IndexingService implements vscode.Disposable {
                     prompt: text
                 })
             });
+            const fetchDuration = Date.now() - fetchStartTime;
+            console.log(`[INDEXING] Ollama fetch completed in ${fetchDuration}ms, status: ${response.status}, ok: ${response.ok}`);
 
             if (!response.ok) {
-                throw new Error(`Ollama Error: ${response.statusText}`);
+                const errorText = await response.text().catch(() => 'Unable to read error response');
+                console.error(`[INDEXING] Ollama embedding failed - Status: ${response.status}, Response: ${errorText}`);
+                throw new Error(`Ollama Error: ${response.status} ${response.statusText} - ${errorText}`);
             }
 
+            const parseStartTime = Date.now();
             const data = await response.json() as { embedding: number[] };
+            const parseDuration = Date.now() - parseStartTime;
+            const totalDuration = Date.now() - startTime;
+            
+            console.log(`[INDEXING] Embedding generated successfully - parse: ${parseDuration}ms, total: ${totalDuration}ms, dimensions: ${data.embedding.length}`);
             return data.embedding;
         } catch (e) {
-            console.error('Embedding generation failed:', e);
+            const duration = Date.now() - startTime;
+            const error = e instanceof Error ? e : new Error(String(e));
+            console.error(`[INDEXING] Embedding generation failed after ${duration}ms:`, {
+                message: error.message,
+                stack: error.stack,
+                name: error.name,
+                model,
+                baseUrl: base_url,
+                textLength: text.length,
+                textPreview
+            });
+            
+            // Special logging for network-related errors
+            if (error.message.includes('ECONNRESET') || error.message.includes('connection reset') ||
+                error.message.includes('network') || error.message.includes('fetch')) {
+                console.error(`[INDEXING] NETWORK ERROR in generateEmbedding - Type: ${error.name}, Message: ${error.message}`);
+                console.error(`[INDEXING] Network error details:`, {
+                    model,
+                    ollamaUrl: base_url,
+                    textLength: text.length,
+                    timestamp: new Date().toISOString(),
+                    duration
+                });
+            }
+            
             return null;
         }
     }
 
     public async search(query: string): Promise<SearchResultItem[]> {
         if (!this._client || !this._activeConfig) {
+            console.log(`[SEARCH] Cannot search - client initialized: ${!!this._client}, active config: ${!!this._activeConfig}`);
             vscode.window.showErrorMessage('Indexing service is not initialized. Cannot perform search.');
             return [];
         }
 
         const collectionName = this._activeConfig.index_info?.name || 'codebase';
+        const startTime = Date.now();
+        
+        console.log(`[SEARCH] Starting search for query: "${query}" in collection '${collectionName}'`);
         
         try {
+            const embeddingStartTime = Date.now();
             const vector = await this.generateEmbedding(query);
+            const embeddingDuration = Date.now() - embeddingStartTime;
+            
             if (!vector) {
+                console.log(`[SEARCH] Failed to generate embedding for query: "${query}"`);
                 vscode.window.showWarningMessage('Could not generate embedding for search query.');
                 return [];
             }
+            
+            console.log(`[SEARCH] Embedding generated in ${embeddingDuration}ms with ${vector.length} dimensions`);
 
             const searchLimit = this._configService.config.search.limit;
+            const searchStartTime = Date.now();
+            console.log(`[SEARCH] Executing vector search with limit ${searchLimit}`);
+            
             const searchResult = await this._client.search(collectionName, {
                 vector: vector,
                 limit: searchLimit,
             });
+            
+            const searchDuration = Date.now() - searchStartTime;
+            console.log(`[SEARCH] Vector search completed in ${searchDuration}ms`);
 
             // The search result contains hits with payload.
             // Cast to the expected structure which may have 'points' or 'hits' property.
-            const qdrantResult = searchResult as { 
-                points?: { id: string | number, score: number, payload: SearchResultItem['payload'] }[]; 
-                hits?: { id: string | number, score: number, payload: SearchResultItem['payload'] }[]; 
+            const qdrantResult = searchResult as {
+                points?: { id: string | number, score: number, payload: SearchResultItem['payload'] }[];
+                hits?: { id: string | number, score: number, payload: SearchResultItem['payload'] }[];
             };
             const results = qdrantResult.points || qdrantResult.hits || [];
+            
+            const totalDuration = Date.now() - startTime;
+            console.log(`[SEARCH] Search completed successfully in ${totalDuration}ms, found ${results.length} results`);
             
             return results.map((item): SearchResultItem => ({
                 id: item.id,
@@ -445,8 +581,30 @@ export class IndexingService implements vscode.Disposable {
             }));
 
         } catch (e) {
-            console.error(`Search failed in collection ${collectionName}:`, e);
-            vscode.window.showErrorMessage(`Search failed: ${e instanceof Error ? e.message : 'Unknown error'}`);
+            const duration = Date.now() - startTime;
+            const error = e instanceof Error ? e : new Error(String(e));
+            console.error(`[SEARCH] Search failed in collection ${collectionName} after ${duration}ms:`, {
+                message: error.message,
+                stack: error.stack,
+                name: error.name,
+                query,
+                collectionName
+            });
+            
+            // Special logging for network-related errors
+            if (error.message.includes('ECONNRESET') || error.message.includes('connection reset') ||
+                error.message.includes('network') || error.message.includes('fetch')) {
+                console.error(`[SEARCH] NETWORK ERROR in search - Type: ${error.name}, Message: ${error.message}`);
+                console.error(`[SEARCH] Network error details:`, {
+                    query,
+                    collectionName,
+                    qdrantUrl: this._activeConfig?.qdrant_config.url,
+                    timestamp: new Date().toISOString(),
+                    duration
+                });
+            }
+            
+            vscode.window.showErrorMessage(`Search failed: ${error.message}`);
             return [];
         }
     }
