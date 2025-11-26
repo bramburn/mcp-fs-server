@@ -1,23 +1,23 @@
-/// <reference types="svelte" />
+/// <reference types="react" />
+/// <reference types="react-dom" />
 /// <reference types="vite/client" />
 
-declare module '*.svelte' {
-  import type { ComponentType } from 'svelte';
-  const component: ComponentType;
-  export default component;
-}
-declare interface Window {
-  acquireVsCodeApi: () => {
-    getState: <T>() => T | undefined;
-    setState: (newState: any) => void;
-    postMessage: (message: any) => void;
-  };
+interface VsCodeApi<T = unknown> {
+  postMessage(message: unknown): void;
+  getState<S = T>(): S | undefined;
+  setState(state: T): void;
 }
 
-// Define a global VSCode object type for consumer use after acquisition
-declare const vscode: {
-    getState: <T>() => T | undefined;
-    setState: (newState: any) => void;
-    postMessage: (message: any) => void;
-};
+declare global {
+  interface Window {
+    acquireVsCodeApi?: <T = unknown>() => VsCodeApi<T>;
+  }
 
+  // Some code (e.g. src/webviews/app/lib/vscode.ts) uses a global acquireVsCodeApi
+  // function rather than window.acquireVsCodeApi, so we declare it here.
+  // It will be provided by the VS Code webview environment at runtime.
+  // eslint-disable-next-line no-var
+  var acquireVsCodeApi: <T = unknown>() => VsCodeApi<T>;
+}
+
+export {};

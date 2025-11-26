@@ -1,8 +1,12 @@
 import * as vscode from 'vscode';
 import { ConfigService } from './ConfigService.js';
+import { AnalyticsService } from './AnalyticsService.js';
 import { QdrantOllamaConfig } from '../webviews/protocol.js';
 import { QdrantClient } from '@qdrant/js-client-rest';
-import { CodeSplitter } from 'shared/code-splitter.js';
+// Use a relative import so the compiled extension can resolve this at runtime
+// when packaged and installed in VS Code. The previous bare "shared" import
+// relied on TS path aliases and failed in the extension host.
+import { CodeSplitter } from '../../../packages/shared/code-splitter.js';
 
 interface SearchResultItem {
     id: string | number;
@@ -41,7 +45,8 @@ export class IndexingService implements vscode.Disposable {
 
     constructor(
         private readonly _configService: ConfigService,
-        private readonly _context: vscode.ExtensionContext
+        private readonly _context: vscode.ExtensionContext,
+        private readonly _analyticsService: AnalyticsService
     ) {
         this._splitter = new CodeSplitter();
     }
@@ -108,8 +113,22 @@ export class IndexingService implements vscode.Disposable {
             }
             
             // Validate connections before starting heavy work
+            const connectionStartTime = Date.now();
             const isHealthy = await this._configService.validateConnection(config);
-            if (!isHealthy) {
+            const connectionDuration = Date.now() - connectionStartTime;
+
+            if (isHealthy) {
+                this._analyticsService.trackEvent('connection_success', {
+                    connectionDuration,
+                    qdrantUrl: config.qdrant_config.url,
+                    ollamaUrl: config.ollama_config.base_url
+                });
+            } else {
+                this._analyticsService.trackEvent('connection_failed', {
+                    connectionDuration,
+                    qdrantUrl: config.qdrant_config.url,
+                    ollamaUrl: config.ollama_config.base_url
+                });
                 throw new Error('Could not connect to Qdrant or Ollama. Check your configuration and ensure services are running.');
             }
 

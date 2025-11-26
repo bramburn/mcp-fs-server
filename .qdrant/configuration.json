@@ -1,0 +1,15 @@
+{
+  "$schema": "../extension/schemas/qdrant-config.schema.json",
+  "index_info": {
+    "name": "my-project-index-2",
+    "version": "1.0"
+  },
+  "qdrant_config": {
+    "url": "http://localhost:6333", 
+    "api_key": "" 
+  },
+  "ollama_config": {
+    "base_url": "http://localhost:11434",
+    "model": "nomic-embed-text" 
+  }
+}

@@ -4,18 +4,20 @@
     "target": "ES2022",
     "outDir": "out",
     "lib": [
-      "ESNext",
+      "ES2022",
       "DOM",
       "DOM.Iterable"
     ],
     "sourceMap": true,
     "rootDir": "..",
-    
     "paths": {
-        "$lib": ["./src/lib"],
-        "$lib/*": ["./src/lib/*"],
-        "shared/*": ["../packages/shared/*"],
-        "$app/*": ["./src/webviews/app/*"]
+      "$lib": ["./src/lib"],
+      "$lib/*": ["./src/lib/*"],
+      "shared/*": ["../packages/shared/*"],
+      "$app/*": ["./src/webviews/app/*"],
+      "@app/*": ["./src/webviews/app/*"],
+      "@lib/*": ["./src/lib/*"],
+      "@shared/*": ["../packages/shared/*"]
     },
     "allowImportingTsExtensions": true,
     "rewriteRelativeImportExtensions": true,
@@ -24,18 +26,20 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "jsx": "preserve",
-    "types": ["vite/client", "node", "svelte", "svelte/elements", "vitest/globals"]
+    "jsx": "react-jsx",
+    "types": ["vite/client", "node", "vitest/globals"]
   },
   "include": [
-    "src/**/*",
-    "src/webviews/app/ambient.d.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx",
     "vite.config.ts",
-    "svelte.config.js",
     "../shared/**/*"
   ],
   "exclude": [
     "node_modules",
-    ".vscode-test"
+    ".vscode-test",
+    "svelte.config.js",
+    // Legacy Svelte runes store not used by the React webview
+    "src/webviews/app/store.svelte.ts"
   ]
 }

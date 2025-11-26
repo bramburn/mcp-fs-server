@@ -17,6 +17,7 @@ import fsSync from "fs";
 import path from "path";
 import crypto from "node:crypto";
 import Database from "better-sqlite3";
+import { getAnalyticsService, AnalyticsService } from "./analytics.js";
 
 // --- Type Definitions ---
 interface QdrantCollectionDescription {
@@ -283,8 +284,13 @@ class SemanticWatcher {
   private parser: Parser | null = null;
   private parsers: Record<string, Parser.Language> = {};
   private db: Database.Database;
+  private analytics: AnalyticsService;
 
-  constructor() {
+  constructor(analytics: AnalyticsService) {
+    this.analytics = analytics;
+
+    // Test Qdrant connection
+    const qdrantStartTime = Date.now();
     this.qdrant = new QdrantClient({
       url: CONFIG.qdrantUrl,
       apiKey: CONFIG.qdrantApiKey,
@@ -294,6 +300,37 @@ class SemanticWatcher {
     // Initialize SQLite Database
     this.db = new Database(CONFIG.dbPath);
     this.initDB();
+
+    // Test Qdrant connection
+    this.testQdrantConnection(qdrantStartTime);
+
+    // Test Ollama connection
+    this.testOllamaConnection();
+  }
+
+  private async testQdrantConnection(startTime: number) {
+    try {
+      await this.qdrant.getCollections();
+      const duration = Date.now() - startTime;
+      this.analytics.trackConnection('qdrant', true, duration);
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      this.analytics.trackConnection('qdrant', false, duration, error.message);
+      console.warn('Qdrant connection failed:', error.message);
+    }
+  }
+
+  private async testOllamaConnection() {
+    const startTime = Date.now();
+    try {
+      await ollama.list();
+      const duration = Date.now() - startTime;
+      this.analytics.trackConnection('ollama', true, duration);
+    } catch (error: any) {
+      const duration = Date.now() - startTime;
+      this.analytics.trackConnection('ollama', false, duration, error.message);
+      console.warn('Ollama connection failed:', error.message);
+    }
   }
 
   private initDB() {
@@ -481,6 +518,8 @@ class SemanticWatcher {
 
       logger.info(`Processing: ${relativePath}`);
 
+      const indexingStartTime = Date.now();
+
       await this.handleFileDelete(filePath); // Clean old entries before re-indexing
       const chunks = await this.splitCode(relativePath, content);
       const points: any[] = [];
@@ -517,8 +556,13 @@ class SemanticWatcher {
 
       // 3. UPDATE DB STATE
       this.updateStoredHash(relativePath, currentHash);
+
+      const indexingDuration = Date.now() - indexingStartTime;
+      this.analytics.trackFileIndexed(relativePath, indexingDuration);
+
       logger.info(`Indexed ${chunks.length} chunks for ${relativePath}`);
     } catch (error) {
+      this.analytics.trackError('file_indexing_failed', 'handleFileChange');
       logger.error(`Error processing ${filePath}:`, error);
     }
   }
@@ -721,7 +765,10 @@ export { SemanticWatcher, CONFIG };
 import { fileURLToPath } from "url";
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const watcherService = new SemanticWatcher();
+  // Initialize analytics
+  const analytics = getAnalyticsService();
+
+  const watcherService = new SemanticWatcher(analytics);
   const server = new Server(
     {
       name: "mcp-semantic-watcher",
@@ -780,12 +827,31 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         throw new Error("Query is required");
       }
 
+      const startTime = Date.now();
       try {
         const results = await watcherService.search(query, limit);
+        const duration = Date.now() - startTime;
+
+        // Parse results to count them (assuming JSON format with results array)
+        let resultsCount = 0;
+        try {
+          const parsedResults = JSON.parse(results);
+          resultsCount = Array.isArray(parsedResults) ? parsedResults.length : 0;
+        } catch {
+          // If parsing fails, estimate based on text length
+          resultsCount = results.length > 0 ? 1 : 0;
+        }
+
+        analytics.trackSearchPerformed(query, resultsCount, duration);
+        analytics.trackToolUse('semantic_search', duration, true);
+
         return {
           content: [{ type: "text", text: results }],
         };
       } catch (e: any) {
+        const duration = Date.now() - startTime;
+        analytics.trackToolUse('semantic_search', duration, false, e.message);
+        analytics.trackError('search_failed', 'semantic_search');
         console.error(`[MCP-ERROR] Search error:`, e);
         return {
           content: [{ type: "text", text: `Error searching: ${e.message}` }],
@@ -794,14 +860,23 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     }
 
     if (name === "refresh_index") {
+      const startTime = Date.now();
       try {
         await watcherService.refreshIndex();
+        const duration = Date.now() - startTime;
+
+        analytics.trackToolUse('refresh_index', duration, true);
+        analytics.trackEvent('mcp_index_refreshed');
+
         return {
           content: [
             { type: "text", text: "Index refresh completed successfully." },
           ],
         };
       } catch (e: any) {
+        const duration = Date.now() - startTime;
+        analytics.trackToolUse('refresh_index', duration, false, e.message);
+        analytics.trackError('index_refresh_failed', 'refresh_index');
         console.error(`[MCP-ERROR] Refresh index error:`, e);
         return {
           content: [

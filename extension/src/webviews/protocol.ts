@@ -113,9 +113,8 @@ export const OPEN_FILE_METHOD = 'file/open';
 // --- Webview Management Messages (Introduced for step 3/5 compliance) ---
 
 // 7. Webview Ready Request (Guest -> Host) - Used to request initial state
-export interface WebviewReadyParams {
-    // Empty if only requesting state
-}
+// Empty payload represented as a "no properties" object type.
+export type WebviewReadyParams = Record<string, never>;
 export type WebviewReadyRequest = IpcRequest<WebviewReadyParams>;
 export const WEBVIEW_READY_METHOD = 'webview/ready-request';
 

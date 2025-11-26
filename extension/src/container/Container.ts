@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { ConfigService } from '../services/ConfigService.js';
 import { WorkspaceManager } from '../services/WorkspaceManager.js';
 import { IndexingService } from '../services/IndexingService.js';
+import { AnalyticsService } from '../services/AnalyticsService.js';
 
 /**
  * Service lifetime options
@@ -38,6 +39,7 @@ export interface ServiceRegistry {
   ConfigService: ConfigService;
   WorkspaceManager: WorkspaceManager;
   IndexingService: IndexingService;
+  AnalyticsService: AnalyticsService;
 }
 
 /**
@@ -226,7 +228,8 @@ export class Container {
 export const ServiceKeys: { [K in keyof ServiceRegistry]: K } = {
   ConfigService: 'ConfigService',
   WorkspaceManager: 'WorkspaceManager',
-  IndexingService: 'IndexingService'
+  IndexingService: 'IndexingService',
+  AnalyticsService: 'AnalyticsService'
 } as const;
 
 /**
@@ -243,11 +246,21 @@ export function initializeServices(context: vscode.ExtensionContext): void {
     dispose: (svc) => svc.dispose()
   });
 
-  // Phase 2: Register IndexingService (depends on ConfigService)
+  // Phase 2: Register AnalyticsService (no dependencies on other services)
+  container.register('AnalyticsService', (c) =>
+    new AnalyticsService(c.context),
+    {
+      lifetime: ServiceLifetime.Singleton,
+      dispose: (svc) => svc.dispose()
+    }
+  );
+
+  // Phase 3: Register IndexingService (depends on ConfigService, AnalyticsService)
   container.register('IndexingService', (c) =>
     new IndexingService(
       c.get('ConfigService'),
-      c.context
+      c.context,
+      c.get('AnalyticsService')
     ),
     {
       lifetime: ServiceLifetime.Singleton,
@@ -255,7 +268,7 @@ export function initializeServices(context: vscode.ExtensionContext): void {
     }
   );
 
-  // Phase 3: Register WorkspaceManager (no dependencies on other services)
+  // Phase 4: Register WorkspaceManager (no dependencies on other services)
   // WorkspaceManager manages Git repositories and workspace context
   container.register('WorkspaceManager', (c) =>
     new WorkspaceManager(c.context, c.get('ConfigService')), // Pass ConfigService

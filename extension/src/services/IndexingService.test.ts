@@ -8,8 +8,8 @@ import { QdrantClient } from '@qdrant/js-client-rest';
 // Mock Qdrant client
 vi.mock('@qdrant/js-client-rest');
 
-// Mock shared code splitter
-vi.mock('shared/code-splitter.js', () => ({
+// Mock shared code splitter (must match the actual import specifier)
+vi.mock('../../../packages/shared/code-splitter.js', () => ({
     CodeSplitter: vi.fn().mockImplementation(() => ({
         initialize: vi.fn().mockResolvedValue(undefined),
         split: vi.fn().mockReturnValue([
@@ -121,7 +121,19 @@ describe('IndexingService', () => {
         };
 
         mockConfigService = new ConfigService();
-        indexingService = new IndexingService(mockConfigService, mockContext);
+
+        // Create mock AnalyticsService
+        const mockAnalyticsService = {
+            trackEvent: vi.fn(),
+            trackPageView: vi.fn(),
+            trackCommand: vi.fn(),
+            trackIndexing: vi.fn(),
+            trackSearch: vi.fn(),
+            trackError: vi.fn(),
+            dispose: vi.fn()
+        } as any;
+
+        indexingService = new IndexingService(mockConfigService, mockContext, mockAnalyticsService);
 
         mockQdrantClient = {
             getCollections: vi.fn(),

@@ -1,9 +1,17 @@
-export { default as Root } from './command.svelte';
-export { default as Input } from './command-input.svelte';
-export { default as List } from './command-list.svelte';
-export { default as Item } from './command-item.svelte';
-export { default as Group } from './command-group.svelte';
-export { default as Separator } from './command-separator.svelte';
-export { default as Empty } from './command-empty.svelte';
-export { default as Loading } from './command-loading.svelte';
-
+/**
+ * React-based command palette exports.
+ *
+ * This file previously re-exported Svelte components; it now re-exports the
+ * React `cmdk`-based primitives from `command.tsx` so that TypeScript no
+ * longer needs Svelte runtime types to build the webview.
+ */
+export {
+  Command as Root,
+  CommandInput as Input,
+  CommandList as List,
+  CommandItem as Item,
+  CommandGroup as Group,
+  CommandSeparator as Separator,
+  CommandEmpty as Empty,
+  CommandLoading as Loading,
+} from '../command';

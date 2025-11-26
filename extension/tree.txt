@@ -1,7 +1,7 @@
 qdrant-codesearch-0.0.1.vsix
 ├─ .gitignore [0.03 KB]
 ├─ LICENSE.md [1.04 KB]
-├─ package.json [2.74 KB]
+├─ package.json [2.8 KB]
 ├─ tree.txt 
 ├─ node_modules/
 │  ├─ @jridgewell/
@@ -88,6 +88,109 @@ qdrant-codesearch-0.0.1.vsix
 │  │        ├─ trace-mapping.d.mts [4.09 KB]
 │  │        ├─ types.d.cts [3.07 KB]
 │  │        └─ types.d.mts [3.07 KB]
+│  ├─ @posthog/
+│  │  └─ core/
+│  │     ├─ package.json [1.74 KB]
+│  │     └─ dist/
+│  │        ├─ eventemitter.js [1.74 KB]
+│  │        ├─ eventemitter.mjs [0.56 KB]
+│  │        ├─ featureFlagUtils.js [6.35 KB]
+│  │        ├─ featureFlagUtils.mjs [4.17 KB]
+│  │        ├─ gzip.js [1.83 KB]
+│  │        ├─ gzip.mjs [0.56 KB]
+│  │        ├─ index.js [5.56 KB]
+│  │        ├─ index.mjs [0.47 KB]
+│  │        ├─ posthog-core-stateless.js [28.89 KB]
+│  │        ├─ posthog-core-stateless.mjs [26.42 KB]
+│  │        ├─ posthog-core.js [27.36 KB]
+│  │        ├─ posthog-core.mjs [23.41 KB]
+│  │        ├─ types.js [8 KB]
+│  │        ├─ types.mjs [5.79 KB]
+│  │        ├─ error-tracking/
+│  │        │  ├─ chunk-ids.js [2.49 KB]
+│  │        │  ├─ chunk-ids.mjs [1.28 KB]
+│  │        │  ├─ error-properties-builder.js [5.36 KB]
+│  │        │  ├─ error-properties-builder.mjs [4.06 KB]
+│  │        │  ├─ index.js [4.01 KB]
+│  │        │  ├─ index.mjs [0.15 KB]
+│  │        │  ├─ types.js [1.29 KB]
+│  │        │  ├─ types.mjs [0.13 KB]
+│  │        │  ├─ utils.js [1.76 KB]
+│  │        │  ├─ utils.mjs [0.59 KB]
+│  │        │  ├─ coercers/
+│  │        │  │  ├─ dom-exception-coercer.js [2.25 KB]
+│  │        │  │  ├─ dom-exception-coercer.mjs [0.97 KB]
+│  │        │  │  ├─ error-coercer.js [1.98 KB]
+│  │        │  │  ├─ error-coercer.mjs [0.78 KB]
+│  │        │  │  ├─ error-event-coercer.js [1.72 KB]
+│  │        │  │  ├─ error-event-coercer.mjs [0.5 KB]
+│  │        │  │  ├─ event-coercer.js [1.78 KB]
+│  │        │  │  ├─ event-coercer.mjs [0.54 KB]
+│  │        │  │  ├─ index.js [6.63 KB]
+│  │        │  │  ├─ index.mjs [0.32 KB]
+│  │        │  │  ├─ object-coercer.js [3.38 KB]
+│  │        │  │  ├─ object-coercer.mjs [2.02 KB]
+│  │        │  │  ├─ primitive-coercer.js [1.63 KB]
+│  │        │  │  ├─ primitive-coercer.mjs [0.41 KB]
+│  │        │  │  ├─ promise-rejection-event.js [2.19 KB]
+│  │        │  │  ├─ promise-rejection-event.mjs [0.88 KB]
+│  │        │  │  ├─ string-coercer.js [1.96 KB]
+│  │        │  │  ├─ string-coercer.mjs [0.8 KB]
+│  │        │  │  ├─ utils.js [2.01 KB]
+│  │        │  │  └─ utils.mjs [0.7 KB]
+│  │        │  └─ parsers/
+│  │        │     ├─ base.js [1.79 KB]
+│  │        │     ├─ base.mjs [0.45 KB]
+│  │        │     ├─ chrome.js [2.67 KB]
+│  │        │     ├─ chrome.mjs [1.29 KB]
+│  │        │     ├─ gecko.js [2.41 KB]
+│  │        │     ├─ gecko.mjs [1.1 KB]
+│  │        │     ├─ index.js [4.28 KB]
+│  │        │     ├─ index.mjs [1.9 KB]
+│  │        │     ├─ node.js [3.85 KB]
+│  │        │     ├─ node.mjs [2.61 KB]
+│  │        │     ├─ opera.js [2.2 KB]
+│  │        │     ├─ opera.mjs [0.73 KB]
+│  │        │     ├─ safari.js [1.83 KB]
+│  │        │     ├─ safari.mjs [0.56 KB]
+│  │        │     ├─ winjs.js [1.68 KB]
+│  │        │     └─ winjs.mjs [0.42 KB]
+│  │        ├─ process/
+│  │        │  ├─ index.js [2.71 KB]
+│  │        │  ├─ index.mjs [0.11 KB]
+│  │        │  ├─ spawn-local.js [1.78 KB]
+│  │        │  ├─ spawn-local.mjs [0.55 KB]
+│  │        │  ├─ utils.js [3.05 KB]
+│  │        │  └─ utils.mjs [1.13 KB]
+│  │        ├─ testing/
+│  │        │  ├─ PostHogCoreTestClient.js [3.08 KB]
+│  │        │  ├─ PostHogCoreTestClient.mjs [1.7 KB]
+│  │        │  ├─ index.js [2.86 KB]
+│  │        │  ├─ index.mjs [0.08 KB]
+│  │        │  ├─ test-utils.js [2.71 KB]
+│  │        │  └─ test-utils.mjs [1.06 KB]
+│  │        ├─ utils/
+│  │        │  ├─ bot-detection.js [3.2 KB]
+│  │        │  ├─ bot-detection.mjs [1.91 KB]
+│  │        │  ├─ bucketed-rate-limiter.js [2.93 KB]
+│  │        │  ├─ bucketed-rate-limiter.mjs [1.58 KB]
+│  │        │  ├─ index.js [10.76 KB]
+│  │        │  ├─ index.mjs [1.9 KB]
+│  │        │  ├─ logger.js [2.45 KB]
+│  │        │  ├─ logger.mjs [1.19 KB]
+│  │        │  ├─ number-utils.js [1.95 KB]
+│  │        │  ├─ number-utils.mjs [0.72 KB]
+│  │        │  ├─ promise-queue.js [1.96 KB]
+│  │        │  ├─ promise-queue.mjs [0.75 KB]
+│  │        │  ├─ string-utils.js [1.87 KB]
+│  │        │  ├─ string-utils.mjs [0.4 KB]
+│  │        │  ├─ type-utils.js [6.77 KB]
+│  │        │  └─ type-utils.mjs [2.96 KB]
+│  │        └─ vendor/
+│  │           ├─ uuidv7.js [8.1 KB]
+│  │           ├─ uuidv7.js.LICENSE.txt [0.16 KB]
+│  │           ├─ uuidv7.mjs [6.56 KB]
+│  │           └─ uuidv7.mjs.LICENSE.txt [0.16 KB]
 │  ├─ @qdrant/
 │  │  ├─ js-client-rest/
 │  │  │  ├─ LICENSE [11.09 KB]
@@ -484,6 +587,18 @@ qdrant-codesearch-0.0.1.vsix
 │  │     ├─ clsx.mjs [0.38 KB]
 │  │     ├─ lite.js [0.16 KB]
 │  │     └─ lite.mjs [0.15 KB]
+│  ├─ cross-spawn/
+│  │  ├─ LICENSE [1.08 KB]
+│  │  ├─ README.md [4.02 KB]
+│  │  ├─ index.js [1.16 KB]
+│  │  ├─ package.json [1.62 KB]
+│  │  └─ lib/
+│  │     ├─ enoent.js [1.44 KB]
+│  │     ├─ parse.js [2.99 KB]
+│  │     └─ util/
+│  │        ├─ escape.js [1.35 KB]
+│  │        ├─ readShebang.js [0.54 KB]
+│  │        └─ resolveCommand.js [1.52 KB]
 │  ├─ devalue/
 │  │  ├─ LICENSE [1.09 KB]
 │  │  ├─ README.md [6.06 KB]
@@ -523,6 +638,16 @@ qdrant-codesearch-0.0.1.vsix
 │  │  ├─ package.json [0.99 KB]
 │  │  └─ src/
 │  │     └─ index.js [1.39 KB]
+│  ├─ isexe/
+│  │  ├─ .npmignore [0.02 KB]
+│  │  ├─ LICENSE [0.75 KB]
+│  │  ├─ README.md [1.36 KB]
+│  │  ├─ index.js [1.16 KB]
+│  │  ├─ mode.js [0.89 KB]
+│  │  ├─ package.json [0.77 KB]
+│  │  ├─ windows.js [0.87 KB]
+│  │  └─ test/
+│  │     └─ basic.js [4.88 KB]
 │  ├─ locate-character/
 │  │  ├─ README.md [1.65 KB]
 │  │  ├─ package.json [0.98 KB]
@@ -2447,6 +2572,65 @@ qdrant-codesearch-0.0.1.vsix
 │  │     ├─ magic-string.es.d.mts [9.78 KB]
 │  │     ├─ magic-string.es.mjs [37.83 KB]
 │  │     └─ magic-string.umd.js [41.93 KB]
+│  ├─ path-key/
+│  │  ├─ index.js [0.41 KB]
+│  │  ├─ license [1.08 KB]
+│  │  ├─ package.json [0.63 KB]
+│  │  └─ readme.md [1.32 KB]
+│  ├─ posthog-node/
+│  │  ├─ LICENSE [15.59 KB]
+│  │  ├─ README.md [0.24 KB]
+│  │  ├─ package.json [2.42 KB]
+│  │  └─ dist/
+│  │     ├─ client.js [22.63 KB]
+│  │     ├─ client.mjs [20.84 KB]
+│  │     ├─ experimental.js [0.59 KB]
+│  │     ├─ experimental.mjs 
+│  │     ├─ exports.js [3.51 KB]
+│  │     ├─ exports.mjs [0.12 KB]
+│  │     ├─ storage-memory.js [1.48 KB]
+│  │     ├─ storage-memory.mjs [0.29 KB]
+│  │     ├─ types.js [0.59 KB]
+│  │     ├─ types.mjs 
+│  │     ├─ version.js [1.18 KB]
+│  │     ├─ version.mjs [0.04 KB]
+│  │     ├─ entrypoints/
+│  │     │  ├─ index.edge.js [4.12 KB]
+│  │     │  ├─ index.edge.mjs [0.68 KB]
+│  │     │  ├─ index.node.js [5.04 KB]
+│  │     │  └─ index.node.mjs [0.92 KB]
+│  │     └─ extensions/
+│  │        ├─ express.js [2.12 KB]
+│  │        ├─ express.mjs [0.54 KB]
+│  │        ├─ sentry-integration.js [4.55 KB]
+│  │        ├─ sentry-integration.mjs [3.1 KB]
+│  │        ├─ error-tracking/
+│  │        │  ├─ autocapture.js [2.59 KB]
+│  │        │  ├─ autocapture.mjs [1.21 KB]
+│  │        │  ├─ index.js [3.79 KB]
+│  │        │  ├─ index.mjs [2.55 KB]
+│  │        │  └─ modifiers/
+│  │        │     ├─ context-lines.node.js [8.6 KB]
+│  │        │     ├─ context-lines.node.mjs [6.98 KB]
+│  │        │     ├─ module.node.js [2.71 KB]
+│  │        │     └─ module.node.mjs [1.41 KB]
+│  │        └─ feature-flags/
+│  │           ├─ cache.js [0.59 KB]
+│  │           ├─ cache.mjs 
+│  │           ├─ crypto.js [1.53 KB]
+│  │           ├─ crypto.mjs [0.39 KB]
+│  │           ├─ feature-flags.js [29.73 KB]
+│  │           └─ feature-flags.mjs [27.78 KB]
+│  ├─ shebang-command/
+│  │  ├─ index.js [0.38 KB]
+│  │  ├─ license [1.09 KB]
+│  │  ├─ package.json [0.54 KB]
+│  │  └─ readme.md [0.48 KB]
+│  ├─ shebang-regex/
+│  │  ├─ index.js [0.04 KB]
+│  │  ├─ license [1.08 KB]
+│  │  ├─ package.json [0.57 KB]
+│  │  └─ readme.md [0.63 KB]
 │  ├─ svelte/
 │  │  ├─ LICENSE.md [1.1 KB]
 │  │  ├─ README.md [1.76 KB]
@@ -3078,14 +3262,72 @@ qdrant-codesearch-0.0.1.vsix
 │  │  │  └─ strip-comments.js [0.25 KB]
 │  │  └─ types/
 │  │     └─ README.md [0.44 KB]
+│  ├─ which/
+│  │  ├─ CHANGELOG.md [2.6 KB]
+│  │  ├─ LICENSE [0.75 KB]
+│  │  ├─ README.md [1.32 KB]
+│  │  ├─ package.json [1.02 KB]
+│  │  ├─ which.js [3.09 KB]
+│  │  └─ bin/
+│  │     └─ node-which [0.96 KB]
 │  └─ zimmerframe/
 │     ├─ LICENSE [1.11 KB]
 │     ├─ README.md [5.05 KB]
 │     ├─ package.json [0.72 KB]
 │     └─ src/
 │        └─ walk.js [3.61 KB]
+├─ out/
+│  ├─ extension/
+│  │  ├─ vite.config.js [1.21 KB]
+│  │  └─ src/
+│  │     ├─ extension.js [4.29 KB]
+│  │     ├─ config/
+│  │     │  └─ Configuration.js [2.98 KB]
+│  │     ├─ container/
+│  │     │  └─ Container.js [7.54 KB]
+│  │     ├─ git/
+│  │     │  └─ GitProvider.js [5.38 KB]
+│  │     ├─ lib/
+│  │     │  └─ utils.js [1.18 KB]
+│  │     ├─ services/
+│  │     │  ├─ AnalyticsService.js [3.1 KB]
+│  │     │  ├─ ConfigService.js [7.15 KB]
+│  │     │  ├─ ConfigService.test.js [12.75 KB]
+│  │     │  ├─ IndexingService.js [14.92 KB]
+│  │     │  ├─ IndexingService.test.js [12.25 KB]
+│  │     │  └─ WorkspaceManager.js [7.79 KB]
+│  │     ├─ test/
+│  │     │  ├─ mocks/
+│  │     │  │  └─ vscode-api.js [11.8 KB]
+│  │     │  └─ suite/
+│  │     │     └─ index.js [1.14 KB]
+│  │     └─ webviews/
+│  │        ├─ WebviewController.js [13.12 KB]
+│  │        ├─ main.js [1.96 KB]
+│  │        ├─ protocol.js [0.77 KB]
+│  │        └─ app/
+│  │           ├─ store.svelte.js [3.66 KB]
+│  │           ├─ components/
+│  │           │  └─ ui/
+│  │           │     └─ command/
+│  │           │        └─ index.js [0.49 KB]
+│  │           ├─ contexts/
+│  │           │  └─ ipc.js [0.57 KB]
+│  │           └─ lib/
+│  │              ├─ utils.js [2.58 KB]
+│  │              └─ vscode.js [2.54 KB]
+│  ├─ packages/
+│  │  └─ shared/
+│  │     └─ code-splitter.js [2.75 KB]
+│  └─ webview/
+│     ├─ assets/
+│     │  ├─ index.BYXI6eTt.css [17.3 KB]
+│     │  └─ index.DuqHzMiY.js [122.82 KB]
+│     └─ src/
+│        └─ webviews/
+│           └─ index.html [0.52 KB]
 ├─ schemas/
 │  └─ qdrant-config.schema.json [1.38 KB]
 └─ scripts/
    ├─ package-vsix.js [0.96 KB]
-   └─ setup-resources.js [0.29 KB]
+   └─ setup-resources.js [1.94 KB]
