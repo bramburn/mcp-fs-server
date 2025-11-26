@@ -1,80 +1,254 @@
+import "reflect-metadata";
+
 import * as vscode from "vscode";
+import type { AnalyticsService } from "./services/AnalyticsService";
+import type { ConfigService } from "./services/ConfigService";
+import type { IndexingService } from "./services/IndexingService";
+import type { ILogger } from "./services/LoggerService";
 import {
-  Container,
-  initializeServices,
-  useService,
-} from "./container/Container.js";
-import { WebviewController } from "./webviews/WebviewController.js";
+  disposeContainer,
+  getService,
+  ILOGGER_TOKEN,
+  initializeServiceContainer,
+} from "./services/ServiceContainer";
+import type { WorkspaceManager } from "./services/WorkspaceManager";
+import { WebviewController } from "./webviews/WebviewController";
 
-import type { ILogger } from "./services/LoggerService.js";
+// Maximum retry attempts for failed operations
+const MAX_RETRY_ATTEMPTS = 3;
+const RETRY_DELAY_MS = 1000;
 
-export async function activate(context: vscode.ExtensionContext) {
-  // Create output channel with log flag for auto-categorization
+// Helper function for retry logic with exponential backoff
+async function retryWithBackoff<T>(
+  operation: () => Promise<T>,
+  maxAttempts: number = MAX_RETRY_ATTEMPTS,
+  baseDelay: number = RETRY_DELAY_MS
+): Promise<T> {
+  let lastError: Error = new Error("Unknown error");
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      return await operation();
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+      const isLastAttempt = attempt === maxAttempts;
+
+      if (isLastAttempt) {
+        throw lastError;
+      }
+
+      // Calculate exponential backoff delay
+      const delay = baseDelay * Math.pow(2, attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+}
+
+// Helper function to validate command handlers match package.json
+function validateCommandHandlers(
+  registeredCommands: string[],
+  expectedCommands: string[]
+): boolean {
+  const missingCommands = expectedCommands.filter(
+    (cmd) => !registeredCommands.includes(cmd)
+  );
+
+  if (missingCommands.length > 0) {
+    console.error(`Missing command handlers: ${missingCommands.join(", ")}`);
+    return false;
+  }
+
+  return true;
+}
+
+// Health check function for Qdrant/Ollama connections
+async function performConnectionHealthCheck(
+  configService: ConfigService,
+  logger: ILogger
+): Promise<boolean> {
+  try {
+    logger.log("Performing connection health check...", "CONFIG");
+
+    // Get active workspace folder
+    const workspaceFolders = vscode.workspace.workspaceFolders;
+    if (!workspaceFolders || workspaceFolders.length === 0) {
+      logger.log("No workspace folders available for health check", "WARN");
+      return false;
+    }
+
+    const folder = workspaceFolders[0];
+    const config = await configService.loadQdrantConfig(folder);
+
+    if (!config) {
+      logger.log("No configuration available for health check", "WARN");
+      return false;
+    }
+
+    // Validate connections
+    const isHealthy = await configService.validateConnection(config);
+    logger.log(
+      `Connection health check result: ${isHealthy ? "HEALTHY" : "UNHEALTHY"}`,
+      "CONFIG"
+    );
+
+    return isHealthy;
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    logger.log(`Connection health check failed: ${errorMsg}`, "ERROR");
+    return false;
+  }
+}
+
+export async function activate(
+  context: vscode.ExtensionContext
+): Promise<void> {
+  // ========================================================================
+  // STEP 1: Create output channel FIRST
+  // ========================================================================
   const outputChannel = vscode.window.createOutputChannel(
     "Qdrant Code Search",
     { log: true }
   );
   context.subscriptions.push(outputChannel);
+  outputChannel.show(false); // Don't steal focus
 
-  // IMPORTANT: Show it immediately so user sees logs
-  outputChannel.show(false); // false = don't steal focus
-
-  // Add timestamp and startup message
-  outputChannel.appendLine(
-    "════════════════════════════════════════════════════════"
-  );
-  outputChannel.appendLine(`🚀 Qdrant Code Search Extension Starting...`);
-  outputChannel.appendLine(`📅 Time: ${new Date().toISOString()}`);
+  outputChannel.appendLine("═".repeat(80));
+  outputChannel.appendLine("🚀 Qdrant Code Search Extension Activating...");
+  outputChannel.appendLine(`⏰ ${new Date().toISOString()}`);
   outputChannel.appendLine(`📍 Extension URI: ${context.extensionUri.fsPath}`);
-  outputChannel.appendLine(
-    "════════════════════════════════════════════════════════"
-  );
+  outputChannel.appendLine("═".repeat(80));
 
-  const traceEnabled = vscode.workspace
-    .getConfiguration("qdrant.search")
-    .get("trace", false) as boolean;
+  let servicesInitialized = false;
+  let webviewController: WebviewController | undefined;
 
   try {
-    outputChannel.appendLine(
-      "[INFO] Initializing DI container and services..."
-    );
-    // Initialize DI container with all services, passing necessary context for LoggerService
-    initializeServices(context, outputChannel, traceEnabled);
-    outputChannel.appendLine(
-      "[INFO] DI container and services initialized successfully."
-    );
+    // ====================================================================
+    // STEP 2: Get trace setting and initialize DI container with retry logic
+    // ====================================================================
+    const traceEnabled = vscode.workspace
+      .getConfiguration("qdrant.search")
+      .get<boolean>("trace", false);
 
-    // Retrieve services from container
-    outputChannel.appendLine("[INFO] Retrieving services from container...");
-    const configService = useService("ConfigService");
-    const indexingService = useService("IndexingService");
-    const workspaceManager = useService("WorkspaceManager");
-    const analyticsService = useService("AnalyticsService");
-    const logger: ILogger = useService("LoggerService"); // Get the injected logger
-    logger.log("Services retrieved from container.");
+    outputChannel.appendLine("📦 Initializing DI container...");
 
-    // Create webview controller
-    const webviewController = new WebviewController(
-      context.extensionUri,
-      indexingService,
-      workspaceManager,
-      configService,
-      analyticsService,
-      outputChannel,
-      logger // Inject logger as 7th argument
-    );
-    logger.log("WebviewController created.");
-
-    // Register webview provider FIRST and SYNCHRONOUSLY before any other operations
-    // This ensures the provider is available when the view is activated
-    analyticsService.trackEvent("provider.beforeRegister", {
-      viewType: WebviewController.viewType,
+    // Initialize service container with retry logic
+    await retryWithBackoff(async () => {
+      try {
+        initializeServiceContainer(context, outputChannel, traceEnabled);
+        outputChannel.appendLine("✅ DI container initialized");
+        return true;
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        outputChannel.appendLine(
+          `❌ Failed to initialize DI container: ${errorMsg}`
+        );
+        throw error;
+      }
     });
-    logger.log(
-      `Registering webview provider for ${WebviewController.viewType}`
-    );
+
+    // ====================================================================
+    // STEP 3: Get services from container with error handling
+    // ====================================================================
+    let logger: ILogger;
+    let configService: ConfigService;
+    let indexingService: IndexingService;
+    let workspaceManager: WorkspaceManager;
+    let analyticsService: AnalyticsService;
 
     try {
+      logger = getService<ILogger>(ILOGGER_TOKEN);
+      logger.log("📥 Retrieved ILogger from container", "CONFIG");
+
+      configService = getService<ConfigService>("ConfigService");
+      logger.log("📥 Retrieved ConfigService from container", "CONFIG");
+
+      indexingService = getService<IndexingService>("IndexingService");
+      logger.log("📥 Retrieved IndexingService from container", "CONFIG");
+
+      workspaceManager = getService<WorkspaceManager>("WorkspaceManager");
+      logger.log("📥 Retrieved WorkspaceManager from container", "CONFIG");
+
+      analyticsService = getService<AnalyticsService>("AnalyticsService");
+      logger.log("📥 Retrieved AnalyticsService from container", "CONFIG");
+
+      servicesInitialized = true;
+    } catch (error) {
+      const err = error instanceof Error ? error : new Error(String(error));
+      outputChannel.appendLine(
+        `❌ Failed to retrieve one or more services from container: ${err.message}`
+      );
+      outputChannel.appendLine(
+        "The DI container may be in a partially initialized state; attempting cleanup..."
+      );
+      try {
+        await disposeContainer();
+        outputChannel.appendLine("✅ Partial service initialization cleaned up");
+      } catch (cleanupError) {
+        const cleanupErrorMsg =
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError);
+        outputChannel.appendLine(
+          `❌ Cleanup after failed service resolution also failed: ${cleanupErrorMsg}`
+        );
+      }
+      throw err;
+    }
+
+    // ====================================================================
+    // STEP 4: Validate configuration before using services
+    // ====================================================================
+    try {
+      const config = configService.config;
+      if (!config) {
+        throw new Error("Configuration is null or undefined");
+      }
+
+      // Validate critical configuration fields
+      if (!config.indexing || !config.search) {
+        throw new Error(
+          "Missing critical configuration sections (indexing or search)"
+        );
+      }
+
+      logger.log("✅ Configuration validation passed", "CONFIG");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.log(`❌ Configuration validation failed: ${errorMsg}`, "ERROR");
+      throw new Error(`Configuration validation failed: ${errorMsg}`);
+    }
+
+    // ====================================================================
+    // STEP 5: Create status bar item
+    // ====================================================================
+    const statusBarItem = vscode.window.createStatusBarItem(
+      vscode.StatusBarAlignment.Right,
+      100
+    );
+    statusBarItem.text = "$(database) Qdrant: Ready";
+    statusBarItem.tooltip = "Qdrant Code Search Status";
+    statusBarItem.command = "qdrant.openSettings";
+    statusBarItem.show();
+    context.subscriptions.push(statusBarItem);
+
+    // ====================================================================
+    // STEP 6: Create and register webview provider with error handling
+    // ====================================================================
+    logger.log("🖼️ Creating WebviewController", "WEBVIEW");
+
+    try {
+      webviewController = new WebviewController(
+        context.extensionUri,
+        indexingService,
+        workspaceManager,
+        configService,
+        analyticsService,
+        logger
+      );
+
+      logger.log("📋 Registering webview provider", "WEBVIEW");
       const webviewProviderDisposable =
         vscode.window.registerWebviewViewProvider(
           WebviewController.viewType,
@@ -86,284 +260,305 @@ export async function activate(context: vscode.ExtensionContext) {
           }
         );
       context.subscriptions.push(webviewProviderDisposable);
-      logger.log(
-        `Webview provider registered successfully for ${WebviewController.viewType}`
+      logger.log("✅ Webview provider registered", "WEBVIEW");
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      logger.log(`❌ Failed to initialize webview: ${errorMsg}`, "ERROR");
+      throw new Error(`Webview initialization failed: ${errorMsg}`);
+    }
+
+    // ====================================================================
+    // STEP 7: Register commands with validation
+    // ====================================================================
+    const registeredCommands = registerCommands(
+      context,
+      logger,
+      indexingService,
+      workspaceManager,
+      analyticsService,
+      statusBarItem
+    );
+
+    // Validate that all expected commands are registered
+    const expectedCommands = ["qdrant.index.start", "qdrant.openSettings"];
+
+    if (!validateCommandHandlers(registeredCommands, expectedCommands)) {
+      throw new Error("Command validation failed - missing command handlers");
+    }
+
+    logger.log("✅ All commands registered and validated", "CONFIG");
+
+    // ====================================================================
+    // STEP 8: Perform connection health check with retry logic
+    // ====================================================================
+    try {
+      const isHealthy = await retryWithBackoff(
+        () => performConnectionHealthCheck(configService, logger),
+        2, // Fewer retries for health check
+        500 // Shorter delay
       );
-      analyticsService.trackEvent("provider.registered", {
-        success: true,
-        viewType: WebviewController.viewType,
-      });
+
+      if (isHealthy) {
+        logger.log("✅ Connection health check passed", "CONFIG");
+      } else {
+        logger.log(
+          "⚠️ Connection health check failed, but continuing with degraded functionality",
+          "WARN"
+        );
+        statusBarItem.text = "$(database) Qdrant: Degraded";
+        statusBarItem.tooltip =
+          "Qdrant Code Search - Connection Issues Detected";
+      }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       logger.log(
-        `Failed to register webview provider: ${errorMsg} | viewType=${WebviewController.viewType}`,
-        "ERROR"
+        `⚠️ Connection health check failed with error: ${errorMsg}`,
+        "WARN"
       );
-      analyticsService.trackError(
-        "provider.register.failed",
-        errorMsg + " | viewType=" + WebviewController.viewType
-      );
+      statusBarItem.text = "$(database) Qdrant: Degraded";
+      statusBarItem.tooltip = "Qdrant Code Search - Connection Issues Detected";
     }
 
-    // Create status bar item
-    const statusBarItem = vscode.window.createStatusBarItem(
-      vscode.StatusBarAlignment.Right,
-      100
-    );
-    statusBarItem.text = "$(database) Qdrant: Ready";
-    statusBarItem.tooltip = "Qdrant Code Search Status";
-    statusBarItem.command = "qdrant.openSettings";
-    statusBarItem.show();
-    context.subscriptions.push(statusBarItem);
+    outputChannel.appendLine("═".repeat(80));
+    outputChannel.appendLine("🎉 Extension Ready!");
+    outputChannel.appendLine("═".repeat(80));
 
-    // Register commands
-    logger.log("Registering command: qdrant.index.start");
-    context.subscriptions.push(
-      vscode.commands.registerCommand("qdrant.index.start", async () => {
-        logger.log("qdrant.index.start invoked", "COMMAND");
-        analyticsService.trackCommand("qdrant.index.start");
+    // ====================================================================
+    // STEP 9: Global error handlers
+    // ====================================================================
+    let errorHandlerActive = false;
 
-        const folder = workspaceManager.getActiveWorkspaceFolder();
-        if (!folder) {
-          vscode.window.showErrorMessage("No workspace folder found");
-          analyticsService.trackError(
-            "no_workspace_folder",
-            "qdrant.index.start"
+    process.on("uncaughtException", (err: Error) => {
+      // Prevent recursive error handling
+      if (errorHandlerActive) {
+        console.error(
+          "[FATAL] Recursive error in uncaughtException handler:",
+          err
+        );
+        return;
+      }
+      errorHandlerActive = true;
+
+      const timestamp = new Date().toISOString();
+      const message = err.message;
+      const stack = err.stack ?? "No stack";
+
+      try {
+        logger.log(
+          `UNCAUGHT EXCEPTION at ${timestamp}: ${message}\n${stack}`,
+          "FATAL"
+        );
+        outputChannel.appendLine(
+          `[FATAL] Uncaught exception at ${timestamp}: ${message}`
+        );
+        outputChannel.appendLine(`[FATAL] Stack: ${stack}`);
+
+        const isNetworkError =
+          message.includes("ECONNRESET") ||
+          message.includes("connection reset") ||
+          message.includes("network") ||
+          message.includes("fetch");
+
+        if (isNetworkError) {
+          outputChannel.appendLine(
+            `[FATAL] NETWORK ERROR DETECTED - Type: ${err.name}`
           );
-          return;
         }
-
-        // Update status
-        statusBarItem.text = "$(sync~spin) Qdrant: Indexing...";
-        const startTime = Date.now();
 
         try {
-          await indexingService.startIndexing(folder);
-          const duration = Date.now() - startTime;
-          statusBarItem.text = "$(database) Qdrant: Ready";
-          vscode.window.showInformationMessage(
-            "Workspace indexed successfully!"
+          analyticsService.trackError(
+            "global.uncaught",
+            `${message} | Type: ${err.name} | Network: ${isNetworkError}`
           );
-
-          analyticsService.trackIndexing({
-            duration,
-            success: true,
-          });
-        } catch (error) {
-          const duration = Date.now() - startTime;
-          const errorMsg =
-            error instanceof Error ? error.message : String(error);
-          statusBarItem.text = "$(database) Qdrant: Error";
-          vscode.window.showErrorMessage(`Indexing failed: ${error}`);
-          logger.log(
-            `Indexing failed: ${errorMsg} (duration: ${duration}ms)`,
-            "ERROR"
+        } catch (analyticsError) {
+          outputChannel.appendLine(
+            `[FATAL] Error within uncaughtException handler: ${analyticsError}`
           );
-
-          analyticsService.trackIndexing({
-            duration,
-            success: false,
-          });
-          analyticsService.trackError("indexing_failed", "qdrant.index.start");
         }
-      })
-    );
+      } finally {
+        errorHandlerActive = false;
+      }
+    });
 
-    logger.log("Registering command: qdrant.openSettings");
-    context.subscriptions.push(
-      vscode.commands.registerCommand("qdrant.openSettings", () => {
-        logger.log("qdrant.openSettings invoked", "COMMAND");
-        analyticsService.trackCommand("qdrant.openSettings");
-        vscode.commands.executeCommand(
-          "workbench.action.openSettings",
-          "qdrant"
+    process.on("unhandledRejection", (reason: unknown) => {
+      // Prevent recursive error handling
+      if (errorHandlerActive) {
+        console.error(
+          "[FATAL] Recursive error in unhandledRejection handler:",
+          reason
         );
-      })
-    );
+        return;
+      }
+      errorHandlerActive = true;
 
-    // Don't send initial status here - webview may not be created yet
-    // The webview will request initial state when it's ready via ipc:ready-request
-    logger.log("Qdrant Code Search extension activated successfully");
+      const timestamp = new Date().toISOString();
+      const error =
+        reason instanceof Error ? reason : new Error(String(reason));
+      const message = error.message;
+      const stack = error.stack ?? "No stack";
+
+      try {
+        logger.log(
+          `UNHANDLED REJECTION at ${timestamp}: ${message}\n${stack}`,
+          "FATAL"
+        );
+        outputChannel.appendLine(
+          `[FATAL] Unhandled promise rejection at ${timestamp}: ${message}`
+        );
+        outputChannel.appendLine(`[FATAL] Stack: ${stack}`);
+
+        const isNetworkError =
+          message.includes("ECONNRESET") ||
+          message.includes("connection reset") ||
+          message.includes("network") ||
+          message.includes("fetch");
+
+        if (isNetworkError) {
+          outputChannel.appendLine(
+            `[FATAL] NETWORK ERROR in promise rejection - Type: ${error.name}`
+          );
+        }
+
+        try {
+          analyticsService.trackError(
+            "global.unhandledRejection",
+            `${message} | Type: ${error.name} | Network: ${isNetworkError}`
+          );
+        } catch (analyticsError) {
+          outputChannel.appendLine(
+            `[FATAL] Error within unhandledRejection handler: ${analyticsError}`
+          );
+        }
+      } finally {
+        errorHandlerActive = false;
+      }
+    });
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    outputChannel.appendLine(
-      `[ERROR] Failed to activate Qdrant Code Search extension: ${errorMessage}`
-    );
-    console.error("Failed to activate Qdrant Code Search extension:", error);
-    // AnalyticsService might not be available yet, so use outputChannel for critical errors
-    outputChannel.appendLine(
-      `[ERROR] AnalyticsService not available for tracking activation failure.`
-    );
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : "";
+
+    outputChannel.appendLine("❌ CRITICAL ERROR DURING ACTIVATION");
+    outputChannel.appendLine(`📌 ${errorMsg}`);
+    if (errorStack) {
+      outputChannel.appendLine("Stack trace:");
+      outputChannel.appendLine(errorStack);
+    }
+
+    // If services were initialized but activation failed, try to clean up
+    if (servicesInitialized) {
+      try {
+        outputChannel.appendLine(
+          "🧹 Attempting to clean up partially initialized services..."
+        );
+        await disposeContainer();
+        outputChannel.appendLine("✅ Service cleanup completed");
+      } catch (cleanupError) {
+        const cleanupErrorMsg =
+          cleanupError instanceof Error
+            ? cleanupError.message
+            : String(cleanupError);
+        outputChannel.appendLine(
+          `❌ Service cleanup failed: ${cleanupErrorMsg}`
+        );
+      }
+    }
+
     vscode.window.showErrorMessage(
-      `Failed to activate Qdrant Code Search: ${errorMessage}`
+      `Failed to activate Qdrant Code Search: ${errorMsg}`
     );
     throw error;
   }
-
-  // Global error handler for unexpected errors in the extension host
-  process.on("uncaughtException", (err: unknown) => {
-    const error = err instanceof Error ? err : new Error(String(err));
-    const timestamp = new Date().toISOString();
-
-    // Use outputChannel directly for FATAL errors before logger is fully available/reliable
-    outputChannel.appendLine(
-      `[FATAL] Uncaught exception in extension host at ${timestamp}: ${error.message}`
-    );
-    outputChannel.appendLine(`[FATAL] Error type: ${error.name}`);
-    outputChannel.appendLine(
-      `[FATAL] Error stack: ${error.stack || "No stack available"}`
-    );
-
-    // Enhanced error details for network-related issues
-    if (
-      error.message.includes("ECONNRESET") ||
-      error.message.includes("connection reset") ||
-      error.message.includes("network") ||
-      error.message.includes("fetch")
-    ) {
-      outputChannel.appendLine(
-        `[FATAL] NETWORK ERROR DETECTED - Type: ${error.name}`
-      );
-      outputChannel.appendLine(
-        `[FATAL] Network error details: ${error.message}`
-      );
-
-      // Try to extract additional context from the error
-      if (error.stack) {
-        const stackLines = error.stack.split("\n");
-        outputChannel.appendLine(`[FATAL] Stack trace (first 5 lines):`);
-        for (let i = 0; i < Math.min(5, stackLines.length); i++) {
-          outputChannel.appendLine(`  ${stackLines[i]}`);
-        }
-      }
-
-      // Log system state at time of error
-      outputChannel.appendLine(
-        `[FATAL] Extension context available: ${!!context}`
-      );
-      outputChannel.appendLine(
-        `[FATAL] Workspace folders: ${
-          vscode.workspace.workspaceFolders?.length || 0
-        }`
-      );
-      outputChannel.appendLine(
-        `[FATAL] Active text editor: ${!!vscode.window.activeTextEditor}`
-      );
-    }
-
-    console.error("Uncaught exception in extension host", {
-      message: error.message,
-      name: error.name,
-      stack: error.stack,
-      timestamp,
-      isNetworkError:
-        error.message.includes("ECONNRESET") ||
-        error.message.includes("connection reset") ||
-        error.message.includes("network") ||
-        error.message.includes("fetch"),
-    });
-
-    // Analytics tracking is risky here, but we attempt it if AnalyticsService is available
-    try {
-      useService("AnalyticsService").trackError(
-        "global.uncaught",
-        `${error.message} | Type: ${error.name} | Network: ${
-          error.message.includes("ECONNRESET") ||
-          error.message.includes("connection reset") ||
-          error.message.includes("network") ||
-          error.message.includes("fetch")
-        }`
-      );
-    } catch (error) {
-      outputChannel.appendLine(
-        `[ERROR] Could not track uncaught exception via AnalyticsService. error: ${error}`
-      );
-    }
-
-    // Try to show user-friendly error message for network issues
-    if (
-      error.message.includes("ECONNRESET") ||
-      error.message.includes("connection reset")
-    ) {
-      vscode.window
-        .showErrorMessage(
-          "Network connection reset detected. This may be due to Qdrant/Ollama service issues. Please check if these services are running and accessible.",
-          "Check Services"
-        )
-        .then((selection) => {
-          if (selection === "Check Services") {
-            vscode.commands.executeCommand(
-              "workbench.action.openSettings",
-              "qdrant"
-            );
-          }
-        });
-    }
-  });
-
-  // Also handle unhandled promise rejections
-  process.on("unhandledRejection", (reason: unknown) => {
-    const timestamp = new Date().toISOString();
-    const reasonStr = reason instanceof Error ? reason.message : String(reason);
-    const reasonObj =
-      reason instanceof Error ? reason : new Error(String(reason));
-
-    outputChannel.appendLine(
-      `[FATAL] Unhandled promise rejection at ${timestamp}: ${reasonStr}`
-    );
-    outputChannel.appendLine(`[FATAL] Rejection type: ${reasonObj.name}`);
-    if (reasonObj.stack) {
-      outputChannel.appendLine(`[FATAL] Rejection stack: ${reasonObj.stack}`);
-    }
-
-    // Enhanced error details for network-related issues
-    if (
-      reasonStr.includes("ECONNRESET") ||
-      reasonStr.includes("connection reset") ||
-      reasonStr.includes("network") ||
-      reasonStr.includes("fetch")
-    ) {
-      outputChannel.appendLine(
-        `[FATAL] NETWORK ERROR in promise rejection - Type: ${reasonObj.name}`
-      );
-      outputChannel.appendLine(
-        `[FATAL] Network rejection details: ${reasonStr}`
-      );
-    }
-
-    console.error("Unhandled promise rejection", {
-      reason: reasonStr,
-      name: reasonObj.name,
-      stack: reasonObj.stack,
-      timestamp,
-      isNetworkError:
-        reasonStr.includes("ECONNRESET") ||
-        reasonStr.includes("connection reset") ||
-        reasonStr.includes("network") ||
-        reasonStr.includes("fetch"),
-    });
-
-    // Analytics tracking is risky here, but we attempt it if AnalyticsService is available
-    try {
-      useService("AnalyticsService").trackError(
-        "global.unhandledRejection",
-        `${reasonStr} | Type: ${reasonObj.name} | Network: ${
-          reasonStr.includes("ECONNRESET") ||
-          reasonStr.includes("connection reset") ||
-          reasonStr.includes("network") ||
-          reasonStr.includes("fetch")
-        }`
-      );
-    } catch (error) {
-      outputChannel.appendLine(
-        `[ERROR] Could not track unhandled rejection via AnalyticsService.`
-      );
-      outputChannel.appendLine(`[ERROR] Rejection tracking error: ${error}`);
-    }
-  });
 }
 
-export async function deactivate() {
-  // Properly dispose all services in reverse dependency order
-  await Container.instance.dispose();
+function registerCommands(
+  context: vscode.ExtensionContext,
+  logger: ILogger,
+  indexingService: IndexingService,
+  workspaceManager: WorkspaceManager,
+  analyticsService: AnalyticsService,
+  statusBarItem: vscode.StatusBarItem
+): string[] {
+  const registeredCommands: string[] = [];
+  // qdrant.index.start
+  logger.log("Registering command: qdrant.index.start", "COMMAND");
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qdrant.index.start", async () => {
+      logger.log("qdrant.index.start invoked", "COMMAND");
+      analyticsService.trackCommand("qdrant.index.start");
+
+      const folder = workspaceManager.getActiveWorkspaceFolder();
+      if (!folder) {
+        logger.log("No workspace folder found", "ERROR");
+        vscode.window.showErrorMessage("No workspace folder found");
+        analyticsService.trackError(
+          "no_workspace_folder",
+          "qdrant.index.start"
+        );
+        return;
+      }
+
+      statusBarItem.text = "$(sync~spin) Qdrant: Indexing...";
+      const startTime = Date.now();
+
+      try {
+        await retryWithBackoff(
+          () => indexingService.startIndexing(folder),
+          2, // Fewer retries for indexing
+          1000 // 1 second delay
+        );
+
+        const duration = Date.now() - startTime;
+        statusBarItem.text = "$(database) Qdrant: Ready";
+        vscode.window.showInformationMessage("Workspace indexed successfully!");
+
+        analyticsService.trackIndexing({
+          duration,
+          success: true,
+        });
+      } catch (error) {
+        const duration = Date.now() - startTime;
+        const errorMsg = error instanceof Error ? error.message : String(error);
+
+        statusBarItem.text = "$(database) Qdrant: Error";
+        vscode.window.showErrorMessage(`Indexing failed: ${errorMsg}`);
+        logger.log(
+          `Indexing failed: ${errorMsg} (duration: ${duration}ms)`,
+          "ERROR"
+        );
+
+        analyticsService.trackIndexing({
+          duration,
+          success: false,
+        });
+        analyticsService.trackError("indexing_failed", "qdrant.index.start");
+      }
+    })
+  );
+  registeredCommands.push("qdrant.index.start");
+
+  // qdrant.openSettings
+  logger.log("Registering command: qdrant.openSettings", "COMMAND");
+  context.subscriptions.push(
+    vscode.commands.registerCommand("qdrant.openSettings", () => {
+      logger.log("qdrant.openSettings invoked", "COMMAND");
+      analyticsService.trackCommand("qdrant.openSettings");
+      vscode.commands.executeCommand("workbench.action.openSettings", "qdrant");
+    })
+  );
+  registeredCommands.push("qdrant.openSettings");
+
+  return registeredCommands;
+}
+
+export async function deactivate(): Promise<void> {
+  console.log("Deactivating Qdrant Code Search Extension...");
+
+  try {
+    // Improved extension context cleanup
+    await disposeContainer();
+    console.log("✅ Extension cleanup completed successfully");
+  } catch (error) {
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    console.error(`❌ Error during extension deactivation: ${errorMsg}`);
+  }
 }

@@ -1,6 +1,7 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import * as vscode from "vscode";
+// ✅ FIX: Import mocked vscode instead of real vscode API
+import vscode from "../test/mocks/vscode-api.js";
 import { QdrantOllamaConfig } from "../webviews/protocol.js";
 import { ConfigService } from "./ConfigService.js";
 import { IndexingService } from "./IndexingService.js";

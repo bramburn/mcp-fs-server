@@ -105,7 +105,7 @@ export class ConfigurationFactory {
         }
 
         // Validate qdrantConfig presence if indexing is enabled
-        if (config.indexing.enabled && !config.qdrantConfig) {
+        if (config.indexing.enabled && !config.qdrantConfig) { // !AI: Validation is incomplete; should also check structure of qdrantConfig against QdrantOllamaConfig interface.
             return false;
         }
 

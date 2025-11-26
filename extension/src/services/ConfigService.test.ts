@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import * as vscode from "vscode"; // Import vscode here for FileType
+// ✅ FIX: Import mocked vscode instead of real vscode API
+import vscode from "../test/mocks/vscode-api.js";
 import { DefaultConfiguration } from "../config/Configuration.js";
 import { ConfigService } from "./ConfigService.js";
 import type { ILogger } from "./LoggerService.js";

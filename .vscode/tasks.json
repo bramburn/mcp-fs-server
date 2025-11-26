@@ -6,32 +6,20 @@
       "type": "npm",
       "script": "watch",
       "path": "extension",
-      "group": {
-        "kind": "build",
-        "isDefault": true
-      },
-      "presentation": {
-        "reveal": "always",
-        "panel": "dedicated",
-        "focus": false,
-        "clear": true
-      },
       "isBackground": true,
-      "problemMatcher": [
-        "$tsc-watch",
-        {
-          "owner": "vite",
-          "fileLocation": ["relative", "${workspaceFolder}/extension"],
-          "pattern": {
-            "regexp": "^(.*):(\\d+):(\\d+) - (error|warning|info) (.+)$",
-            "file": 1,
-            "line": 2,
-            "column": 3,
-            "severity": 4,
-            "message": 5
-          }
+      "problemMatcher": {
+        "owner": "tsc-watch",
+        "fileLocation": ["relative", "${workspaceFolder}/extension"],
+        "pattern": {
+          "regexp": "^([^\\s].*?)\\((\\d+),(\\d+)\\):\\s+(error|warning|info)\\s+TS(\\d+):\\s+(.*)$",
+          "file": 1, "line": 2, "column": 3, "severity": 4, "code": 5, "message": 6
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*File change detected.*|Starting compilation.*",
+          "endsPattern": ".*Watching for file changes.*|.*Found 0 errors.*"
         }
-      ]
+      }
     },
     {
       "label": "npm: compile",
@@ -121,17 +109,10 @@
     {
       "label": "Clean Output",
       "type": "shell",
-      "command": "rm",
-      "args": ["-rf", "out"],
+      "command": "npx",
+      "args": ["rimraf", "out"],
       "options": {
         "cwd": "${workspaceFolder}/extension"
-      },
-      "group": "build",
-      "presentation": {
-        "reveal": "silent",
-        "panel": "dedicated",
-        "focus": false,
-        "clear": true
       },
       "problemMatcher": []
     },

@@ -1,3 +1,5 @@
+import "reflect-metadata";
+import { inject, injectable } from "tsyringe";
 import * as vscode from "vscode";
 import {
   FallbackGitProvider,
@@ -7,6 +9,7 @@ import {
 } from "../git/GitProvider.js";
 import { ConfigService } from "./ConfigService.js";
 import { ILogger } from "./LoggerService.js";
+import { ILOGGER_TOKEN, EXTENSION_CONTEXT_TOKEN } from "./ServiceTokens.js";
 
 /**
  * Workspace change event data
@@ -20,8 +23,9 @@ export type WorkspaceChangeListener = (event: WorkspaceChangeEvent) => void;
 
 /**
  * Service responsible for managing workspace context, repository discovery,
- * and coordinating the active configuration with Git integration
+ * and coordinating of active configuration with Git integration
  */
+@injectable()
 export class WorkspaceManager implements vscode.Disposable {
   private readonly _disposable: vscode.Disposable;
   private _repositories: GitRepository[] = [];
@@ -29,9 +33,9 @@ export class WorkspaceManager implements vscode.Disposable {
   private _listeners: WorkspaceChangeListener[] = [];
 
   constructor(
-    private readonly _context: vscode.ExtensionContext,
+    @inject(EXTENSION_CONTEXT_TOKEN) private readonly _context: vscode.ExtensionContext,
     private readonly _configService: ConfigService,
-    private readonly _logger: ILogger,
+    @inject(ILOGGER_TOKEN) private readonly _logger: ILogger,
     gitProvider?: GitProvider
   ) {
     // Use dependency injection for Git provider, with fallback
@@ -98,7 +102,7 @@ export class WorkspaceManager implements vscode.Disposable {
   }
 
   /**
-   * Finds all Git repositories in the workspace
+   * Finds all Git repositories in workspace
    */
   public async findRepositories(): Promise<string[]> {
     try {
@@ -154,7 +158,7 @@ export class WorkspaceManager implements vscode.Disposable {
   }
 
   /**
-   * Get the primary workspace folder to use for indexing
+   * Get primary workspace folder to use for indexing
    */
   public getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
     const folders = vscode.workspace.workspaceFolders;
@@ -241,7 +245,7 @@ export class WorkspaceManager implements vscode.Disposable {
 
       if (configCount > 1) {
         vscode.window.showWarningMessage(
-          "Multiple .qdrant configurations detected. The extension will use the configuration from the active workspace folder.",
+          "Multiple .qdrant configurations detected. The extension will use configuration from active workspace folder.",
           "Open Settings"
         );
       }
@@ -285,7 +289,7 @@ export class WorkspaceManager implements vscode.Disposable {
   }
 
   /**
-   * Get the Git provider instance
+   * Get Git provider instance
    */
   public get gitProvider(): GitProvider {
     return this._gitProvider;

@@ -52,7 +52,7 @@ export type IpcMessage =
 // --- Data Structures ---
 
 export interface FileSnippetResult {
-    uri: string; // Serialized vscode.Uri
+    uri: string; // !AI: Uri serialization to string requires verification that the deserialization logic in the host is robust against all possible Uri formats.
     filePath: string;
     snippet: string;
     lineStart: number;
@@ -120,7 +120,7 @@ export const WEBVIEW_READY_METHOD = 'webview/ready-request';
 
 // 8. Execute Command (Guest -> Host) - Used to trigger VS Code API commands
 export interface ExecuteCommandParams {
-    command: string;
+    command: string; // !AI: Security risk - Host must whitelist commands before execution via vscode.commands.executeCommand.
     args?: any[];
 }
 export type ExecuteCommand = IpcCommand<ExecuteCommandParams>;

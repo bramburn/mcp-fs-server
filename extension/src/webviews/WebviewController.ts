@@ -51,7 +51,6 @@ export class WebviewController
   private _view?: vscode.WebviewView;
   private _disposables: vscode.Disposable[] = [];
   private _isViewVisible: boolean = false;
-  private readonly _traceEnabled: boolean;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -59,69 +58,23 @@ export class WebviewController
     private readonly _workspaceManager: WorkspaceManager,
     private readonly _configService: ConfigService,
     private readonly _analyticsService: AnalyticsService,
-    private readonly _outputChannel: vscode.OutputChannel,
-    private readonly _logger: ILogger // Added logger dependency
+    private readonly _logger: ILogger
   ) {
-    this._traceEnabled = vscode.workspace
-      .getConfiguration("qdrant.search")
-      .get("trace", false) as boolean;
-
     this._logger.log(
       `WebviewController created for viewType ${
         WebviewController.viewType
-      } with extensionUri ${this._extensionUri.toString()}`
+      } with extensionUri ${this._extensionUri.toString()}`,
+      "WEBVIEW"
     );
     this._analyticsService.trackEvent("controller.created", {
       viewType: WebviewController.viewType,
     });
   }
 
-  /**
-   * Helper method to conditionally log based on trace setting
-   */
-  private log(
-    message: string,
-    level:
-      | "INFO"
-      | "ERROR"
-      | "WARN"
-      | "WEBVIEW"
-      | "IPC"
-      | "SEARCH"
-      | "OPEN"
-      | "COMMAND"
-      | "CONFIG" = "INFO"
-  ) {
-    // Map controller-specific log levels to ILogger-compatible levels
-    let loggerLevel:
-      | "INFO"
-      | "ERROR"
-      | "WARN"
-      | "COMMAND"
-      | "SEARCH"
-      | "OPEN"
-      | "CONFIG"
-      | "FATAL";
-
-    switch (level) {
-      case "WEBVIEW":
-      case "IPC":
-        loggerLevel = "INFO"; // Map these to INFO for now
-        break;
-      default:
-        loggerLevel = level as
-          | "INFO"
-          | "ERROR"
-          | "WARN"
-          | "COMMAND"
-          | "SEARCH"
-          | "OPEN"
-          | "CONFIG"
-          | "FATAL";
-        break;
-    }
-
-    this._logger.log(message, loggerLevel);
+  // Helper log wrapper
+  private log(message: string, level: any = "INFO") {
+      const safeLevel = ["INFO", "ERROR", "WARN", "FATAL"].includes(level) ? level : "INFO";
+      this._logger.log(message, safeLevel);
   }
 
   public dispose() {
@@ -138,35 +91,21 @@ export class WebviewController
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
-    this.log(
-      `🎯 resolveWebviewView called for ${WebviewController.viewType}`,
-      "WEBVIEW"
-    );
-    this._analyticsService.trackEvent("provider.resolve.called", {
-      viewType: WebviewController.viewType,
-    });
+    this.log(`🎯 resolveWebviewView called for ${WebviewController.viewType}`, "WEBVIEW");
 
     try {
       this._view = webviewView;
-
-      // Track page view when webview is resolved
       this._analyticsService.trackPageView("search_view");
 
-      // Context Keys: Set visible context key on view creation
-      vscode.commands.executeCommand(
-        "setContext",
-        "qdrant.searchView.visible",
-        true
-      );
+      vscode.commands.executeCommand("setContext", "qdrant.searchView.visible", true); // !AI: Future - 'setContext' is an internal command; consider using a public API if available for better stability across VS Code versions.
 
-      // Correctly handle webview visibility changes
       webviewView.onDidChangeVisibility(() => {
         this._isViewVisible = webviewView.visible;
         vscode.commands.executeCommand(
           "setContext",
           "qdrant.searchView.focused",
-          webviewView.visible // Assuming focused when visible
-        );
+          webviewView.visible
+        ); // !AI: Future - 'setContext' is an internal command; consider using a public API if available for better stability across VS Code versions.
       });
 
       webviewView.webview.options = {
@@ -177,18 +116,14 @@ export class WebviewController
       };
 
       const html = this._getHtmlForWebview(webviewView.webview);
-      this.log(
-        `📝 Setting webview HTML, length: ${html.length} bytes`,
-        "WEBVIEW"
-      );
+      this.log(`📝 Setting webview HTML, length: ${html.length} bytes`, "WEBVIEW");
       webviewView.webview.html = html;
 
-      // Listen for messages from the Webview (Guest)
       const listener = webviewView.webview.onDidReceiveMessage(
         async (data: any) => {
           const message: any = data;
 
-          // Handle simple debug/fallback commands from the error HTML
+          // Handle simple debug/fallback commands from error HTML
           if (message && typeof message.command === "string") {
             switch (message.command) {
               case "extension.reload": {
@@ -256,7 +191,6 @@ export class WebviewController
         this._disposables
       );
 
-      // Add listeners/disposables here
       this._disposables.push(listener);
 
       this._analyticsService.trackEvent("provider.resolve.completed", {
@@ -290,7 +224,7 @@ export class WebviewController
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; script-src 'nonce-${errorNonce}' vscode-resource:; style-src vscode-resource:;">
   <title>Qdrant Code Search - Error</title>
 </head>
-<body style="font-family: sans-serif; padding: 16px;">
+<body style="font-family: sans-serif; padding:16px;">
   <h2>Qdrant Code Search - Debug Error</h2>
   <p>The sidebar view failed to initialize.</p>
   <pre style="background: #f5f5f5; padding: 8px; white-space: wrap;">${errorMessage}</pre>
@@ -327,75 +261,136 @@ export class WebviewController
 
   // --- IPC Handlers ---
   private async handleCommand(command: IpcCommand<any>) {
-    switch (command.method) {
-      case START_INDEX_METHOD:
-        await this.handleIndexRequest();
-        break;
-      case OPEN_FILE_METHOD:
-        await this.handleOpenFile(command as any);
-        break;
-      case EXECUTE_COMMAND_METHOD:
-        await this.handleExecuteCommand(command as ExecuteCommand);
-        break;
-      default:
-        this.log(`Unknown command method: ${command.method}`, "IPC");
+    try {
+      // Validate command structure
+      if (!command || !command.method) {
+        throw new Error("Invalid command structure: missing method");
+      }
+
+      switch (command.method) {
+        case START_INDEX_METHOD:
+          await this.handleIndexRequest();
+          break;
+        case OPEN_FILE_METHOD:
+          await this.handleOpenFile(command as any); // !AI: TYPE - Dangerous type assertion, command may not be OpenFileCommand type
+          break;
+        case EXECUTE_COMMAND_METHOD:
+          // !AI: CRITICAL SECURITY RISK - Arbitrary command execution from webview. Must whitelist 'command' and 'args' before calling executeCommand.
+          await this.handleExecuteCommand(command as ExecuteCommand);
+          break;
+        default:
+          this.log(`Unknown command method: ${command.method}`, "IPC");
+          throw new Error(`Unknown command method: ${command.method}`);
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.log(`Error handling command ${command.method}: ${errorMsg}`, "ERROR");
+      this._analyticsService.trackError("command_handler_failed", command.method);
+      
+      // Send error notification back to webview
+      this.sendNotification("error", {
+        type: "command_error",
+        method: command.method,
+        message: errorMsg
+      });
     }
   }
 
   private async handleRequest(
     request: IpcRequest<any>
   ): Promise<IpcResponse<any> | void> {
-    let response: IpcResponse<any> | undefined;
-    switch (request.method) {
-      case SEARCH_METHOD:
-        // Corrected access to request.scope and request.id
-        response = await this.handleSearchRequest(request);
-        break;
-      case LOAD_CONFIG_METHOD:
-        // Corrected access to request.scope and request.id
-        response = await this.handleLoadConfigRequest(request);
-        break;
-      case "ipc:ready-request":
-        // Webview is ready, send initial state
-        this.log("Webview ready, sending initial status", "IPC");
-        this.sendNotification(INDEX_STATUS_METHOD, { status: "ready" });
-        // No response needed for this request
-        break;
-      default: {
-        this.log(`Unknown request method: ${request.method}`, "IPC");
-        response = {
-          // Send error response for unknown request
-          kind: "response",
-          scope: request.scope,
-          id: crypto.randomUUID(),
-          responseId: request.id,
-          timestamp: Date.now(),
-          error: `Unknown request method: ${request.method}`,
-        };
-        break;
+    try {
+      // Validate request structure
+      if (!request || !request.method || !request.id) {
+        throw new Error("Invalid request structure: missing method or id");
       }
-    }
 
-    if (response) {
-      this.sendResponse(response);
+      let response: IpcResponse<any> | undefined;
+      switch (request.method) {
+        case SEARCH_METHOD:
+          response = await this.handleSearchRequest(request);
+          break;
+        case LOAD_CONFIG_METHOD:
+          response = await this.handleLoadConfigRequest(request);
+          break;
+        case "ipc:ready-request":
+          this.log("Webview ready, sending initial status", "IPC");
+          this.sendNotification(INDEX_STATUS_METHOD, { status: "ready" });
+          break;
+        default:
+          this.log(`Unknown request method: ${request.method}`, "IPC");
+          response = {
+            kind: "response",
+            scope: request.scope,
+            id: crypto.randomUUID(),
+            responseId: request.id,
+            timestamp: Date.now(),
+            error: `Unknown request method: ${request.method}`,
+          };
+          break;
+      }
+
+      if (response) {
+        this.sendResponse(response);
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.log(`Error handling request ${request.method}: ${errorMsg}`, "ERROR");
+      this._analyticsService.trackError("request_handler_failed", request.method);
+      
+      // Send error response back to webview
+      const errorResponse: IpcResponse<any> = {
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        error: errorMsg
+      };
+      this.sendResponse(errorResponse);
     }
   }
 
   private async handleNotification(notification: IpcNotification<any>) {
-    switch (notification.method) {
-      case INDEX_STATUS_METHOD:
-        // Handled by sendNotification in handleIndexRequest
-        break;
-      case CONFIG_DATA_METHOD:
-        // Handled by sendNotification in handleLoadConfigRequest
-        break;
-      case DID_CHANGE_CONFIG_NOTIFICATION:
-        this.handleDidChangeConfiguration(
-          notification as DidChangeConfigurationNotification
-        );
-        break;
-      default:
-        this.log(`Unknown notification method: ${notification.method}`, "IPC");
+    try {
+      // Validate notification structure
+      if (!notification || !notification.method) {
+        throw new Error("Invalid notification structure: missing method");
+      }
+
+      switch (notification.method) {
+        case INDEX_STATUS_METHOD:
+          // Handle index status notifications
+          if (notification.params && typeof notification.params.status === 'string') {
+            this.log(`Received index status: ${notification.params.status}`, "IPC");
+          }
+          break;
+        case CONFIG_DATA_METHOD:
+          // Handle configuration data notifications
+          if (notification.params) {
+            this.log("Received configuration data notification", "IPC");
+          }
+          break;
+        case DID_CHANGE_CONFIG_NOTIFICATION:
+          this.handleDidChangeConfiguration(
+            notification as DidChangeConfigurationNotification
+          );
+          break;
+        default:
+          this.log(`Unknown notification method: ${notification.method}`, "IPC");
+          throw new Error(`Unknown notification method: ${notification.method}`);
+      }
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.log(`Error handling notification ${notification.method}: ${errorMsg}`, "ERROR");
+      this._analyticsService.trackError("notification_handler_failed", notification.method);
+      
+      // Send error notification back to webview
+      this.sendNotification("error", {
+        type: "notification_error",
+        method: notification.method,
+        message: errorMsg
+      });
     }
   }
 
@@ -421,23 +416,24 @@ export class WebviewController
   private async handleSearchRequest(
     request: IpcRequest<SearchRequestParams>
   ): Promise<IpcResponse<any>> {
-    if (!request.params || !request.params.query) {
-      return {
-        kind: "response",
-        scope: request.scope,
-        id: crypto.randomUUID(),
-        responseId: request.id,
-        timestamp: Date.now(),
-        error: "Missing search query.",
-      };
-    }
-
     try {
-      const query = request.params.query;
+      // Enhanced parameter validation
+      if (!request.params) {
+        throw new Error("Missing request parameters");
+      }
+      
+      if (!request.params.query || typeof request.params.query !== 'string') {
+        throw new Error("Invalid or missing search query parameter");
+      }
+
+      if (request.params.query.trim().length === 0) {
+        throw new Error("Search query cannot be empty");
+      }
+
+      const query = request.params.query.trim();
       this.log(`Executing search for query: "${query}"`, "SEARCH");
       const results = await this._indexingService.search(query);
 
-      // Track search analytics
       this._analyticsService.trackSearch({
         queryLength: query.length,
         resultsCount: results?.length || 0,
@@ -456,7 +452,6 @@ export class WebviewController
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.log(`Search error: ${errorMsg}`, "ERROR");
 
-      // Track search error
       this._analyticsService.trackError("search_failed", "handleSearchRequest");
 
       return {
@@ -490,52 +485,76 @@ export class WebviewController
   }
 
   private async handleOpenFile(command: IpcCommand<OpenFileParams>) {
-    const { uri, line } = command.params;
     try {
+      // Enhanced parameter validation
+      if (!command.params) {
+        throw new Error("Missing command parameters");
+      }
+      
+      const { uri, line } = command.params;
+      
+      if (!uri || typeof uri !== 'string') {
+        throw new Error("Invalid or missing URI parameter");
+      }
+      
+      if (line !== undefined && (typeof line !== 'number' || line < 0)) {
+        throw new Error("Invalid line parameter - must be a non-negative number");
+      }
+
       let fileUri: vscode.Uri;
 
       // Handle different URI schemes properly
       if (uri.startsWith("vscode-userdata:")) {
-        // Skip vscode-userdata URIs as they're not accessible via normal file operations
         this.log(`Skipping vscode-userdata URI: ${uri}`, "WARN");
         vscode.window.showInformationMessage(
           `Cannot open VS Code user data files: ${uri}`
         );
         return;
       } else if (uri.startsWith("/") || uri.match(/^[a-zA-Z]:/)) {
-        // Handle absolute file paths
         fileUri = vscode.Uri.file(uri);
       } else if (uri.startsWith("file://")) {
-        // Handle file:// URIs
         fileUri = vscode.Uri.parse(uri);
       } else {
-        // Handle other URI schemes or relative paths
         try {
           fileUri = vscode.Uri.parse(uri);
         } catch {
-          // If parsing fails, try treating it as a file path
           fileUri = vscode.Uri.file(uri);
         }
       }
 
       const doc = await vscode.workspace.openTextDocument(fileUri);
       const editor = await vscode.window.showTextDocument(doc);
-      const position = new vscode.Position(Math.max(0, line - 1), 0);
+      // !AI: Line number mapping: (line || 1) - 1 correctly maps 1-based input to 0-based index, but if line=0 is passed, it maps to line 0. If user input is strictly 1-based, line=0 should be rejected by validation.
+      const position = new vscode.Position(Math.max(0, (line || 1) - 1), 0);
       editor.selection = new vscode.Selection(position, position);
       editor.revealRange(
         new vscode.Range(position, position),
         vscode.TextEditorRevealType.InCenter
       );
-      this.log(`Opened file ${uri} at line ${line}`, "OPEN");
+      this.log(`Opened file ${uri} at line ${line || 1}`, "OPEN");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.log(`Failed to open file ${uri}: ${errorMsg}`, "ERROR");
-      vscode.window.showErrorMessage(`Failed to open file: ${uri}`);
+      this.log(`Failed to open file ${command.params?.uri || 'unknown'}: ${errorMsg}`, "ERROR");
+      vscode.window.showErrorMessage(`Failed to open file: ${command.params?.uri || 'unknown'}`);
+      this._analyticsService.trackError("open_file_failed", "handleOpenFile");
     }
   }
 
   private async handleExecuteCommand(command: ExecuteCommand) {
     try {
+      // Enhanced parameter validation
+      if (!command.params) {
+        throw new Error("Missing command parameters");
+      }
+      
+      if (!command.params.command || typeof command.params.command !== 'string') {
+        throw new Error("Invalid or missing command parameter");
+      }
+      
+      if (command.params.args && !Array.isArray(command.params.args)) {
+        throw new Error("Command args must be an array");
+      }
+
       await vscode.commands.executeCommand(
         command.params.command,
         ...(command.params.args || [])
@@ -544,24 +563,23 @@ export class WebviewController
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.log(
-        `Failed to execute command ${command.params.command}: ${errorMsg}`,
+        `Failed to execute command ${command.params?.command || 'unknown'}: ${errorMsg}`,
         "ERROR"
       );
       vscode.window.showErrorMessage(
-        `Failed to execute command: ${command.params.command}`
+        `Failed to execute command: ${command.params?.command || 'unknown'}`
       );
+      this._analyticsService.trackError("execute_command_failed", "handleExecuteCommand");
     }
   }
 
   private handleDidChangeConfiguration(
     notification: DidChangeConfigurationNotification
   ) {
-    // Track configuration changes
     this._analyticsService.trackEvent("settings_changed", {
       configKey: notification.params.configKey,
     });
 
-    // Placeholder for logic to react to configuration changes (e.g., reloading a service)
     this.log(
       `Configuration changed for key: ${notification.params.configKey}`,
       "CONFIG"
@@ -573,7 +591,7 @@ export class WebviewController
   public sendNotification(method: string, params: any) {
     if (this._view) {
       const notification = {
-        scope: "qdrantIndex", // Explicitly cast to IpcScope if necessary, or ensure 'qdrantIndex' is within the union
+        scope: "qdrantIndex",
         id: crypto.randomUUID(),
         method: method,
         kind: "notification",
@@ -690,18 +708,16 @@ export class WebviewController
   }
 
   // --- Telemetry & Context Keys ---
+
   public getTelemetryContext(): { [key: string]: string } {
     return {
       webviewVisible: this._isViewVisible.toString(),
-      webviewFocused: this._isViewVisible.toString(), // Reuse for now
+      webviewFocused: this._isViewVisible.toString(),
     };
   }
 
   private _getHtmlForWebview(webview: vscode.Webview) {
-    // P2.1: Hosting - loading bundled assets
-    // Generate a unique nonce for this webview instance
     const nonce = getNonce();
-
     const scriptUri = webview.asWebviewUri(
       vscode.Uri.joinPath(
         this._extensionUri,
@@ -720,11 +736,6 @@ export class WebviewController
         "index.css"
       )
     );
-
-    // Note: The main webview doesn't need an explicit CSP meta tag
-    // because VS Code automatically sets a secure CSP for webviews
-    // that only allows resources from the extension's localResourceRoots
-    // The nonce is applied to the script and link tags for additional security
 
     return `<!DOCTYPE html>
             <html lang="en">

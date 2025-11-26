@@ -14,7 +14,7 @@
       "$lib": ["./src/lib"],
       "$lib/*": ["./src/lib/*"],
       "shared/*": ["../packages/shared/*"],
-      "$app/*": ["./src/webviews/app/*"],
+      "$app": ["./src/webviews/app"],
       "@app/*": ["./src/webviews/app/*"],
       "@lib/*": ["./src/lib/*"],
       "@shared/*": ["../packages/shared/*"]
@@ -26,6 +26,8 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
     "jsx": "react-jsx",
     "types": ["vite/client", "node", "vitest/globals"]
   },
@@ -39,7 +41,6 @@
     "node_modules",
     ".vscode-test",
     "svelte.config.js",
-    // Legacy Svelte runes store not used by the React webview
     "src/webviews/app/store.svelte.ts"
   ]
 }

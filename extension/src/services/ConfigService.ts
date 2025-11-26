@@ -1,3 +1,5 @@
+import "reflect-metadata";
+import { inject, injectable } from "tsyringe";
 import * as vscode from "vscode";
 import {
   ConfigPath,
@@ -7,6 +9,7 @@ import {
 } from "../config/Configuration.js";
 import { QdrantOllamaConfig } from "../webviews/protocol.js";
 import { ILogger } from "./LoggerService.js";
+import { ILOGGER_TOKEN } from "./ServiceTokens.js";
 
 /**
  * Ensures a URL has a proper protocol (http:// or https://)
@@ -42,13 +45,15 @@ export type ConfigurationChangeListener = (
  * Service responsible for managing VS Code configuration and file-based Qdrant configuration
  * Implements proper TypeScript typing and VS Code API integration with change subscription
  */
+@injectable()
 export class ConfigService implements vscode.Disposable {
   private _disposable: vscode.Disposable;
   private _config: Configuration = DefaultConfiguration;
   private _qdrantConfig: QdrantOllamaConfig | null = null;
   private _listeners: ConfigurationChangeListener[] = [];
+  private _disposed = false;
 
-  constructor(private readonly _logger: ILogger) {
+  constructor(@inject(ILOGGER_TOKEN) private readonly _logger: ILogger) {
     // Initialize and load the strongly typed configuration
     this.loadConfiguration();
 
@@ -166,7 +171,7 @@ export class ConfigService implements vscode.Disposable {
         config.ollama_config.base_url
       );
 
-      // Ensure URLs do not have trailing slashes for easier concatenation
+      // Remove trailing slashes for consistent URL handling
       config.qdrant_config.url = config.qdrant_config.url.replace(/\/$/, "");
       config.ollama_config.base_url = config.ollama_config.base_url.replace(
         /\/$/,
@@ -185,7 +190,7 @@ export class ConfigService implements vscode.Disposable {
   }
 
   /**
-   * Verifies that the configured services are reachable.
+   * Verifies that the configured services are reachable with retry logic for transient failures.
    */
   public async validateConnection(
     config: QdrantOllamaConfig
@@ -197,59 +202,96 @@ export class ConfigService implements vscode.Disposable {
     );
 
     try {
-      // Check Ollama
-      this._logger.log(
-        `[CONFIG] Testing Ollama connection to ${config.ollama_config.base_url}/api/tags`,
-        "CONFIG"
-      );
-      const ollamaRes = await fetch(
-        `${config.ollama_config.base_url}/api/tags`
-      );
+      // Use retry logic for transient network failures
+      return await this.retryWithBackoff(
+        async () => {
+          // Check Ollama with timeout
+          this._logger.log(
+            `[CONFIG] Testing Ollama connection to ${config.ollama_config.base_url}/api/tags`,
+            "CONFIG"
+          );
 
-      if (!ollamaRes.ok) {
-        const errorText = await ollamaRes
-          .text()
-          .catch(() => "Unable to read error response");
-        this._logger.log(
-          `[CONFIG] Ollama connection failed - Status: ${ollamaRes.status}, Response: ${errorText}`,
-          "ERROR"
-        );
-        throw new Error(
-          `Ollama unreachable: ${ollamaRes.status} ${ollamaRes.statusText}`
-        );
-      }
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => {
+            this._logger.log(
+              `[CONFIG] Ollama connection timeout, aborting...`,
+              "WARN"
+            );
+            controller.abort();
+          }, 10000); // 10 second timeout
 
-      // Check Qdrant (Basic health check via collections list or telemetry)
-      this._logger.log(
-        `[CONFIG] Testing Qdrant connection to ${config.qdrant_config.url}/collections`,
-        "CONFIG"
+          const ollamaRes = await fetch(
+            `${config.ollama_config.base_url}/api/tags`,
+            { signal: controller.signal }
+          );
+
+          clearTimeout(timeoutId);
+
+          if (!ollamaRes.ok) {
+            const errorText = await ollamaRes
+              .text()
+              .catch(() => "Unable to read error response");
+            this._logger.log(
+              `[CONFIG] Ollama connection failed - Status: ${ollamaRes.status}, Response: ${errorText}`,
+              "ERROR"
+            );
+            throw new Error(
+              `Ollama unreachable: ${ollamaRes.status} ${ollamaRes.statusText}`
+            );
+          }
+
+          // Check Qdrant with timeout
+          this._logger.log(
+            `[CONFIG] Testing Qdrant connection to ${config.qdrant_config.url}/collections`,
+            "CONFIG"
+          );
+
+          const qdrantController = new AbortController();
+          const qdrantTimeoutId = setTimeout(() => {
+            this._logger.log(
+              `[CONFIG] Qdrant connection timeout, aborting...`,
+              "WARN"
+            );
+            qdrantController.abort();
+          }, 10000); // 10 second timeout
+
+          const qdrantRes = await fetch(
+            `${config.qdrant_config.url}/collections`,
+            {
+              signal: qdrantController.signal,
+            }
+          );
+
+          clearTimeout(qdrantTimeoutId);
+
+          if (
+            !qdrantRes.ok &&
+            qdrantRes.status !== 401 &&
+            qdrantRes.status !== 403
+          ) {
+            // 401/403 might just mean we need to API key which IndexingService handles
+            const errorText = await qdrantRes
+              .text()
+              .catch(() => "Unable to read error response");
+            this._logger.log(
+              `[CONFIG] Qdrant connection failed - Status: ${qdrantRes.status}, Response: ${errorText}`,
+              "ERROR"
+            );
+            throw new Error(
+              `Qdrant unreachable: ${qdrantRes.status} ${qdrantRes.statusText}`
+            );
+          }
+
+          const totalDuration = Date.now() - startTime;
+          this._logger.log(
+            `[CONFIG] Connection validation successful in ${totalDuration}ms`,
+            "CONFIG"
+          );
+          return true;
+        },
+        3, // Max retries
+        1000 // 1 second delay
       );
-      const qdrantRes = await fetch(`${config.qdrant_config.url}/collections`);
-
-      if (
-        !qdrantRes.ok &&
-        qdrantRes.status !== 401 &&
-        qdrantRes.status !== 403
-      ) {
-        // 401/403 might just mean we need the API key which IndexingService handles
-        const errorText = await qdrantRes
-          .text()
-          .catch(() => "Unable to read error response");
-        this._logger.log(
-          `[CONFIG] Qdrant connection failed - Status: ${qdrantRes.status}, Response: ${errorText}`,
-          "ERROR"
-        );
-        throw new Error(
-          `Qdrant unreachable: ${qdrantRes.status} ${qdrantRes.statusText}`
-        );
-      }
-
-      const totalDuration = Date.now() - startTime;
-      this._logger.log(
-        `[CONFIG] Connection validation successful in ${totalDuration}ms`,
-        "CONFIG"
-      );
-      return true;
     } catch (e) {
       const totalDuration = Date.now() - startTime;
       const error = e instanceof Error ? e : new Error(String(e));
@@ -274,6 +316,56 @@ export class ConfigService implements vscode.Disposable {
 
       return false;
     }
+  }
+
+  /**
+   * Retry helper with exponential backoff for transient network failures
+   */
+  private async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    maxAttempts: number = 3,
+    baseDelay: number = 1000
+  ): Promise<T> {
+    let lastError: Error = new Error("Unknown error");
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        const isLastAttempt = attempt === maxAttempts;
+
+        if (isLastAttempt) {
+          throw lastError;
+        }
+
+        // Check if this is a transient network error that should be retried
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const isTransientError =
+          errorMsg.includes("ECONNRESET") ||
+          errorMsg.includes("connection reset") ||
+          errorMsg.includes("network") ||
+          errorMsg.includes("fetch") ||
+          errorMsg.includes("timeout");
+
+        if (!isTransientError) {
+          // Non-transient error, don't retry
+          throw error;
+        }
+
+        // Calculate exponential backoff delay
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        this._logger.log(
+          `[CONFIG] Retry attempt ${
+            attempt + 1
+          } after ${delay}ms due to: ${errorMsg}`,
+          "WARN"
+        );
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    throw lastError;
   }
 
   /**
@@ -315,6 +407,7 @@ export class ConfigService implements vscode.Disposable {
 
   /**
    * Get a specific configuration value
+   * @throws Error if the configuration path does not exist
    */
   public get<T>(key: string): T {
     const keys = key.split(".");
@@ -324,7 +417,9 @@ export class ConfigService implements vscode.Disposable {
       if (value && typeof value === "object" && k in value) {
         value = value[k];
       } else {
-        return undefined as T;
+        throw new Error(
+          `Configuration key "${key}" not found. Path traversal failed at "${k}".`
+        );
       }
     }
 
@@ -348,7 +443,7 @@ export class ConfigService implements vscode.Disposable {
 
     target[keys[keys.length - 1]] = value;
 
-    // Notify listeners of the change
+    // Notify listeners of change
     this._listeners.forEach((listener) => {
       try {
         listener({ section: key, value });
@@ -362,6 +457,10 @@ export class ConfigService implements vscode.Disposable {
   }
 
   public dispose(): void {
+    if (this._disposed) {
+      return;
+    }
+    this._disposed = true;
     this._disposable.dispose();
     this._listeners = [];
   }

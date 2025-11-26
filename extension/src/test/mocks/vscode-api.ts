@@ -31,8 +31,19 @@ export const mockWorkspace = {
     }
     return pathOrUri.fsPath.replace('/test/workspace/', '');
   }),
-  onDidChangeWorkspaceFolders: vi.fn(),
-  onDidChangeConfiguration: vi.fn()
+  // ✅ FIX: Add proper mock implementations for event handlers that return disposable objects
+  onDidChangeWorkspaceFolders: vi.fn(() => ({
+    dispose: vi.fn()
+  })),
+  onDidChangeConfiguration: vi.fn(() => ({
+    dispose: vi.fn()
+  })),
+  onDidChangeTextEditorSelection: vi.fn(() => ({
+    dispose: vi.fn()
+  })),
+  onDidChangeActiveTextEditor: vi.fn(() => ({
+    dispose: vi.fn()
+  }))
 };
 
 export const mockWindow = {
@@ -52,14 +63,23 @@ export const mockWindow = {
   registerWebviewViewProvider: vi.fn(),
   createWebviewPanel: vi.fn(),
   activeTextEditor: undefined,
-  onDidChangeActiveTextEditor: vi.fn(),
-  onDidChangeTextEditorSelection: vi.fn()
+  // ✅ FIX: Add proper mock implementations for event handlers that return disposable objects
+  onDidChangeActiveTextEditor: vi.fn(() => ({
+    dispose: vi.fn()
+  })),
+  onDidChangeTextEditorSelection: vi.fn(() => ({
+    dispose: vi.fn()
+  }))
 };
 
 export const mockCommands = {
-  registerCommand: vi.fn(),
+  registerCommand: vi.fn(() => ({
+    dispose: vi.fn()
+  })),
   executeCommand: vi.fn(),
-  registerTextEditorCommand: vi.fn()
+  registerTextEditorCommand: vi.fn(() => ({
+    dispose: vi.fn()
+  }))
 };
 
 export const mockLanguages = {
@@ -128,7 +148,10 @@ export const mockUri = {
 export const mockWebview = {
   asWebviewUri: vi.fn((uri: any) => uri),
   postMessage: vi.fn(),
-  onDidReceiveMessage: vi.fn(),
+  // ✅ FIX: Add proper mock implementation for event handler that returns disposable object
+  onDidReceiveMessage: vi.fn(() => ({
+    dispose: vi.fn()
+  })),
   html: '',
   options: {},
   cspSource: ''

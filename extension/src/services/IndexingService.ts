@@ -1,12 +1,15 @@
+import "reflect-metadata";
+import { inject, injectable } from "tsyringe";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import * as vscode from "vscode";
 import { QdrantOllamaConfig } from "../webviews/protocol.js";
 import { AnalyticsService } from "./AnalyticsService.js";
 import { ConfigService } from "./ConfigService.js";
 import { ILogger } from "./LoggerService.js";
-// Use a relative import so the compiled extension can resolve this at runtime
+import { ILOGGER_TOKEN, EXTENSION_CONTEXT_TOKEN } from "./ServiceTokens.js";
+// Use a relative import so compiled extension can resolve this at runtime
 // when packaged and installed in VS Code. The previous bare "shared" import
-// relied on TS path aliases and failed in the extension host.
+// relied on TS path aliases and failed in extension host.
 import { CodeSplitter } from "../shared/code-splitter.js";
 
 interface SearchResultItem {
@@ -36,6 +39,7 @@ export type IndexingProgressListener = (progress: IndexingProgress) => void;
  * Core service to handle file indexing and interaction with Qdrant/Ollama
  * with proper cancellation token support and dependency injection
  */
+@injectable()
 export class IndexingService implements vscode.Disposable {
   private _isIndexing = false;
   private _client: QdrantClient | null = null;
@@ -43,12 +47,16 @@ export class IndexingService implements vscode.Disposable {
   private _splitter: CodeSplitter;
   private _cancellationTokenSource: vscode.CancellationTokenSource | undefined;
   private _progressListeners: IndexingProgressListener[] = [];
+  
+  // Connection pool management for reusing existing connections
+  private _connectionPool: Map<string, QdrantClient> = new Map();
+  private _maxPoolSize = 5; // Maximum number of connections to keep in pool
 
   constructor(
     private readonly _configService: ConfigService,
-    private readonly _context: vscode.ExtensionContext,
+    @inject(EXTENSION_CONTEXT_TOKEN) private readonly _context: vscode.ExtensionContext,
     private readonly _analyticsService: AnalyticsService,
-    private readonly _logger: ILogger
+    @inject(ILOGGER_TOKEN) private readonly _logger: ILogger
   ) {
     this._splitter = new CodeSplitter();
   }
@@ -81,7 +89,7 @@ export class IndexingService implements vscode.Disposable {
   }
 
   /**
-   * Triggers the indexing process for the given workspace folder with cancellation support
+   * Triggers indexing process for given workspace folder with cancellation support
    */
   public async startIndexing(folder?: vscode.WorkspaceFolder): Promise<void> {
     if (this._isIndexing) {
@@ -118,9 +126,13 @@ export class IndexingService implements vscode.Disposable {
         );
       }
 
-      // Validate connections before starting heavy work
+      // Validate connections before starting heavy work with retry logic
       const connectionStartTime = Date.now();
-      const isHealthy = await this._configService.validateConnection(config);
+      const isHealthy = await this.retryWithBackoff(
+        () => this._configService.validateConnection(config),
+        3, // Max retries for connection validation
+        1000 // 1 second delay
+      );
       const connectionDuration = Date.now() - connectionStartTime;
 
       if (isHealthy) {
@@ -141,26 +153,13 @@ export class IndexingService implements vscode.Disposable {
       }
 
       this._activeConfig = config;
-      console.log(
-        `[INDEXING] Initializing Qdrant client with URL: ${config.qdrant_config.url}`
+      
+      // Use connection pool management
+      this._client = this.getOrCreateClient(config.qdrant_config.url, config.qdrant_config.api_key);
+      
+      this._logger.log(
+        `[INDEXING] Qdrant client initialized successfully (using connection pool)`
       );
-      try {
-        this._client = new QdrantClient({
-          url: config.qdrant_config.url,
-          apiKey: config.qdrant_config.api_key,
-        });
-        console.log(`[INDEXING] Qdrant client initialized successfully`);
-      } catch (error) {
-        const err = error instanceof Error ? error : new Error(String(error));
-        console.error(`[INDEXING] Failed to initialize Qdrant client:`, {
-          message: err.message,
-          stack: err.stack,
-          name: err.name,
-          url: config.qdrant_config.url,
-          hasApiKey: !!config.qdrant_config.api_key,
-        });
-        throw err;
-      }
 
       // Initialize Splitter with WASM paths
       try {
@@ -176,9 +175,9 @@ export class IndexingService implements vscode.Disposable {
         ).fsPath;
         await this._splitter.initialize(wasmPath, langPath);
       } catch (e) {
-        console.warn(
-          "Failed to init splitter WASM (falling back to line split):",
-          e
+        this._logger.log(
+          "Failed to init splitter WASM (falling back to line split)",
+          "WARN"
         );
       }
 
@@ -191,7 +190,7 @@ export class IndexingService implements vscode.Disposable {
 
       // Detect embedding dimension dynamically
       const vectorDimension = await this.detectEmbeddingDimension(token);
-      console.log(
+      this._logger.log(
         `[INDEXING] Using detected vector dimension: ${vectorDimension}`
       );
 
@@ -266,7 +265,7 @@ export class IndexingService implements vscode.Disposable {
             wasCancelled = true;
             throw new Error("Indexing cancelled");
           }
-          console.error(`Failed to index file ${fileUri.fsPath}:`, err);
+          this._logger.log(`Failed to index file ${fileUri.fsPath}:`, "ERROR");
         }
       }
 
@@ -296,7 +295,7 @@ export class IndexingService implements vscode.Disposable {
           total: 0,
           status: "error",
         });
-        console.error("Indexing critical failure:", error);
+        this._logger.log("Indexing critical failure:", "ERROR");
         vscode.window.showErrorMessage(
           `Indexing failed: ${
             error instanceof Error ? error.message : "Unknown error"
@@ -320,7 +319,7 @@ export class IndexingService implements vscode.Disposable {
   }
 
   /**
-   * Stop the current indexing operation
+   * Stop current indexing operation
    */
   public stopIndexing(): void {
     if (this._cancellationTokenSource) {
@@ -366,7 +365,7 @@ export class IndexingService implements vscode.Disposable {
     }
 
     const startTime = Date.now();
-    console.log(`[INDEXING] Checking if collection '${name}' exists`);
+    this._logger.log(`[INDEXING] Checking if collection '${name}' exists`);
 
     try {
       // Create AbortController for Qdrant operations
@@ -375,14 +374,14 @@ export class IndexingService implements vscode.Disposable {
       // Connect CancellationToken to AbortController
       if (token) {
         token.onCancellationRequested(() => {
-          console.log(`[INDEXING] ensureCollection cancelled via token`);
-          controller.abort();
+          this._logger.log(`[INDEXING] ensureCollection cancelled via token`);
+          controller.abort(); // !AI: Future - Ensure controller.abort() is called with the signal if QdrantClient supports it, or verify this is sufficient for cancellation.
         });
       }
 
       const collections = await this._client.getCollections();
       const getCollectionsDuration = Date.now() - startTime;
-      console.log(
+      this._logger.log(
         `[INDEXING] getCollections completed in ${getCollectionsDuration}ms, found ${collections.collections.length} collections`
       );
 
@@ -392,7 +391,7 @@ export class IndexingService implements vscode.Disposable {
       }
 
       const exists = collections.collections.some((c) => c.name === name);
-      console.log(`[INDEXING] Collection '${name}' exists: ${exists}`);
+      this._logger.log(`[INDEXING] Collection '${name}' exists: ${exists}`);
 
       if (!exists) {
         // Check for cancellation again
@@ -401,7 +400,7 @@ export class IndexingService implements vscode.Disposable {
         }
 
         const createStartTime = Date.now();
-        console.log(
+        this._logger.log(
           `[INDEXING] Creating collection '${name}' with vector size ${vectorSize}`
         );
         await this._client.createCollection(name, {
@@ -411,7 +410,7 @@ export class IndexingService implements vscode.Disposable {
           },
         });
         const createDuration = Date.now() - createStartTime;
-        console.log(
+        this._logger.log(
           `[INDEXING] Collection '${name}' created successfully in ${createDuration}ms`
         );
       }
@@ -421,22 +420,13 @@ export class IndexingService implements vscode.Disposable {
 
       // Handle AbortError specifically
       if (error.name === "AbortError") {
-        console.log(
+        this._logger.log(
           `[INDEXING] ensureCollection was aborted after ${duration}ms`
         );
         throw new Error("Indexing cancelled");
       }
 
-      console.error(
-        `[INDEXING] Error checking/creating collection '${name}' after ${duration}ms:`,
-        {
-          message: error.message,
-          stack: error.stack,
-          name: error.name,
-          collectionName: name,
-          vectorSize,
-        }
-      );
+      this._logger.log(`[INDEXING] Error checking/creating collection '${name}' after ${duration}ms:`, "ERROR");
 
       // Special logging for network-related errors
       if (
@@ -445,15 +435,11 @@ export class IndexingService implements vscode.Disposable {
         error.message.includes("network") ||
         error.message.includes("fetch")
       ) {
-        console.error(
-          `[INDEXING] NETWORK ERROR in ensureCollection - Type: ${error.name}, Message: ${error.message}`
+        this._logger.log(
+          `[INDEXING] NETWORK ERROR in ensureCollection - Type: ${error.name}, Message: ${error.message}`,
+          "FATAL"
         );
-        console.error(`[INDEXING] Network error details:`, {
-          collectionName: name,
-          qdrantUrl: this._activeConfig?.qdrant_config.url,
-          timestamp: new Date().toISOString(),
-          duration,
-        });
+        this._logger.log(`[INDEXING] Network error details:`, "FATAL");
       }
 
       throw e;
@@ -474,7 +460,7 @@ export class IndexingService implements vscode.Disposable {
       throw new Error("Indexing cancelled");
     }
 
-    // Use the shared splitter logic
+    // Use shared splitter logic
     const chunks = this._splitter.split(content, filePath);
 
     if (chunks.length === 0) return;
@@ -509,7 +495,7 @@ export class IndexingService implements vscode.Disposable {
       }
 
       const startTime = Date.now();
-      console.log(
+      this._logger.log(
         `[INDEXING] Upserting ${points.length} points to collection '${collectionName}'`
       );
 
@@ -519,8 +505,8 @@ export class IndexingService implements vscode.Disposable {
 
         // Connect CancellationToken to AbortController
         token.onCancellationRequested(() => {
-          console.log(`[INDEXING] indexFile upsert cancelled via token`);
-          controller.abort();
+          this._logger.log(`[INDEXING] indexFile upsert cancelled via token`);
+          controller.abort(); // !AI: Ensure controller.abort() is passed to the underlying QdrantClient call if it supports AbortSignal.
         });
 
         await this._client.upsert(collectionName, {
@@ -529,7 +515,7 @@ export class IndexingService implements vscode.Disposable {
           // We handle cancellation through our token checks and AbortController
         });
         const duration = Date.now() - startTime;
-        console.log(
+        this._logger.log(
           `[INDEXING] Upsert completed successfully in ${duration}ms for ${points.length} points`
         );
       } catch (e) {
@@ -538,22 +524,13 @@ export class IndexingService implements vscode.Disposable {
 
         // Handle AbortError specifically
         if (error.name === "AbortError") {
-          console.log(
+          this._logger.log(
             `[INDEXING] indexFile upsert was aborted after ${duration}ms`
           );
           throw new Error("Indexing cancelled");
         }
 
-        console.error(
-          `[INDEXING] Upsert failed after ${duration}ms for ${points.length} points:`,
-          {
-            message: error.message,
-            stack: error.stack,
-            name: error.name,
-            collectionName,
-            pointsCount: points.length,
-          }
-        );
+        this._logger.log(`[INDEXING] Upsert failed after ${duration}ms for ${points.length} points:`, "ERROR");
 
         // Special logging for network-related errors
         if (
@@ -562,16 +539,11 @@ export class IndexingService implements vscode.Disposable {
           error.message.includes("network") ||
           error.message.includes("fetch")
         ) {
-          console.error(
-            `[INDEXING] NETWORK ERROR in upsert - Type: ${error.name}, Message: ${error.message}`
+          this._logger.log(
+            `[INDEXING] NETWORK ERROR in upsert - Type: ${error.name}, Message: ${error.message}`,
+            "FATAL"
           );
-          console.error(`[INDEXING] Network error details:`, {
-            collectionName,
-            qdrantUrl: this._activeConfig?.qdrant_config.url,
-            pointsCount: points.length,
-            timestamp: new Date().toISOString(),
-            duration,
-          });
+          this._logger.log(`[INDEXING] Network error details:`, "FATAL");
         }
 
         throw e;
@@ -595,56 +567,66 @@ export class IndexingService implements vscode.Disposable {
     const textPreview =
       text.length > 100 ? text.substring(0, 100) + "..." : text;
 
-    console.log(
+    this._logger.log(
       `[INDEXING] Generating embedding with model '${model}' from ${base_url}, text length: ${text.length}`
     );
-    console.log(`[INDEXING] Text preview: "${textPreview}"`);
+    this._logger.log(`[INDEXING] Text preview: "${textPreview}"`);
 
     try {
-      // Create AbortController for fetch cancellation
-      const controller = new AbortController();
+      // Use retry logic for transient network failures
+      const response = await this.retryWithBackoff(
+        async () => {
+          // Create AbortController for fetch cancellation
+          const controller = new AbortController();
 
-      // Connect CancellationToken to AbortController
-      if (token) {
-        token.onCancellationRequested(() => {
-          console.log(`[INDEXING] Embedding generation cancelled via token`);
-          controller.abort();
-        });
-      }
+          // Connect CancellationToken to AbortController
+          if (token) {
+            token.onCancellationRequested(() => {
+              this._logger.log(`[INDEXING] Embedding generation cancelled via token`);
+              controller.abort();
+            });
+          }
 
-      const fetchStartTime = Date.now();
-      const response = await fetch(`${base_url}/api/embeddings`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: model,
-          prompt: text,
-        }),
-        signal: controller.signal,
-      });
-      const fetchDuration = Date.now() - fetchStartTime;
-      console.log(
-        `[INDEXING] Ollama fetch completed in ${fetchDuration}ms, status: ${response.status}, ok: ${response.ok}`
+          const fetchStartTime = Date.now();
+          const fetchResponse = await fetch(`${base_url}/api/embeddings`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: model,
+              prompt: text,
+            }),
+            signal: controller.signal,
+          });
+          const fetchDuration = Date.now() - fetchStartTime;
+          this._logger.log(
+            `[INDEXING] Ollama fetch completed in ${fetchDuration}ms, status: ${fetchResponse.status}, ok: ${fetchResponse.ok}`
+          );
+
+          if (!fetchResponse.ok) {
+            const errorText = await fetchResponse
+              .text()
+              .catch(() => "Unable to read error response");
+            this._logger.log(
+              `[INDEXING] Ollama embedding failed - Status: ${fetchResponse.status}, Response: ${errorText}`,
+              "ERROR"
+            );
+            throw new Error(
+              `Ollama Error: ${fetchResponse.status} ${fetchResponse.statusText} - ${errorText}`
+            );
+          }
+
+          return fetchResponse;
+        },
+        2, // Max retries for embedding generation
+        500 // 500ms delay
       );
-
-      if (!response.ok) {
-        const errorText = await response
-          .text()
-          .catch(() => "Unable to read error response");
-        console.error(
-          `[INDEXING] Ollama embedding failed - Status: ${response.status}, Response: ${errorText}`
-        );
-        throw new Error(
-          `Ollama Error: ${response.status} ${response.statusText} - ${errorText}`
-        );
-      }
-
+      
       const parseStartTime = Date.now();
       const data = (await response.json()) as { embedding: number[] };
       const parseDuration = Date.now() - parseStartTime;
       const totalDuration = Date.now() - startTime;
 
-      console.log(
+      this._logger.log(
         `[INDEXING] Embedding generated successfully - parse: ${parseDuration}ms, total: ${totalDuration}ms, dimensions: ${data.embedding.length}`
       );
       return data.embedding;
@@ -654,23 +636,15 @@ export class IndexingService implements vscode.Disposable {
 
       // Handle AbortError specifically
       if (error.name === "AbortError") {
-        console.log(
+        this._logger.log(
           `[INDEXING] Embedding generation was aborted after ${duration}ms`
         );
         throw new Error("Indexing cancelled");
       }
 
-      console.error(
+      this._logger.log(
         `[INDEXING] Embedding generation failed after ${duration}ms:`,
-        {
-          message: error.message,
-          stack: error.stack,
-          name: error.name,
-          model,
-          baseUrl: base_url,
-          textLength: text.length,
-          textPreview,
-        }
+        "ERROR"
       );
 
       // Special logging for network-related errors
@@ -680,16 +654,11 @@ export class IndexingService implements vscode.Disposable {
         error.message.includes("network") ||
         error.message.includes("fetch")
       ) {
-        console.error(
-          `[INDEXING] NETWORK ERROR in generateEmbedding - Type: ${error.name}, Message: ${error.message}`
+        this._logger.log(
+          `[INDEXING] NETWORK ERROR in generateEmbedding - Type: ${error.name}, Message: ${error.message}`,
+          "FATAL"
         );
-        console.error(`[INDEXING] Network error details:`, {
-          model,
-          ollamaUrl: base_url,
-          textLength: text.length,
-          timestamp: new Date().toISOString(),
-          duration,
-        });
+        this._logger.log(`[INDEXING] Network error details:`, "FATAL");
       }
 
       return null;
@@ -697,7 +666,7 @@ export class IndexingService implements vscode.Disposable {
   }
 
   /**
-   * Detects the embedding dimension by generating a test embedding
+   * Detects embedding dimension by generating a test embedding
    * @param token Optional cancellation token
    * @returns The detected dimension or fallback to 768
    */
@@ -706,17 +675,18 @@ export class IndexingService implements vscode.Disposable {
   ): Promise<number> {
     // Check for cancellation
     if (token?.isCancellationRequested) {
-      throw new Error("Indexing cancelled");
+      throw new Error("Indexing cancelled"); // !AI: Cancellation check is good, but the hardcoded fallback dimension is brittle.
     }
 
     if (!this._activeConfig) {
-      console.warn(
-        "[INDEXING] No active config available, using fallback dimension 768"
-      );
+      this._logger.log(
+        "[INDEXING] No active config available, using fallback dimension 768",
+        "WARN"
+      ); // !AI: Hardcoded fallback dimension (768) is architecturally unsound. Should default to the dimension of the default Ollama model or be configurable.
       return 768;
     }
 
-    console.log("[INDEXING] Detecting embedding dimension...");
+    this._logger.log("[INDEXING] Detecting embedding dimension...");
 
     try {
       // Generate a test embedding with a simple text
@@ -725,23 +695,21 @@ export class IndexingService implements vscode.Disposable {
 
       if (testEmbedding && testEmbedding.length > 0) {
         const dimension = testEmbedding.length;
-        console.log(`[INDEXING] Detected embedding dimension: ${dimension}`);
+        this._logger.log(`[INDEXING] Detected embedding dimension: ${dimension}`);
         return dimension;
       } else {
-        console.warn(
-          "[INDEXING] Failed to generate test embedding, using fallback dimension 768"
+        this._logger.log(
+          "[INDEXING] Failed to generate test embedding, using fallback dimension 768",
+          "WARN"
         );
         return 768;
       }
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
-      console.error("[INDEXING] Error detecting embedding dimension:", {
-        message: err.message,
-        model: this._activeConfig.ollama_config.model,
-        baseUrl: this._activeConfig.ollama_config.base_url,
-      });
-      console.warn(
-        "[INDEXING] Using fallback dimension 768 due to detection failure"
+      this._logger.log("[INDEXING] Error detecting embedding dimension:", "ERROR");
+      this._logger.log(
+        "[INDEXING] Using fallback dimension 768 due to detection failure",
+        "WARN"
       );
       return 768;
     }
@@ -752,7 +720,7 @@ export class IndexingService implements vscode.Disposable {
     token?: vscode.CancellationToken
   ): Promise<SearchResultItem[]> {
     if (!this._client || !this._activeConfig) {
-      console.log(
+      this._logger.log(
         `[SEARCH] Cannot search - client initialized: ${!!this
           ._client}, active config: ${!!this._activeConfig}`
       );
@@ -770,7 +738,7 @@ export class IndexingService implements vscode.Disposable {
     const collectionName = this._activeConfig.index_info?.name || "codebase";
     const startTime = Date.now();
 
-    console.log(
+    this._logger.log(
       `[SEARCH] Starting search for query: "${query}" in collection '${collectionName}'`
     );
 
@@ -785,7 +753,7 @@ export class IndexingService implements vscode.Disposable {
       }
 
       if (!vector) {
-        console.log(
+        this._logger.log(
           `[SEARCH] Failed to generate embedding for query: "${query}"`
         );
         vscode.window.showWarningMessage(
@@ -794,13 +762,13 @@ export class IndexingService implements vscode.Disposable {
         return [];
       }
 
-      console.log(
+      this._logger.log(
         `[SEARCH] Embedding generated in ${embeddingDuration}ms with ${vector.length} dimensions`
       );
 
       const searchLimit = this._configService.config.search.limit;
       const searchStartTime = Date.now();
-      console.log(`[SEARCH] Executing vector search with limit ${searchLimit}`);
+      this._logger.log(`[SEARCH] Executing vector search with limit ${searchLimit}`);
 
       // Create AbortController for Qdrant search operation
       const controller = new AbortController();
@@ -808,8 +776,8 @@ export class IndexingService implements vscode.Disposable {
       // Connect CancellationToken to AbortController
       if (token) {
         token.onCancellationRequested(() => {
-          console.log(`[SEARCH] Vector search cancelled via token`);
-          controller.abort();
+          this._logger.log(`[SEARCH] Vector search cancelled via token`);
+          controller.abort(); // !AI: Ensure controller.abort() is passed to the underlying QdrantClient call if it supports AbortSignal.
         });
       }
 
@@ -821,10 +789,10 @@ export class IndexingService implements vscode.Disposable {
       });
 
       const searchDuration = Date.now() - searchStartTime;
-      console.log(`[SEARCH] Vector search completed in ${searchDuration}ms`);
+      this._logger.log(`[SEARCH] Vector search completed in ${searchDuration}ms`);
 
       // The search result contains hits with payload.
-      // Cast to the expected structure which may have 'points' or 'hits' property.
+      // Cast to expected structure which may have 'points' or 'hits' property.
       const qdrantResult = searchResult as {
         points?: {
           id: string | number;
@@ -840,7 +808,7 @@ export class IndexingService implements vscode.Disposable {
       const results = qdrantResult.points || qdrantResult.hits || [];
 
       const totalDuration = Date.now() - startTime;
-      console.log(
+      this._logger.log(
         `[SEARCH] Search completed successfully in ${totalDuration}ms, found ${results.length} results`
       );
 
@@ -857,20 +825,11 @@ export class IndexingService implements vscode.Disposable {
 
       // Handle AbortError specifically
       if (error.name === "AbortError") {
-        console.log(`[SEARCH] Search was aborted after ${duration}ms`);
+        this._logger.log(`[SEARCH] Search was aborted after ${duration}ms`);
         throw new Error("Search cancelled");
       }
 
-      console.error(
-        `[SEARCH] Search failed in collection ${collectionName} after ${duration}ms:`,
-        {
-          message: error.message,
-          stack: error.stack,
-          name: error.name,
-          query,
-          collectionName,
-        }
-      );
+      this._logger.log(`[SEARCH] Search failed in collection ${collectionName} after ${duration}ms:`, "ERROR");
 
       // Special logging for network-related errors
       if (
@@ -879,16 +838,11 @@ export class IndexingService implements vscode.Disposable {
         error.message.includes("network") ||
         error.message.includes("fetch")
       ) {
-        console.error(
-          `[SEARCH] NETWORK ERROR in search - Type: ${error.name}, Message: ${error.message}`
+        this._logger.log(
+          `[SEARCH] NETWORK ERROR in search - Type: ${error.name}, Message: ${error.message}`,
+          "FATAL"
         );
-        console.error(`[SEARCH] Network error details:`, {
-          query,
-          collectionName,
-          qdrantUrl: this._activeConfig?.qdrant_config.url,
-          timestamp: new Date().toISOString(),
-          duration,
-        });
+        this._logger.log(`[SEARCH] Network error details:`, "FATAL");
       }
 
       vscode.window.showErrorMessage(`Search failed: ${error.message}`);
@@ -896,8 +850,104 @@ export class IndexingService implements vscode.Disposable {
     }
   }
 
+  /**
+   * Get or create a Qdrant client from the connection pool
+   */
+  private getOrCreateClient(url: string, apiKey?: string): QdrantClient {
+    const clientKey = `${url}:${apiKey || ''}`;
+    
+    // Check if we already have a client for this configuration
+    if (this._connectionPool.has(clientKey)) {
+      this._logger.log(`[INDEXING] Reusing existing Qdrant client from pool`);
+      return this._connectionPool.get(clientKey)!;
+    }
+    
+    // Create new client if not in pool
+    const client = new QdrantClient({
+      url,
+      apiKey,
+    });
+    
+    // Add to pool if space available
+    if (this._connectionPool.size < this._maxPoolSize) {
+      this._connectionPool.set(clientKey, client);
+      this._logger.log(`[INDEXING] Added new Qdrant client to pool (size: ${this._connectionPool.size})`);
+    } else {
+      // Pool is full, remove oldest client
+      const firstKey = this._connectionPool.keys().next().value;
+      if (firstKey) {
+        const oldClient = this._connectionPool.get(firstKey);
+        this._connectionPool.delete(firstKey);
+        this._logger.log(`[INDEXING] Removed oldest Qdrant client from pool (size: ${this._connectionPool.size})`);
+      }
+      this._connectionPool.set(clientKey, client);
+      this._logger.log(`[INDEXING] Added new Qdrant client to pool (replaced oldest)`);
+    }
+    
+    return client;
+  }
+
+  /**
+   * Retry helper with exponential backoff for transient network failures
+   */
+  private async retryWithBackoff<T>(
+    operation: () => Promise<T>,
+    maxAttempts: number = 3,
+    baseDelay: number = 1000
+  ): Promise<T> {
+    let lastError: Error | unknown;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await operation();
+      } catch (error) {
+        lastError = error;
+        const isLastAttempt = attempt === maxAttempts;
+        
+        if (isLastAttempt) {
+          throw error;
+        }
+        
+        // Check if this is a transient network error that should be retried
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        const isTransientError =
+          errorMsg.includes("ECONNRESET") ||
+          errorMsg.includes("connection reset") ||
+          errorMsg.includes("network") ||
+          errorMsg.includes("fetch") ||
+          errorMsg.includes("timeout");
+        
+        if (!isTransientError) {
+          // Non-transient error, don't retry
+          throw error;
+        }
+        
+        // Calculate exponential backoff delay
+        const delay = baseDelay * Math.pow(2, attempt - 1);
+        this._logger.log(`[INDEXING] Retry attempt ${attempt + 1} after ${delay}ms due to: ${errorMsg}`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    throw lastError;
+  }
+
   public dispose(): void {
     this.stopIndexing();
     this._progressListeners = [];
+    
+    // Clean up connection pool
+    for (const [key, client] of this._connectionPool.entries()) {
+      try {
+        // Note: QdrantClient doesn't have a dispose method, but we clean up references
+        this._logger.log(`[INDEXING] Cleaning up connection pool client: ${key}`);
+      } catch (error) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        this._logger.log(`[INDEXING] Error cleaning up pool client: ${errorMsg}`, "ERROR");
+      }
+    }
+    
+    this._connectionPool.clear();
+    this._logger.log(`[INDEXING] Connection pool cleared`);
   }
 }

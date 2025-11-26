@@ -1,13 +1,151 @@
 import '@testing-library/jest-dom';
 import { afterEach, vi } from 'vitest';
 import { cleanup } from '@testing-library/react';
+import vscode from './mocks/vscode-api';
+
+// Polyfill process for environments where it's undefined (avoids `.on` errors)
+if (!(global as any).process) {
+  (global as any).process = {
+    on: vi.fn(),
+    env: {},
+  };
+}
 
 // Ensure we cleanup React Testing Library between tests
 afterEach(() => {
   cleanup();
 });
 
-// Minimal VS Code API mock for webview tests
+// Apply VS Code API mock globally for tests (no try/catch to avoid parse issues)
+(global as any).vscode = vscode;
+
+// Minimal VS Code API fallback shape (only if something overwrites it to undefined)
+if (!(global as any).vscode) {
+  (global as any).vscode = {
+    workspace: {
+      workspaceFolders: [],
+      getConfiguration: () => ({ get: () => undefined }),
+      findFiles: () => Promise.resolve([]),
+      fs: {
+        stat: () => Promise.resolve({ type: 0 }),
+        readFile: () => Promise.resolve(new Uint8Array())
+      },
+      asRelativePath: () => '',
+      onDidChangeWorkspaceFolders: () => ({ dispose: () => {} }),
+      onDidChangeConfiguration: () => ({ dispose: () => {} }),
+      onDidChangeTextEditorSelection: () => ({ dispose: () => {} }),
+      onDidChangeActiveTextEditor: () => ({ dispose: () => {} })
+    },
+    window: {
+      createStatusBarItem: () => ({
+        text: '',
+        tooltip: '',
+        command: '',
+        show: () => {},
+        hide: () => {},
+        dispose: () => {}
+      }),
+      showInformationMessage: () => {},
+      showWarningMessage: () => {},
+      showErrorMessage: () => {},
+      showInputBox: () => Promise.resolve(''),
+      showQuickPick: () => Promise.resolve([]),
+      registerWebviewViewProvider: () => ({}),
+      createWebviewPanel: () => ({}),
+      activeTextEditor: undefined,
+      onDidChangeActiveTextEditor: () => ({ dispose: () => {} }),
+      onDidChangeTextEditorSelection: () => ({ dispose: () => {} })
+    },
+    commands: {
+      registerCommand: () => ({ dispose: () => {} }),
+      executeCommand: () => Promise.resolve(),
+      registerTextEditorCommand: () => ({ dispose: () => {} })
+    },
+    languages: {
+      createDiagnosticCollection: () => ({
+        set: () => {},
+        delete: () => {},
+        clear: () => {},
+        dispose: () => {}
+      }),
+      getLanguages: () => Promise.resolve(['typescript', 'javascript'])
+    },
+    diagnostics: {
+      createDiagnosticCollection: () => ({
+        set: () => {},
+        delete: () => {},
+        clear: () => {},
+        dispose: () => {}
+      })
+    },
+    env: {
+      appName: 'VS Code',
+      appRoot: '/test/vscode',
+      language: 'en',
+      sessionId: 'test-session',
+      shell: '/bin/bash',
+      uriScheme: 'vscode',
+      remoteName: undefined
+    },
+    Uri: {
+      file: () => ({
+        fsPath: '',
+        scheme: 'file',
+        path: '',
+        query: '',
+        fragment: '',
+        with: () => ({
+          fsPath: '',
+          scheme: 'file',
+          path: '',
+          query: '',
+          fragment: '',
+          toString: () => ''
+        })
+      }),
+      parse: () => ({
+        fsPath: '',
+        scheme: 'file',
+        path: '',
+        query: '',
+        fragment: '',
+        with: () => ({
+          fsPath: '',
+          scheme: 'file',
+          path: '',
+          query: '',
+          fragment: '',
+          toString: () => ''
+        })
+      }),
+      joinPath: () => ({
+        fsPath: '',
+        scheme: 'file',
+        path: '',
+        query: '',
+        fragment: '',
+        with: () => ({
+          fsPath: '',
+          scheme: 'file',
+          path: '',
+          query: '',
+          fragment: '',
+          toString: () => ''
+        })
+      }),
+      repoUri: () => ''
+    },
+    StatusBarAlignment: { Left: 1, Right: 2 },
+    ViewColumn: { One: 1, Two: 2, Three: 3, Active: -1, Beside: -2 },
+    TextEditorRevealType: {
+      InCenter: 1,
+      InCenterIfOutsideViewport: 2,
+      AtTop: 3
+    }
+  };
+}
+
+// Minimal VS Code API mock for webview tests on window
 declare global {
   interface Window {
     acquireVsCodeApi?: <T = unknown>() => {
@@ -24,7 +162,7 @@ if (typeof window !== 'undefined' && !window.acquireVsCodeApi) {
   const defaultApi = <T = unknown>(): any => ({
     postMessage: vi.fn(),
     getState: vi.fn(),
-    setState: vi.fn(),
+    setState: vi.fn()
   });
 
   window.acquireVsCodeApi = defaultApi;
@@ -48,7 +186,7 @@ if (typeof window !== 'undefined' && typeof (window as any).ResizeObserver === '
 if (typeof window !== 'undefined') {
   const protoTargets = [
     (Element.prototype as any),
-    (window as any).HTMLElement?.prototype,
+    (window as any).HTMLElement?.prototype
   ].filter(Boolean);
 
   for (const proto of protoTargets) {

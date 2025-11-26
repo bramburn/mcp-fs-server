@@ -5,19 +5,17 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
-  Tool,
 } from "@modelcontextprotocol/sdk/types.js";
-import { z } from "zod";
 import { QdrantClient } from "@qdrant/js-client-rest";
-import chokidar from "chokidar";
-import Parser from "web-tree-sitter";
-import ollama from "ollama";
-import fs from "fs/promises";
-import fsSync from "fs";
-import path from "path";
-import crypto from "node:crypto";
 import Database from "better-sqlite3";
-import { getAnalyticsService, AnalyticsService } from "./analytics.js";
+import chokidar from "chokidar";
+import fsSync from "fs";
+import fs from "fs/promises";
+import crypto from "node:crypto";
+import ollama from "ollama";
+import path from "path";
+import Parser from "web-tree-sitter";
+import { AnalyticsService, getAnalyticsService } from "./analytics.js";
 
 // --- Type Definitions ---
 interface QdrantCollectionDescription {
@@ -71,9 +69,10 @@ const CONFIG = {
 class Logger {
   private logFilePath: string;
   private logStream: fsSync.WriteStream | null = null;
+  private errorListener: ((error: Error) => void) | null = null;
 
   constructor() {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD format
+    const today = new Date().toISOString().split("T")[0]; // YYYY-MM-DD format
     const logDir = path.resolve(CONFIG.logPath);
     const logFileName = `mcp-server-${today}.log`;
     this.logFilePath = path.join(logDir, logFileName);
@@ -88,7 +87,10 @@ class Logger {
       try {
         fsSync.mkdirSync(logDir, { recursive: true });
       } catch (error) {
-        console.error(`[MCP-ERROR] Failed to create log directory ${logDir}:`, error);
+        console.error(
+          `[MCP-ERROR] Failed to create log directory ${logDir}:`,
+          error
+        );
       }
     }
   }
@@ -97,25 +99,29 @@ class Logger {
     try {
       // Open file in append mode with UTF-8 encoding
       this.logStream = fsSync.createWriteStream(this.logFilePath, {
-        flags: 'a', // Append mode
-        encoding: 'utf8',
-        autoClose: false // Keep stream open
+        flags: "a", // Append mode
+        encoding: "utf8",
+        autoClose: false, // Keep stream open
       });
 
       // Write header if file is empty or new
-      const stats = fsSync.statSync(this.logFilePath, { throwIfNoEntry: false });
+      const stats = fsSync.statSync(this.logFilePath, {
+        throwIfNoEntry: false,
+      });
       if (!stats || stats.size === 0) {
-        this.writeToFile('='.repeat(80));
-        this.writeToFile(`MCP Semantic Watcher Server - Log Started: ${new Date().toISOString()}`);
-        this.writeToFile('='.repeat(80));
-        this.writeToFile(''); // Empty line after header
+        this.writeToFile("=".repeat(80));
+        this.writeToFile(
+          `MCP Semantic Watcher Server - Log Started: ${new Date().toISOString()}`
+        );
+        this.writeToFile("=".repeat(80));
+        this.writeToFile(""); // Empty line after header
       }
 
-      // Handle stream errors
-      this.logStream.on('error', (error) => {
+      // Handle stream errors with cleanup reference
+      this.errorListener = (error: Error) => {
         console.error(`[MCP-ERROR] Log stream error:`, error);
-      });
-
+      };
+      this.logStream.on("error", this.errorListener);
     } catch (error) {
       console.error(`[MCP-ERROR] Failed to initialize log stream:`, error);
     }
@@ -124,7 +130,7 @@ class Logger {
   private writeToFile(message: string): void {
     if (this.logStream && !this.logStream.destroyed) {
       try {
-        this.logStream.write(message + '\n');
+        this.logStream.write(message + "\n");
       } catch (error) {
         console.error(`[MCP-ERROR] Failed to write to log file:`, error);
       }
@@ -133,12 +139,12 @@ class Logger {
 
   private formatMessage(level: string, message: string): string {
     const timestamp = new Date().toISOString();
-    const argsStr = '';
+    const argsStr = "";
     return `[${timestamp}] [${level}] [MCP-SEMANTIC-WATCHER] ${message}${argsStr}`;
   }
 
   info(message: string, ...args: any[]): void {
-    const formattedMessage = this.formatMessage('INFO', message);
+    const formattedMessage = this.formatMessage("INFO", message);
 
     // Always log to console error (MCP protocol expects important logs on stderr)
     if (CONFIG.logLevel === "info" || CONFIG.logLevel === "debug") {
@@ -155,7 +161,7 @@ class Logger {
   }
 
   error(message: string, ...args: any[]): void {
-    const formattedMessage = this.formatMessage('ERROR', message);
+    const formattedMessage = this.formatMessage("ERROR", message);
 
     // Always log to console error
     console.error(`[MCP-ERROR] ${message}`, ...args);
@@ -170,7 +176,7 @@ class Logger {
   }
 
   debug(message: string, ...args: any[]): void {
-    const formattedMessage = this.formatMessage('DEBUG', message);
+    const formattedMessage = this.formatMessage("DEBUG", message);
 
     // Only log to console if debug level is enabled
     if (CONFIG.logLevel === "debug") {
@@ -187,7 +193,7 @@ class Logger {
   }
 
   warn(message: string, ...args: any[]): void {
-    const formattedMessage = this.formatMessage('WARN', message);
+    const formattedMessage = this.formatMessage("WARN", message);
 
     // Always log to console error
     console.error(`[MCP-WARN] ${message}`, ...args);
@@ -205,6 +211,11 @@ class Logger {
     if (this.logStream && !this.logStream.destroyed) {
       try {
         this.writeToFile(`Log closed: ${new Date().toISOString()}`);
+        // Remove error listener before closing
+        if (this.errorListener) {
+          this.logStream.removeListener("error", this.errorListener);
+          this.errorListener = null;
+        }
         this.logStream.end();
         this.logStream = null;
       } catch (error) {
@@ -215,6 +226,7 @@ class Logger {
 }
 
 // Global logger instance
+// Disposed via cleanup() function on process shutdown
 const logger = new Logger();
 
 // --- Language Definitions ---
@@ -285,6 +297,7 @@ class SemanticWatcher {
   private parsers: Record<string, Parser.Language> = {};
   private db: Database.Database;
   private analytics: AnalyticsService;
+  private watcher: chokidar.FSWatcher | null = null;
 
   constructor(analytics: AnalyticsService) {
     this.analytics = analytics;
@@ -301,10 +314,11 @@ class SemanticWatcher {
     this.db = new Database(CONFIG.dbPath);
     this.initDB();
 
-    // Test Qdrant connection
+    // Test Qdrant connection (fire-and-forget, non-blocking)
+    // These are intentional async calls without await for telemetry purposes
     this.testQdrantConnection(qdrantStartTime);
 
-    // Test Ollama connection
+    // Test Ollama connection (fire-and-forget, non-blocking)
     this.testOllamaConnection();
   }
 
@@ -312,11 +326,11 @@ class SemanticWatcher {
     try {
       await this.qdrant.getCollections();
       const duration = Date.now() - startTime;
-      this.analytics.trackConnection('qdrant', true, duration);
+      this.analytics.trackConnection("qdrant", true, duration);
     } catch (error: any) {
       const duration = Date.now() - startTime;
-      this.analytics.trackConnection('qdrant', false, duration, error.message);
-      console.warn('Qdrant connection failed:', error.message);
+      this.analytics.trackConnection("qdrant", false, duration, error.message);
+      console.warn("Qdrant connection failed:", error.message);
     }
   }
 
@@ -325,11 +339,11 @@ class SemanticWatcher {
     try {
       await ollama.list();
       const duration = Date.now() - startTime;
-      this.analytics.trackConnection('ollama', true, duration);
+      this.analytics.trackConnection("ollama", true, duration);
     } catch (error: any) {
       const duration = Date.now() - startTime;
-      this.analytics.trackConnection('ollama', false, duration, error.message);
-      console.warn('Ollama connection failed:', error.message);
+      this.analytics.trackConnection("ollama", false, duration, error.message);
+      console.warn("Ollama connection failed:", error.message);
     }
   }
 
@@ -427,13 +441,13 @@ class SemanticWatcher {
   private startWatcher() {
     logger.info(`Watching directory: ${CONFIG.repoPath}`);
 
-    const watcher = chokidar.watch(CONFIG.repoPath, {
+    this.watcher = chokidar.watch(CONFIG.repoPath, {
       ignored: /(^|[\]\/])\..|node_modules|dist|build|target|\.git/,
       persistent: true,
       ignoreInitial: false,
     });
 
-    watcher
+    this.watcher
       .on("add", (path) => this.handleFileChange(path))
       .on("change", (path) => this.handleFileChange(path))
       .on("unlink", (path) => this.handleFileDelete(path))
@@ -524,14 +538,15 @@ class SemanticWatcher {
       const chunks = await this.splitCode(relativePath, content);
       const points: any[] = [];
 
-      for (const chunk of chunks) {
+      // Process embeddings in parallel for better performance
+      const embeddingPromises = chunks.map(async (chunk) => {
         try {
           const embeddingResponse = await ollama.embeddings({
             model: CONFIG.ollamaModel,
             prompt: `File: ${chunk.filePath}\nLines: ${chunk.startLine}-${chunk.endLine}\n\n${chunk.content}`,
           });
 
-          points.push({
+          return {
             id: chunk.id,
             vector: (embeddingResponse as EmbeddingResponse).embedding,
             payload: {
@@ -541,11 +556,18 @@ class SemanticWatcher {
               endLine: chunk.endLine,
               fullContext: `File: ${chunk.filePath} (${chunk.startLine}-${chunk.endLine})\n${chunk.content}`,
             },
-          });
+          };
         } catch (err) {
           logger.error(`Ollama error for ${chunk.filePath}:`, err);
+          return null; // Return null for failed embeddings
         }
-      }
+      });
+
+      // Wait for all embeddings to complete
+      const results = await Promise.all(embeddingPromises);
+      // Filter out null results (failed embeddings)
+      const validPoints = results.filter((point) => point !== null);
+      points.push(...validPoints);
 
       if (points.length > 0) {
         await this.qdrant.upsert(CONFIG.collectionName, {
@@ -562,7 +584,7 @@ class SemanticWatcher {
 
       logger.info(`Indexed ${chunks.length} chunks for ${relativePath}`);
     } catch (error) {
-      this.analytics.trackError('file_indexing_failed', 'handleFileChange');
+      this.analytics.trackError("file_indexing_failed", "handleFileChange");
       logger.error(`Error processing ${filePath}:`, error);
     }
   }
@@ -612,7 +634,8 @@ class SemanticWatcher {
           if (node.startIndex < lastIndex) continue; // Prevent overlapping
 
           const chunkContent = node.text;
-          if (chunkContent.length < CONFIG.minChunkSize) continue;
+          if (!chunkContent || chunkContent.length < CONFIG.minChunkSize)
+            continue;
 
           const id = crypto
             .createHash("md5")
@@ -756,8 +779,28 @@ class SemanticWatcher {
 
     return files;
   }
+
+  // Dispose method to clean up resources
+  async dispose(): Promise<void> {
+    try {
+      // Close file watcher
+      if (this.watcher) {
+        await this.watcher.close();
+        this.watcher = null;
+      }
+
+      // Close database connection
+      if (this.db) {
+        this.db.close();
+      }
+
+      logger.info("SemanticWatcher disposed successfully");
+    } catch (error) {
+      logger.error("Error disposing SemanticWatcher:", error);
+    }
+  }
 }
-export { SemanticWatcher, CONFIG };
+export { CONFIG, SemanticWatcher };
 
 // --- Main Execution ---
 
@@ -836,22 +879,24 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         let resultsCount = 0;
         try {
           const parsedResults = JSON.parse(results);
-          resultsCount = Array.isArray(parsedResults) ? parsedResults.length : 0;
+          resultsCount = Array.isArray(parsedResults)
+            ? parsedResults.length
+            : 0;
         } catch {
           // If parsing fails, estimate based on text length
           resultsCount = results.length > 0 ? 1 : 0;
         }
 
         analytics.trackSearchPerformed(query, resultsCount, duration);
-        analytics.trackToolUse('semantic_search', duration, true);
+        analytics.trackToolUse("semantic_search", duration, true);
 
         return {
           content: [{ type: "text", text: results }],
         };
       } catch (e: any) {
         const duration = Date.now() - startTime;
-        analytics.trackToolUse('semantic_search', duration, false, e.message);
-        analytics.trackError('search_failed', 'semantic_search');
+        analytics.trackToolUse("semantic_search", duration, false, e.message);
+        analytics.trackError("search_failed", "semantic_search");
         console.error(`[MCP-ERROR] Search error:`, e);
         return {
           content: [{ type: "text", text: `Error searching: ${e.message}` }],
@@ -865,8 +910,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         await watcherService.refreshIndex();
         const duration = Date.now() - startTime;
 
-        analytics.trackToolUse('refresh_index', duration, true);
-        analytics.trackEvent('mcp_index_refreshed');
+        analytics.trackToolUse("refresh_index", duration, true);
+        analytics.trackEvent("mcp_index_refreshed");
 
         return {
           content: [
@@ -875,8 +920,8 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         };
       } catch (e: any) {
         const duration = Date.now() - startTime;
-        analytics.trackToolUse('refresh_index', duration, false, e.message);
-        analytics.trackError('index_refresh_failed', 'refresh_index');
+        analytics.trackToolUse("refresh_index", duration, false, e.message);
+        analytics.trackError("index_refresh_failed", "refresh_index");
         console.error(`[MCP-ERROR] Refresh index error:`, e);
         return {
           content: [
@@ -897,35 +942,64 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   // Add cleanup handlers for graceful shutdown
-  const cleanup = () => {
+  const cleanup = async () => {
+    logger.info("Starting graceful shutdown...");
+    try {
+      // Dispose watcher service
+      await watcherService.dispose();
+      logger.info("Watcher service disposed successfully");
+    } catch (error) {
+      logger.error("Error disposing watcher service:", error);
+    }
+    try {
+      // Flush analytics events before shutdown
+      await analytics.dispose();
+      logger.info("Analytics flushed successfully");
+    } catch (error) {
+      logger.error("Error flushing analytics:", error);
+    }
     logger.close();
   };
 
-  process.on('exit', cleanup);
-  process.on('SIGINT', () => {
-    logger.info('Received SIGINT, shutting down gracefully...');
-    cleanup();
+  process.on("exit", () => {
+    // Synchronous cleanup only
+    logger.close();
+  });
+
+  process.on("SIGINT", async () => {
+    logger.info("Received SIGINT, shutting down gracefully...");
+    await cleanup();
     process.exit(0);
   });
-  process.on('SIGTERM', () => {
-    logger.info('Received SIGTERM, shutting down gracefully...');
-    cleanup();
+
+  process.on("SIGTERM", async () => {
+    logger.info("Received SIGTERM, shutting down gracefully...");
+    await cleanup();
     process.exit(0);
   });
-  process.on('uncaughtException', (error) => {
-    logger.error('Uncaught exception:', error);
-    cleanup();
-    process.exit(1);
-  });
-  process.on('unhandledRejection', (reason, promise) => {
-    logger.error('Unhandled rejection at:', promise, 'reason:', reason);
-    cleanup();
+
+  process.on("uncaughtException", (error) => {
+    logger.error("Uncaught exception:", error);
+    // Perform synchronous cleanup only
+    logger.close();
     process.exit(1);
   });
 
-  run().catch((error) => {
-    logger.error('Fatal error:', error);
-    cleanup();
+  process.on("unhandledRejection", (reason, promise) => {
+    logger.error("Unhandled rejection at:", promise, "reason:", reason);
+    // Perform synchronous cleanup only
+    logger.close();
     process.exit(1);
   });
+
+  // Start the main run function with proper error handling
+  run()
+    .then(() => {
+      logger.info("Server running successfully");
+    })
+    .catch(async (error) => {
+      logger.error("Fatal error:", error);
+      await cleanup();
+      process.exit(1);
+    });
 }

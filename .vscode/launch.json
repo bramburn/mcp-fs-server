@@ -5,17 +5,19 @@
       "name": "Run Extension (Debug)",
       "type": "extensionHost",
       "request": "launch",
-      "runtimeExecutable": "${execPath}",
       "args": ["--extensionDevelopmentPath=${workspaceFolder}/extension"],
       "preLaunchTask": "npm: watch",
-      "outFiles": ["${workspaceFolder}/extension/out/**/*.js"],
+      "outFiles": [
+        "${workspaceFolder}/extension/out/extension/**/*.js",
+        "${workspaceFolder}/extension/out/packages/**/*.js"
+      ],
       "sourceMaps": true,
-      "console": "integratedTerminal",
-      "internalConsoleOptions": "neverOpen",
       "resolveSourceMapLocations": [
         "${workspaceFolder}/extension/out/**",
+        "${workspaceFolder}/packages/**",
         "!**/node_modules/**"
-      ]
+      ],
+      "skipFiles": ["<node_internals>/**"]
     },
     {
       "name": "Run Extension (Dev Env)",
