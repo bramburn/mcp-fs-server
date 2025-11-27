@@ -2,6 +2,20 @@
   "version": "2.0.0",
   "tasks": [
     {
+      "label": "build:rust:windows",
+      "type": "npm",
+      "script": "build:rust",
+      "path": "extension",
+      "group": "build",
+      "presentation": {
+        "reveal": "always",
+        "panel": "dedicated",
+        "focus": false,
+        "clear": true
+      },
+      "problemMatcher": []
+    },
+    {
       "label": "npm: watch",
       "type": "npm",
       "script": "watch",
@@ -12,7 +26,12 @@
         "fileLocation": ["relative", "${workspaceFolder}/extension"],
         "pattern": {
           "regexp": "^([^\\s].*?)\\((\\d+),(\\d+)\\):\\s+(error|warning|info)\\s+TS(\\d+):\\s+(.*)$",
-          "file": 1, "line": 2, "column": 3, "severity": 4, "code": 5, "message": 6
+          "file": 1,
+          "line": 2,
+          "column": 3,
+          "severity": 4,
+          "code": 5,
+          "message": 6
         },
         "background": {
           "activeOnStart": true,

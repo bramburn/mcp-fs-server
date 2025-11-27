@@ -10,11 +10,20 @@
 
 import { spawn } from "child_process";
 import { copyFileSync, existsSync, mkdirSync } from "fs";
+import * as os from "os";
+import * as path from "path";
 import { join } from "path";
 
-const crateDir = join(process.cwd(), "extension", "rust", "clipboard-monitor");
+// Determine if we're running from the extension directory or the root
+const cwd = process.cwd();
+const isInExtensionDir = cwd.endsWith("extension");
+const crateDir = isInExtensionDir
+  ? join(cwd, "rust", "clipboard-monitor")
+  : join(cwd, "extension", "rust", "clipboard-monitor");
 const targetReleaseDir = join(crateDir, "target", "release");
-const binDestDir = join(process.cwd(), "extension", "bin");
+const binDestDir = isInExtensionDir
+  ? join(cwd, "bin")
+  : join(cwd, "extension", "bin");
 
 // Windows binary name (no platform suffix logic - Windows-only)
 const binaryName = "clipboard-monitor.exe";
@@ -22,14 +31,17 @@ const compiledBinaryPath = join(targetReleaseDir, binaryName);
 const destBinaryPath = join(binDestDir, binaryName);
 
 // Use cargo from PATH; on Windows users typically have cargo in PATH.
-const cargoCmd = "cargo";
+const cargoCmd =
+  process.platform === "win32"
+    ? path.join(os.homedir(), ".cargo", "bin", "cargo.exe")
+    : "cargo";
 
 function runCargoBuild() {
   return new Promise((resolve, reject) => {
     console.log(`Running cargo build --release in ${crateDir}`);
     console.log(`Using cargo: ${cargoCmd}`);
-    // Avoid spawning an interactive shell to prevent cmd.exe ENOENT in some npm lifecycle environments.
-    // Use direct spawn without shell where possible.
+    // On Windows, use shell: false to avoid cmd.exe issues
+    // cargo.exe is directly executable
     const cargo = spawn(cargoCmd, ["build", "--release"], {
       cwd: crateDir,
       stdio: "inherit",

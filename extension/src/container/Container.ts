@@ -1,10 +1,10 @@
 import * as vscode from "vscode";
-import { LoggerService } from "../services/LoggerService.js";
-import { ConfigService } from "../services/ConfigService.js";
 import { AnalyticsService } from "../services/AnalyticsService.js";
-import { WorkspaceManager } from "../services/WorkspaceManager.js";
-import { IndexingService } from "../services/IndexingService.js";
 import { ClipboardService } from "../services/ClipboardService.js";
+import { ConfigService } from "../services/ConfigService.js";
+import { IndexingService } from "../services/IndexingService.js";
+import { LoggerService } from "../services/LoggerService.js";
+import { WorkspaceManager } from "../services/WorkspaceManager.js";
 
 export class Container implements vscode.Disposable {
   static instance: Container | undefined;
@@ -52,7 +52,7 @@ export class Container implements vscode.Disposable {
       this.analyticsService,
       this.logger
     );
-    this.clipboardService = new ClipboardService(this.logger);
+    this.clipboardService = new ClipboardService(context, outputChannel);
 
     this.statusBarItem = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Right,

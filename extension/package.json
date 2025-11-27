@@ -76,6 +76,14 @@
     "lint": "eslint src/webviews",
     "lint:fix": "eslint src/webviews --fix"
   },
+  "files": [
+    "out/",
+    "bin/",
+    "resources/",
+    "package.json",
+    "README.md",
+    "LICENSE.md"
+  ],
   "dependencies": {
     "@alloc/quick-lru": "^5.2.0",
     "@qdrant/js-client-rest": "^1.16.1",
