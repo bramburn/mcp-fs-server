@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useAppStore } from '../store';
 import { useIpc } from '../contexts/ipc';
-import { SEARCH_METHOD, START_INDEX_METHOD } from '../../protocol';
+import { SEARCH_METHOD, START_INDEX_METHOD, COPY_RESULTS_METHOD } from '../../protocol';
 import type { SearchRequestParams, SearchResponseParams, FileSnippetResult } from '../../protocol';
 import SnippetList from '../components/SnippetList';
 import { Button } from '../components/ui/button';
+import { FileText, Scissors, Copy } from 'lucide-react';
 import {
   Command,
   CommandInput,
@@ -22,6 +23,15 @@ export default function Search() {
   const [searchInput, setSearchInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<FileSnippetResult[]>([]);
+  const [copyMode, setCopyMode] = useState<'files' | 'snippets'>('files');
+
+  const handleCopyContext = useCallback(() => {
+    if (!results.length) return;
+    ipc.sendCommand(COPY_RESULTS_METHOD, 'qdrantIndex', {
+      mode: copyMode,
+      results,
+    });
+  }, [ipc, results, copyMode]);
 
   useEffect(() => {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -84,6 +94,56 @@ export default function Search() {
 
           <Command value={searchInput} onValueChange={setSearchInput} filter={() => 1}>
             <CommandInput placeholder="Search codebase..." />
+
+            {/* Results Toolbar */}
+            <div className="flex items-center justify-between px-4 py-2 border-t border-border/40 bg-muted/20 text-xs">
+              <span className="text-muted-foreground">
+                {results.length === 0
+                  ? 'No results'
+                  : `${results.length} result${results.length !== 1 ? 's' : ''}`}
+              </span>
+
+              <div className="flex items-center gap-1">
+                <div className="flex bg-muted rounded-md p-0.5 mr-2">
+                  <button
+                    onClick={() => setCopyMode('files')}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px] font-medium transition-all ${
+                      copyMode === 'files'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                    title="Copy full file content"
+                  >
+                    <FileText className="w-3 h-3" />
+                    Files
+                  </button>
+                  <button
+                    onClick={() => setCopyMode('snippets')}
+                    className={`flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px] font-medium transition-all ${
+                      copyMode === 'snippets'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                    title="Copy only snippets"
+                  >
+                    <Scissors className="w-3 h-3" />
+                    Snippets
+                  </button>
+                </div>
+
+                <Button
+                  size="sm"
+                  variant="default"
+                  disabled={results.length === 0}
+                  onClick={handleCopyContext}
+                  className="h-6 px-2 text-[10px] gap-1.5"
+                >
+                  <Copy className="w-3 h-3" />
+                  Copy Context
+                </Button>
+              </div>
+            </div>
+
             <CommandList>
               {isLoading && <CommandLoading />}
               {!isLoading && results.length === 0 && searchInput.length === 0 && (

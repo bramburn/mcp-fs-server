@@ -4,6 +4,7 @@ import { ConfigService } from "../services/ConfigService.js";
 import { AnalyticsService } from "../services/AnalyticsService.js";
 import { WorkspaceManager } from "../services/WorkspaceManager.js";
 import { IndexingService } from "../services/IndexingService.js";
+import { ClipboardService } from "../services/ClipboardService.js";
 
 export class Container implements vscode.Disposable {
   static instance: Container | undefined;
@@ -28,6 +29,7 @@ export class Container implements vscode.Disposable {
   readonly workspaceManager: WorkspaceManager;
   readonly indexingService: IndexingService;
   readonly statusBarItem: vscode.StatusBarItem;
+  readonly clipboardService: ClipboardService;
 
   private readonly _readyPromise: Promise<void>;
 
@@ -50,6 +52,7 @@ export class Container implements vscode.Disposable {
       this.analyticsService,
       this.logger
     );
+    this.clipboardService = new ClipboardService(this.logger);
 
     this.statusBarItem = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Right,
@@ -76,6 +79,12 @@ export class Container implements vscode.Disposable {
       ]);
 
       this.registerListeners();
+      // Start clipboard monitoring once container initialized
+      try {
+        this.clipboardService.start();
+      } catch (err) {
+        this.logger.log(`Failed to start ClipboardService: ${err}`, "ERROR");
+      }
       this.statusBarItem.text = "$(database) Qdrant: Ready";
       this.statusBarItem.show();
     } catch (err) {
@@ -110,6 +119,12 @@ export class Container implements vscode.Disposable {
 
   dispose(): void {
     this.disposables.reverse().forEach((d) => d.dispose());
+    // Dispose clipboard service first
+    try {
+      this.clipboardService.dispose();
+    } catch (err) {
+      this.logger.log(`Error disposing ClipboardService: ${err}`, "ERROR");
+    }
     this.indexingService.dispose();
     this.workspaceManager.dispose();
     this.configService.dispose();

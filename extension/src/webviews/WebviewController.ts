@@ -29,6 +29,10 @@ import {
   SaveConfigParams,
   TestConfigParams,
   TestConfigResponse,
+  // New imports for copy results
+  FileSnippetResult,
+  CopyResultsParams,
+  COPY_RESULTS_METHOD,
 } from "./protocol.js";
 
 /**
@@ -295,6 +299,9 @@ export class WebviewController
           // !AI: CRITICAL SECURITY RISK - Arbitrary command execution from webview. Must whitelist 'command' and 'args' before calling executeCommand.
           await this.handleExecuteCommand(command as ExecuteCommand);
           break;
+        case COPY_RESULTS_METHOD:
+          await this.handleCopyResults(command.params as CopyResultsParams);
+          break;
 
         // FIX 1: Handle ipc:ready-request (sent as kind: 'command' by App.tsx)
         case "ipc:ready-request":
@@ -492,6 +499,66 @@ export class WebviewController
     } else {
       vscode.window.showErrorMessage("No active workspace folder to index.");
     }
+  }
+
+  private async handleCopyResults(params: CopyResultsParams): Promise<void> {
+    const { mode, results } = params;
+
+    // Group snippets by URI to avoid duplicates
+    const byUri = new Map<string, FileSnippetResult[]>();
+    for (const r of results) {
+      const arr = byUri.get(r.uri) ?? [];
+      arr.push(r);
+      byUri.set(r.uri, arr);
+    }
+
+    if (byUri.size > 20) {
+      const choice = await vscode.window.showWarningMessage(
+        `Copying ${byUri.size} files may create a large payload. Continue?`,
+        'Copy anyway',
+        'Cancel',
+      );
+      if (choice !== 'Copy anyway') return;
+    }
+
+    let buffer = '';
+
+    for (const [uriString, snippets] of byUri) {
+        try {
+            const uri = vscode.Uri.parse(uriString);
+            const rel = vscode.workspace.asRelativePath(uri, false);
+
+            if (mode === 'files') {
+                const bytes = await vscode.workspace.fs.readFile(uri);
+                const text = new TextDecoder('utf-8').decode(bytes);
+                buffer += `// File: ${rel}\n`;
+                buffer += `${text}\n\n`;
+            } else {
+                buffer += `// File: ${rel}\n`;
+                // Sort snippets by line number
+                snippets.sort((a, b) => a.lineStart - b.lineStart);
+                for (const s of snippets) {
+                    buffer += `// Lines ${s.lineStart}-${s.lineEnd}\n`;
+                    buffer += `${s.snippet ?? ''}\n\n`;
+                }
+            }
+        } catch (e) {
+            this.log(`Failed to read file for copy: ${uriString}`, 'ERROR');
+            buffer += `// File: ${uriString} (Error reading file)\n\n`;
+        }
+    }
+
+    if (!buffer) {
+        vscode.window.showInformationMessage('Qdrant: Nothing to copy.');
+        return;
+    }
+
+    await vscode.env.clipboard.writeText(buffer);
+    vscode.window.setStatusBarMessage(
+        `Qdrant: Copied context from ${byUri.size} file(s)`,
+        3000,
+    );
+    this._analyticsService.trackEvent("results_copied", { mode, fileCount: byUri.size });
   }
 
   private async handleSearchRequest(

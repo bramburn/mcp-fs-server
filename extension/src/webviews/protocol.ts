@@ -103,12 +103,19 @@ export const LOAD_CONFIG_METHOD = 'config/load';
 // 5. Config Data Notification (Host -> Guest)
 export const CONFIG_DATA_METHOD = 'config/data';
 
-// 6. Open File Command (Guest -> Host)
+ // 6. Open File Command (Guest -> Host)
 export interface OpenFileParams {
     uri: string;
     line: number;
 }
 export const OPEN_FILE_METHOD = 'file/open';
+
+// 7. Copy Results Command (Guest -> Host)
+export interface CopyResultsParams {
+    mode: 'files' | 'snippets';
+    results: FileSnippetResult[];
+}
+export const COPY_RESULTS_METHOD = 'results/copy';
 
 // --- Webview Management Messages (Introduced for step 3/5 compliance) ---
 

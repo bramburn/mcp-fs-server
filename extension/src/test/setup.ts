@@ -2,25 +2,58 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
 import { afterEach, vi } from "vitest";
 import vscode from "./mocks/vscode-api";
+import React from "react";
 
-// Minimal process polyfill for environments where it's missing
-const g: any = globalThis as any;
-if (!g.process) {
-  g.process = {
-    env: {},
-    on: vi.fn(),
-  };
-} else if (g.process && typeof g.process.on !== "function") {
-  g.process.on = vi.fn();
-}
+// --- Mocks for UI Dependencies ---
+// These prevent "Failed to resolve import" errors for Radix UI components
+vi.mock("@radix-ui/react-label", () => ({
+  Root: (props: any) => React.createElement("label", props, props.children),
+}));
 
-// Ensure we cleanup React Testing Library between tests
-afterEach(() => {
-  cleanup();
-});
+vi.mock("@radix-ui/react-separator", () => ({
+  Root: (props: any) => React.createElement("div", { ...props, role: "separator" }),
+}));
 
-// Apply VS Code API mock globally for tests (no try/catch to avoid parse issues)
-(global as any).vscode = vscode;
+vi.mock("@radix-ui/react-switch", () => ({
+  Root: (props: any) => React.createElement("button", { ...props, role: "switch" }),
+  Thumb: (props: any) => React.createElement("span", props),
+}));
+
+vi.mock("@radix-ui/react-slot", () => ({
+  Slot: (props: any) => {
+    const { children, ...rest } = props;
+    // Clone the child and pass props to it to simulate Slot behavior
+    return React.isValidElement(children)
+      ? React.cloneElement(children as React.ReactElement, rest)
+      : React.createElement("div", props, children);
+  },
+}));
+// ---------------------------------
+
+ // Minimal process polyfill for environments where it's missing
+ const g: any = globalThis as any;
+ if (!g.process) {
+   g.process = {
+     env: {},
+     on: vi.fn(),
+   };
+ } else if (g.process && typeof g.process.on !== "function") {
+   g.process.on = vi.fn();
+ }
+ 
+ // Ensure we cleanup React Testing Library between tests
+  afterEach(() => {
+    console.log("cleanup function:", typeof cleanup);
+    console.log("cleanup function value:", cleanup);
+    if (typeof cleanup === 'function') {
+      cleanup();
+    } else {
+      console.error("cleanup is not a function:", cleanup);
+    }
+  });
+ 
+ // Apply VS Code API mock globally for tests (no try/catch to avoid parse issues)
+ (global as any).vscode = vscode;
 
 // Minimal VS Code API fallback shape (only if something overwrites it to undefined)
 if (!(global as any).vscode) {

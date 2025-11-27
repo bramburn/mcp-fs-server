@@ -62,7 +62,8 @@
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
-    "compile": "tsc -p ./tsconfig.json && node ./scripts/setup-resources.js && npm run build:webview",
+    "build:rust": "node ./scripts/build-rust.js",
+    "compile": "npm run build:rust && tsc -p ./tsconfig.json && node ./scripts/setup-resources.js && npm run build:webview",
     "watch": "npm-run-all -p watch:*",
     "watch:extension": "tsc -watch -p ./",
     "watch:webview": "vite build --watch",
@@ -76,10 +77,11 @@
     "lint:fix": "eslint src/webviews --fix"
   },
   "dependencies": {
+    "@alloc/quick-lru": "^5.2.0",
     "@qdrant/js-client-rest": "^1.16.1",
+    "@radix-ui/react-label": "^2.0.2",
+    "@radix-ui/react-separator": "^1.0.3",
     "@radix-ui/react-slot": "^1.1.1",
-    "@radix-ui/react-label": "latest",
-    "@radix-ui/react-separator": "latest",
     "@radix-ui/react-switch": "^1.1.2",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",

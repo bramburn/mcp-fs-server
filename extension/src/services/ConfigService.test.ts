@@ -565,17 +565,23 @@ describe("ConfigService", () => {
         expect.objectContaining({ fsPath: "/test/workspace/.qdrant" })
       );
 
-      // Verify file write with correct content
-      expect(vscode.workspace.fs.writeFile).toHaveBeenCalledWith(
+      // Verify file write by inspecting actual calls to avoid brittle matcher issues
+      const writeCalls = vi.mocked(vscode.workspace.fs.writeFile).mock.calls;
+      expect(writeCalls.length).toBe(1);
+
+      const [uriArg, contentArg] = writeCalls[0];
+
+      // Check URI
+      expect(uriArg).toEqual(
         expect.objectContaining({
           fsPath: "/test/workspace/.qdrant/configuration.json",
-        }),
-        expect.any(Uint8Array)
+        })
       );
 
-      // Verify the written content is valid JSON and matches input
-      const writeCall = vi.mocked(vscode.workspace.fs.writeFile).mock.calls[0];
-      const writtenContent = new TextDecoder().decode(writeCall[1] as any);
+      // Check Content - contentArg can be Uint8Array or Buffer in test environment
+      expect(contentArg).toBeDefined();
+      expect(contentArg).toHaveProperty("length");
+      const writtenContent = new TextDecoder().decode(contentArg as Uint8Array);
       const parsedContent = JSON.parse(writtenContent);
 
       expect(parsedContent.qdrant_config.url).toBe("http://localhost:6333");
@@ -584,7 +590,14 @@ describe("ConfigService", () => {
 
     test("saveQdrantConfig handles write errors", async () => {
       const mockFolder = { uri: { fsPath: "/test/workspace" } } as any;
-      const config = { qdrant_config: { url: "http://localhost" } } as any;
+      const config = {
+        qdrant_config: { url: "http://localhost" },
+        // Fix: Add required ollama_config to prevent undefined error before write
+        ollama_config: {
+          base_url: "http://localhost:11434",
+          model: "test-model",
+        },
+      } as any;
 
       vi.mocked(vscode.workspace.fs.stat).mockResolvedValue({} as any); // Dir exists
       vi.mocked(vscode.workspace.fs.writeFile).mockRejectedValue(
