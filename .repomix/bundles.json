@@ -1,0 +1,28 @@
+{
+  "bundles": {
+    "roostuff-566": {
+      "name": "roostuff",
+      "created": "2025-11-27T13:25:00.897Z",
+      "lastUsed": "2025-11-27T13:25:12.390Z",
+      "tags": [],
+      "files": [
+        ".roo",
+        ".roomodes",
+        "ARCHITECTURE.md",
+        "CLAUDE.md",
+        "GEMINI.md"
+      ]
+    },
+    "rust-903": {
+      "name": "rust",
+      "created": "2025-11-27T17:47:08.338Z",
+      "lastUsed": "2025-11-27T17:47:43.416Z",
+      "tags": [],
+      "files": [
+        "extension/rust/clipboard-monitor",
+        "extension/src/services/ClipboardService.ts",
+        "extension/src/container/Container.ts"
+      ]
+    }
+  }
+}

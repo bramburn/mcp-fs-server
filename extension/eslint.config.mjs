@@ -9,6 +9,7 @@ export default [
   // 1. Global ignores (replaces .eslintignore)
   {
     ignores: [
+      '.vscode/**', '**/settings.json', '**/tsconfig.json',
       'dist/',
       'out/',
       'build/',

@@ -6,7 +6,10 @@ export default defineConfig({
   plugins: [react()],
   test: {
     globals: true,
-    environment: 'jsdom',
+    // Default to node for service / library tests. UI/webview tests should
+    // opt into jsdom by adding `/** @vitest-environment jsdom */` at the top
+    // of the file so they run under a DOM environment.
+    environment: 'node',
     setupFiles: ['./src/test/setup.ts'],
     include: [
       'src/**/*.{test,spec}.{js,ts,tsx}',
@@ -25,7 +28,9 @@ export default defineConfig({
         'src/**/*.{test,spec}.{ts,tsx}',
         'src/test/**'
       ]
-    }
+    },
+    // Ensure globalSetup runs first to apply node-like runtime patches
+    globalSetup: './src/test/global-setup.ts',
   },
   resolve: {
     alias: {

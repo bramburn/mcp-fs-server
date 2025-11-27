@@ -487,29 +487,33 @@ if (!(global as any).fetch) { // Check if fetch already exists
     });
 }
 
-// Mock location.href (needed for some webview components)
-Object.defineProperty(window, 'location', {
-  value: {
-    href: 'vscode-webview://test',
-    origin: 'vscode-webview://test',
-    protocol: 'vscode-webview:'
-  },
-  writable: true
-});
+ // Mock location.href (needed for some webview components)
+ if (typeof window !== 'undefined') {
+   Object.defineProperty(window, 'location', {
+     value: {
+       href: 'vscode-webview://test',
+       origin: 'vscode-webview://test',
+       protocol: 'vscode-webview:'
+     },
+     writable: true
+   });
+ }
 
-// Mock matchMedia for React components
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: vi.fn().mockImplementation(query => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(),
-    removeListener: vi.fn(),
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
+ // Mock matchMedia for React components
+ if (typeof window !== 'undefined') {
+   Object.defineProperty(window, 'matchMedia', {
+     writable: true,
+     value: vi.fn().mockImplementation(query => ({
+       matches: false,
+       media: query,
+       onchange: null,
+       addListener: vi.fn(),
+       removeListener: vi.fn(),
+       addEventListener: vi.fn(),
+       removeEventListener: vi.fn(),
+       dispatchEvent: vi.fn(),
+     })),
+   });
+ }
 
 export default vscode;

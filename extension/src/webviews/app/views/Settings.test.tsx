@@ -1,3 +1,4 @@
+/** @vitest-environment jsdom */
 import React from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
@@ -171,5 +172,60 @@ describe("Settings View (React)", () => {
       "qdrantIndex",
       {}
     );
+  });
+
+  it("toggles global storage switch and saves with flag", async () => {
+    const ipc = createMockIpc();
+    ipc.sendRequest.mockResolvedValue(mockConfig); // Load default
+
+    renderWithIpc(<Settings />, ipc);
+    await waitFor(() => screen.getByDisplayValue("test-index"));
+
+    // Find switch and toggle
+    // Note: Radix switch usually has role="switch"
+    const storageSwitch = screen.getByRole("switch");
+    fireEvent.click(storageSwitch);
+
+    // Save
+    const saveBtn = screen.getByText("Save Configuration");
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+        expect(ipc.sendRequest).toHaveBeenCalledWith(
+            SAVE_CONFIG_METHOD,
+            "webview-mgmt",
+            expect.objectContaining({
+                useGlobal: true, // Verify flag is sent
+                config: expect.anything()
+            })
+        );
+    });
+  });
+
+  it("displays granular status on test failure", async () => {
+    const ipc = createMockIpc();
+    ipc.sendRequest.mockImplementation((method) => {
+        if (method === LOAD_CONFIG_METHOD) return Promise.resolve(mockConfig);
+        if (method === TEST_CONFIG_METHOD) return Promise.resolve({
+            success: false,
+            message: "Ollama down",
+            qdrantStatus: 'connected',
+            ollamaStatus: 'failed'
+        });
+        return Promise.resolve(null);
+    });
+
+    renderWithIpc(<Settings />, ipc);
+    await waitFor(() => screen.getByDisplayValue("test-index"));
+
+    fireEvent.click(screen.getByText("Test Connection"));
+
+    // Wait for statuses to appear
+    await waitFor(() => {
+        const connectedBadges = screen.getAllByText("Connected");
+        const failedBadges = screen.getAllByText("Failed");
+        expect(connectedBadges.length).toBeGreaterThan(0); // Qdrant
+        expect(failedBadges.length).toBeGreaterThan(0);    // Ollama
+    });
   });
 });

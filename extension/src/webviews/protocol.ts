@@ -88,7 +88,8 @@ export const SEARCH_METHOD = 'search';
 
 // 2. Index Status Notification (Host -> Guest)
 export interface IndexStatusParams {
-    status: 'ready' | 'indexing' | 'error';
+    // Added 'no_workspace'
+    status: 'ready' | 'indexing' | 'error' | 'no_workspace';
     message?: string;
     progress?: number; // 0-100
 }
@@ -144,6 +145,7 @@ export const DID_CHANGE_CONFIG_NOTIFICATION = 'webview/did-change-configuration'
 // 10. Save Configuration Request (Guest -> Host)
 export interface SaveConfigParams {
     config: QdrantOllamaConfig;
+    useGlobal?: boolean; // New optional flag
 }
 export const SAVE_CONFIG_METHOD = 'config/save';
 
@@ -154,5 +156,8 @@ export interface TestConfigParams {
 export interface TestConfigResponse {
     success: boolean;
     message: string;
+    // Granular results
+    qdrantStatus: 'connected' | 'failed';
+    ollamaStatus: 'connected' | 'failed';
 }
 export const TEST_CONFIG_METHOD = 'config/test';

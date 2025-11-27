@@ -485,19 +485,21 @@ export class WebviewController
   // --- Request Handlers ---
   private async handleIndexRequest() {
     const folder = this._workspaceManager.getActiveWorkspaceFolder();
-    if (folder) {
-      this.sendNotification(INDEX_STATUS_METHOD, { status: "indexing" });
-      try {
-        await this._indexingService.startIndexing(folder);
-        this.sendNotification(INDEX_STATUS_METHOD, { status: "ready" });
-      } catch (e) {
-        this.sendNotification(INDEX_STATUS_METHOD, {
-          status: "error",
-          message: String(e),
-        });
-      }
-    } else {
-      vscode.window.showErrorMessage("No active workspace folder to index.");
+    if (!folder) {
+        this.sendNotification(INDEX_STATUS_METHOD, { status: "no_workspace" });
+        vscode.window.showErrorMessage("Please open a workspace folder first.");
+        return;
+    }
+    
+    this.sendNotification(INDEX_STATUS_METHOD, { status: "indexing" });
+    try {
+      await this._indexingService.startIndexing(folder);
+      this.sendNotification(INDEX_STATUS_METHOD, { status: "ready" });
+    } catch (e) {
+      this.sendNotification(INDEX_STATUS_METHOD, {
+        status: "error",
+        message: String(e),
+      });
     }
   }
 
@@ -641,30 +643,35 @@ export class WebviewController
         "No active workspace folder found. Cannot save configuration."
       );
     }
-    await this._configService.saveQdrantConfig(folder, request.params.config);
+    
+    // Pass the useGlobal flag from the request to the service
+    await this._configService.saveQdrantConfig(
+        folder,
+        request.params.config,
+        request.params.useGlobal ?? false
+    );
+    
     vscode.window.showInformationMessage(
-      "Qdrant configuration saved successfully."
+      `Qdrant configuration saved ${request.params.useGlobal ? 'globally' : 'locally'}.`
     );
   }
 
   private async handleTestConfigRequest(
     request: IpcRequest<TestConfigParams>
   ): Promise<IpcResponse<TestConfigResponse>> {
-    const isValid = await this._configService.validateConnection(
-      request.params.config
+    
+    // Call the new detailed validation
+    const result = await this._configService.validateConnectionDetailed(
+        request.params.config
     );
+
     return {
-      kind: "response",
-      scope: request.scope,
-      id: crypto.randomUUID(),
-      responseId: request.id,
-      timestamp: Date.now(),
-      data: {
-        success: isValid,
-        message: isValid
-          ? "Connection successful!"
-          : "Connection failed. Check Output logs for details.",
-      },
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        data: result,
     };
   }
 

@@ -7,11 +7,12 @@ import { ConfigService } from "./ConfigService.js";
 import { IndexingService } from "./IndexingService.js";
 import { ILogger } from "./LoggerService.js";
 
+
 // Mock Qdrant client
 vi.mock("@qdrant/js-client-rest");
 
 // Mock shared code splitter (must match the actual import specifier)
-vi.mock("../../../packages/shared/code-splitter.js", () => ({
+vi.mock("../shared/code-splitter.js", () => ({
   CodeSplitter: vi.fn().mockImplementation(() => ({
     initialize: vi.fn().mockResolvedValue(undefined),
     split: vi.fn().mockReturnValue([
@@ -144,7 +145,7 @@ describe("IndexingService", () => {
       log: vi.fn(),
     };
 
-    mockConfigService = new ConfigService(mockLogger);
+    mockConfigService = new ConfigService(mockLogger, mockContext);
 
     // Create mock AnalyticsService
     const mockAnalyticsService = {

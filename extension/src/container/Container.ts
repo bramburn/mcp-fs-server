@@ -39,7 +39,7 @@ export class Container implements vscode.Disposable {
     traceEnabled: boolean
   ) {
     this.logger = new LoggerService(outputChannel, traceEnabled);
-    this.configService = new ConfigService(this.logger);
+    this.configService = new ConfigService(this.logger, context);
     this.analyticsService = new AnalyticsService(context);
     this.workspaceManager = new WorkspaceManager(
       context,
@@ -73,6 +73,10 @@ export class Container implements vscode.Disposable {
           const folder = this.workspaceManager.getActiveWorkspaceFolder();
           if (folder) {
             await this.configService.loadQdrantConfig(folder);
+            this.statusBarItem.text = "$(database) Qdrant: Ready";
+          } else {
+            // No workspace folder
+            this.statusBarItem.text = "$(database) Qdrant: No Workspace";
           }
         })(),
         this.indexingService.initializeSplitter(),

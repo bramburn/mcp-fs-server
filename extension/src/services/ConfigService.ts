@@ -5,7 +5,10 @@ import {
   ConfigurationFactory,
   DefaultConfiguration,
 } from "../config/Configuration.js";
-import { QdrantOllamaConfig } from "../webviews/protocol.js";
+import {
+  QdrantOllamaConfig,
+  TestConfigResponse,
+} from "../webviews/protocol.js";
 import { ILogger } from "./LoggerService.js";
 
 /**
@@ -49,7 +52,10 @@ export class ConfigService implements vscode.Disposable {
   private _listeners: ConfigurationChangeListener[] = [];
   private _disposed = false;
 
-  constructor(private readonly _logger: ILogger) {
+  constructor(
+    private readonly _logger: ILogger,
+    private readonly _context: vscode.ExtensionContext
+  ) {
     // Initialize and load the strongly typed configuration
     this.loadConfiguration();
 
@@ -135,54 +141,35 @@ export class ConfigService implements vscode.Disposable {
   public async loadQdrantConfig(
     folder: vscode.WorkspaceFolder
   ): Promise<QdrantOllamaConfig | null> {
-    const configUri = vscode.Uri.joinPath(
+    // 1. Try Local
+    const localUri = vscode.Uri.joinPath(
       folder.uri,
       ".qdrant",
       "configuration.json"
     );
-
     try {
-      // Check if file exists
-      await vscode.workspace.fs.stat(configUri);
-
-      // Read file content using VFS
-      const fileData = await vscode.workspace.fs.readFile(configUri);
-      const fileString = new TextDecoder().decode(fileData);
-
-      // Parse JSON
-      const config = JSON.parse(fileString) as QdrantOllamaConfig;
-
-      // Basic validation
-      if (!config.qdrant_config?.url || !config.ollama_config?.base_url) {
-        this._logger.log(
-          `Invalid configuration structure in ${configUri.toString()}`,
-          "ERROR"
-        );
-        return null;
-      }
-
-      // Ensure URLs have proper protocols
-      config.qdrant_config.url = ensureAbsoluteUrl(config.qdrant_config.url);
-      config.ollama_config.base_url = ensureAbsoluteUrl(
-        config.ollama_config.base_url
-      );
-
-      // Remove trailing slashes for consistent URL handling
-      config.qdrant_config.url = config.qdrant_config.url.replace(/\/$/, "");
-      config.ollama_config.base_url = config.ollama_config.base_url.replace(
-        /\/$/,
-        ""
-      );
-
-      this._qdrantConfig = config;
-      return this._deepClone(config);
-    } catch (error) {
-      this._logger.log(
-        `Could not load config from ${folder.name}: ${error}`,
-        "WARN"
-      );
-      return null;
+      await vscode.workspace.fs.stat(localUri);
+      const content = await vscode.workspace.fs.readFile(localUri);
+      return this.parseAndValidate(content, localUri.toString());
+    } catch {
+      // Local not found, ignore
     }
+
+    // 2. Try Global
+    try {
+      const globalUri = this.getGlobalConfigUri(folder);
+      await vscode.workspace.fs.stat(globalUri);
+      const content = await vscode.workspace.fs.readFile(globalUri);
+      this._logger.log(
+        `Loaded config from global storage for ${folder.name}`,
+        "CONFIG"
+      );
+      return this.parseAndValidate(content, globalUri.toString());
+    } catch {
+      // Global not found
+    }
+
+    return null;
   }
 
   /**
@@ -191,20 +178,11 @@ export class ConfigService implements vscode.Disposable {
    */
   public async saveQdrantConfig(
     folder: vscode.WorkspaceFolder,
-    config: QdrantOllamaConfig
+    config: QdrantOllamaConfig,
+    useGlobal: boolean = false
   ): Promise<void> {
-    const dirUri = vscode.Uri.joinPath(folder.uri, ".qdrant");
-    const configUri = vscode.Uri.joinPath(dirUri, "configuration.json");
-
     try {
-      // Ensure .qdrant directory exists
-      try {
-        await vscode.workspace.fs.stat(dirUri);
-      } catch {
-        await vscode.workspace.fs.createDirectory(dirUri);
-      }
-
-      // Ensure URLs are clean before saving
+      // Cleanup URLs
       config.qdrant_config.url = ensureAbsoluteUrl(
         config.qdrant_config.url
       ).replace(/\/$/, "");
@@ -212,17 +190,31 @@ export class ConfigService implements vscode.Disposable {
         config.ollama_config.base_url
       ).replace(/\/$/, "");
 
-      // Write file
       const content = new TextEncoder().encode(JSON.stringify(config, null, 2));
-      await vscode.workspace.fs.writeFile(configUri, content);
 
-      // Update in-memory state
+      if (useGlobal) {
+        const globalUri = this.getGlobalConfigUri(folder);
+        await vscode.workspace.fs.createDirectory(
+          vscode.Uri.joinPath(this._context.globalStorageUri, "configs")
+        );
+        await vscode.workspace.fs.writeFile(globalUri, content);
+        this._logger.log(`Saved config globally for ${folder.name}`, "CONFIG");
+      } else {
+        const dirUri = vscode.Uri.joinPath(folder.uri, ".qdrant");
+        const fileUri = vscode.Uri.joinPath(dirUri, "configuration.json");
+        try {
+          await vscode.workspace.fs.stat(dirUri);
+        } catch {
+          await vscode.workspace.fs.createDirectory(dirUri);
+        }
+        await vscode.workspace.fs.writeFile(fileUri, content);
+        this._logger.log(`Saved config locally to ${fileUri.fsPath}`, "CONFIG");
+      }
+
       this._qdrantConfig = config;
-      this._logger.log(`Configuration saved to ${configUri.fsPath}`, "CONFIG");
     } catch (error) {
-      const msg = error instanceof Error ? error.message : String(error);
-      this._logger.log(`Failed to save config: ${msg}`, "ERROR");
-      throw new Error(`Failed to save configuration: ${msg}`);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to save configuration: ${message}`);
     }
   }
 
@@ -232,127 +224,53 @@ export class ConfigService implements vscode.Disposable {
   public async validateConnection(
     config: QdrantOllamaConfig
   ): Promise<boolean> {
-    const startTime = Date.now();
-    this._logger.log(
-      `[CONFIG] Starting connection validation - Ollama: ${config.ollama_config.base_url}, Qdrant: ${config.qdrant_config.url}`,
-      "CONFIG"
-    );
+    const res = await this.validateConnectionDetailed(config);
+    return res.success;
+  }
 
+  public async validateConnectionDetailed(
+    config: QdrantOllamaConfig
+  ): Promise<TestConfigResponse> {
+    let qdrantStatus: "connected" | "failed" = "failed";
+    let ollamaStatus: "connected" | "failed" = "failed";
+    const errors: string[] = [];
+
+    // Test Ollama
     try {
-      // Use retry logic for transient network failures
-      return await this.retryWithBackoff(
-        async () => {
-          // Check Ollama with timeout
-          this._logger.log(
-            `[CONFIG] Testing Ollama connection to ${config.ollama_config.base_url}/api/tags`,
-            "CONFIG"
-          );
-
-          const controller = new AbortController();
-          const timeoutId = setTimeout(() => {
-            this._logger.log(
-              `[CONFIG] Ollama connection timeout, aborting...`,
-              "WARN"
-            );
-            controller.abort();
-          }, 10000); // 10 second timeout
-
-          const ollamaRes = await fetch(
-            `${config.ollama_config.base_url}/api/tags`,
-            { signal: controller.signal }
-          );
-
-          clearTimeout(timeoutId);
-
-          if (!ollamaRes.ok) {
-            const errorText = await ollamaRes
-              .text()
-              .catch(() => "Unable to read error response");
-            this._logger.log(
-              `[CONFIG] Ollama connection failed - Status: ${ollamaRes.status}, Response: ${errorText}`,
-              "ERROR"
-            );
-            throw new Error(
-              `Ollama unreachable: ${ollamaRes.status} ${ollamaRes.statusText}`
-            );
-          }
-
-          // Check Qdrant with timeout
-          this._logger.log(
-            `[CONFIG] Testing Qdrant connection to ${config.qdrant_config.url}/collections`,
-            "CONFIG"
-          );
-
-          const qdrantController = new AbortController();
-          const qdrantTimeoutId = setTimeout(() => {
-            this._logger.log(
-              `[CONFIG] Qdrant connection timeout, aborting...`,
-              "WARN"
-            );
-            qdrantController.abort();
-          }, 10000); // 10 second timeout
-
-          const qdrantRes = await fetch(
-            `${config.qdrant_config.url}/collections`,
-            {
-              signal: qdrantController.signal,
-            }
-          );
-
-          clearTimeout(qdrantTimeoutId);
-
-          if (
-            !qdrantRes.ok &&
-            qdrantRes.status !== 401 &&
-            qdrantRes.status !== 403
-          ) {
-            // 401/403 might just mean we need to API key which IndexingService handles
-            const errorText = await qdrantRes
-              .text()
-              .catch(() => "Unable to read error response");
-            this._logger.log(
-              `[CONFIG] Qdrant connection failed - Status: ${qdrantRes.status}, Response: ${errorText}`,
-              "ERROR"
-            );
-            throw new Error(
-              `Qdrant unreachable: ${qdrantRes.status} ${qdrantRes.statusText}`
-            );
-          }
-
-          const totalDuration = Date.now() - startTime;
-          this._logger.log(
-            `[CONFIG] Connection validation successful in ${totalDuration}ms`,
-            "CONFIG"
-          );
-          return true;
-        },
-        3, // Max retries
-        1000 // 1 second delay
-      );
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 3000);
+      const res = await fetch(`${config.ollama_config.base_url}/api/tags`, {
+        signal: controller.signal,
+      });
+      if (res.ok) ollamaStatus = "connected";
+      else errors.push(`Ollama: ${res.statusText}`);
     } catch (e) {
-      const totalDuration = Date.now() - startTime;
-      const error = e instanceof Error ? e : new Error(String(e));
-      this._logger.log(
-        `[CONFIG] Connection validation failed after ${totalDuration}ms: ${error.message}`,
-        "ERROR"
-      );
-
-      // Special logging for network-related errors
-      if (
-        error.message.includes("ECONNRESET") ||
-        error.message.includes("connection reset") ||
-        error.message.includes("network") ||
-        error.message.includes("fetch")
-      ) {
-        this._logger.log(
-          `[CONFIG] NETWORK ERROR DETECTED - Type: ${error.name}, Message: ${error.message}`,
-          "FATAL"
-        );
-        this._logger.log(`[CONFIG] Details: ${error.message}`, "FATAL");
-      }
-
-      return false;
+      errors.push(`Ollama: ${e instanceof Error ? e.message : String(e)}`);
     }
+
+    // Test Qdrant
+    try {
+      const controller = new AbortController();
+      setTimeout(() => controller.abort(), 3000);
+      const res = await fetch(`${config.qdrant_config.url}/collections`, {
+        signal: controller.signal,
+      });
+      if (res.ok || res.status === 401 || res.status === 403)
+        qdrantStatus = "connected"; // Auth error means reachable
+      else errors.push(`Qdrant: ${res.statusText}`);
+    } catch (e) {
+      errors.push(`Qdrant: ${e instanceof Error ? e.message : String(e)}`);
+    }
+
+    const success =
+      qdrantStatus === "connected" && ollamaStatus === "connected";
+
+    return {
+      success,
+      qdrantStatus,
+      ollamaStatus,
+      message: success ? "All systems operational" : errors.join(" | "),
+    };
   }
 
   /**
@@ -491,6 +409,40 @@ export class ConfigService implements vscode.Disposable {
         );
       }
     });
+  }
+
+  private getGlobalConfigUri(folder: vscode.WorkspaceFolder): vscode.Uri {
+    // Create a safe filename based on the workspace name and hash of the path to avoid collisions
+    const safeName = folder.name.replace(/[^a-z0-9]/gi, "_").toLowerCase();
+    return vscode.Uri.joinPath(
+      this._context.globalStorageUri,
+      "configs",
+      `${safeName}.json`
+    );
+  }
+
+  private parseAndValidate(
+    content: Uint8Array,
+    source: string
+  ): QdrantOllamaConfig | null {
+    const str = new TextDecoder().decode(content);
+    const config = JSON.parse(str) as QdrantOllamaConfig;
+
+    if (!config.qdrant_config?.url || !config.ollama_config?.base_url) {
+      this._logger.log(`Invalid config in ${source}`, "ERROR");
+      return null;
+    }
+
+    // Cleanup URLs
+    config.qdrant_config.url = ensureAbsoluteUrl(
+      config.qdrant_config.url
+    ).replace(/\/$/, "");
+    config.ollama_config.base_url = ensureAbsoluteUrl(
+      config.ollama_config.base_url
+    ).replace(/\/$/, "");
+
+    this._qdrantConfig = config;
+    return this._deepClone(config);
   }
 
   public dispose(): void {

@@ -3,6 +3,7 @@
     "svelte.plugin.svelte.diagnostics.enable": true,
     
     // Extension Development Settings
+    "typescript.tsserver.experimental.enableProjectDiagnostics": true,
     "typescript.preferences.includePackageJsonAutoImports": "on",
     "typescript.suggest.autoImports": true,
     "typescript.updateImportsOnFileMove.enabled": "always",
@@ -20,6 +21,21 @@
     },
     "editor.defaultFormatter": "esbenp.prettier-vscode",
     
+    // ESLint Settings
+    "eslint.useFlatConfig": true,
+    "eslint.configFile": "./extension/eslint.config.mjs",
+    "eslint.validate": [
+        "javascript",
+        "javascriptreact",
+        "typescript",
+        "typescriptreact",
+        "svelte"
+    ],
+    "eslint.workingDirectories": [
+        "./extension"
+    ],
+    "eslint.ignoreExclude": false,
+    
     // File Watcher Settings
     "files.watcherExclude": {
         "**/out/**": true,
@@ -33,6 +49,11 @@
         "**/node_modules": true,
         "**/.git": true,
         "**/dist": true
+    },
+    
+    // File Exclude Settings
+    "files.exclude": {
+        "**/.vscode/settings.json": false
     },
     
     // TypeScript Compiler Settings

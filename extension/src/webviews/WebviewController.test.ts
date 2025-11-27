@@ -61,6 +61,12 @@ describe("WebviewController", () => {
       loadQdrantConfig: vi.fn(),
       saveQdrantConfig: vi.fn().mockResolvedValue(undefined),
       validateConnection: vi.fn().mockResolvedValue(true),
+      validateConnectionDetailed: vi.fn().mockResolvedValue({
+        success: true,
+        message: "Connection successful",
+        ollamaStatus: "connected",
+        qdrantStatus: "connected",
+      }),
     };
 
     mockAnalyticsService = {
@@ -127,7 +133,8 @@ describe("WebviewController", () => {
 
     expect(mockConfigService.saveQdrantConfig).toHaveBeenCalledWith(
       expect.objectContaining({ name: "ws" }),
-      mockConfig
+      mockConfig,
+      false // useGlobal defaults to false
     );
 
     expect(mockWebview.postMessage).toHaveBeenCalledWith(
@@ -153,7 +160,7 @@ describe("WebviewController", () => {
 
     await messageHandler(request);
 
-    expect(mockConfigService.validateConnection).toHaveBeenCalledWith(
+    expect(mockConfigService.validateConnectionDetailed).toHaveBeenCalledWith(
       mockConfig
     );
 

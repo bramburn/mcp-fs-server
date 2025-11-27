@@ -8,11 +8,13 @@ import {
   TEST_CONFIG_METHOD,
   type QdrantOllamaConfig,
   type TestConfigResponse,
+  type SaveConfigParams,
 } from "../../protocol";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Separator } from "../components/ui/separator";
+import { Switch } from "../components/ui/switch";
 import {
   ChevronLeft,
   Save,
@@ -22,6 +24,8 @@ import {
   Database,
   Server,
   Cpu,
+  Globe,
+  HardDrive,
 } from "lucide-react";
 
 export default function Settings() {
@@ -43,13 +47,19 @@ export default function Settings() {
 
   const [loading, setLoading] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
+  // Update Test Result State to match new protocol
   const [testResult, setTestResult] = useState<{
     success: boolean;
     message: string;
+    qdrantStatus: 'connected' | 'failed';
+    ollamaStatus: 'connected' | 'failed';
   } | null>(null);
 
   // Track dirty state to show "Unsaved changes" if needed
   const [isDirty, setIsDirty] = useState(false);
+
+  // New State for Save Location
+  const [useGlobalStorage, setUseGlobalStorage] = useState(false);
 
   // Load initial config
   const refreshConfig = useCallback(() => {
@@ -91,18 +101,15 @@ export default function Settings() {
     setIsDirty(true);
   };
 
-  // Test Connection
+  // Update Handle Test Connection
   const handleTestConnection = async () => {
     setIsTesting(true);
     setTestResult(null);
     try {
-      const response = await ipc.sendRequest<
-        { config: QdrantOllamaConfig },
-        TestConfigResponse
-      >(TEST_CONFIG_METHOD, "webview-mgmt", { config: formData });
+      const response = await ipc.sendRequest<any, any>(TEST_CONFIG_METHOD, "webview-mgmt", { config: formData });
       setTestResult(response);
     } catch (error) {
-      setTestResult({ success: false, message: String(error) });
+      setTestResult({ success: false, message: String(error), qdrantStatus: 'failed', ollamaStatus: 'failed' });
     } finally {
       setIsTesting(false);
     }
@@ -112,10 +119,13 @@ export default function Settings() {
   const handleSave = async () => {
     setLoading(true);
     try {
-      await ipc.sendRequest<{ config: QdrantOllamaConfig }, void>(
+      await ipc.sendRequest<SaveConfigParams, void>(
         SAVE_CONFIG_METHOD,
         "webview-mgmt",
-        { config: formData }
+        {
+          config: formData,
+          useGlobal: useGlobalStorage,
+        }
       );
       setIsDirty(false);
       refreshConfig();
@@ -193,34 +203,26 @@ export default function Settings() {
 
           {/* Qdrant Configuration Section */}
           <section className="space-y-4">
-            <div className="space-y-1">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Server className="h-4 w-4 text-primary" />
-                <h3 className="text-base font-semibold tracking-tight">
-                  Qdrant Server
-                </h3>
+                <h3 className="text-sm font-semibold">Qdrant Server</h3>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Configure the connection to your Qdrant vector database instance.
-              </p>
+              {/* Specific Status Badge */}
+              {testResult && (
+                  <span className={`text-[10px] flex items-center gap-1 ${testResult.qdrantStatus === 'connected' ? 'text-green-500' : 'text-red-500'}`}>
+                    {testResult.qdrantStatus === 'connected' ? <CheckCircle2 className="w-3 h-3"/> : <XCircle className="w-3 h-3"/>}
+                    {testResult.qdrantStatus === 'connected' ? 'Connected' : 'Failed'}
+                  </span>
+              )}
             </div>
+            <p className="text-xs text-muted-foreground">
+                Configure the connection to your Qdrant vector database instance.
+            </p>
 
             <div className="space-y-4">
               <div className="grid gap-2">
-                <div className="flex items-center justify-between">
-                  <Label htmlFor="qdrantUrl">Server URL</Label>
-                  {/* Visual feedback for connection test */}
-                  {testResult && !testResult.success && (
-                    <span className="text-[10px] text-destructive flex items-center gap-1">
-                      <XCircle className="h-3 w-3" /> Connection Failed
-                    </span>
-                  )}
-                  {testResult && testResult.success && (
-                    <span className="text-[10px] text-green-600 flex items-center gap-1">
-                      <CheckCircle2 className="h-3 w-3" /> Verified
-                    </span>
-                  )}
-                </div>
+                <Label htmlFor="qdrantUrl">Server URL</Label>
                 <Input
                   id="qdrantUrl"
                   value={formData.qdrant_config.url}
@@ -255,17 +257,22 @@ export default function Settings() {
 
           {/* Ollama Configuration Section */}
           <section className="space-y-4">
-            <div className="space-y-1">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Cpu className="h-4 w-4 text-primary" />
-                <h3 className="text-base font-semibold tracking-tight">
-                  Ollama Server
-                </h3>
+                <h3 className="text-sm font-semibold">Ollama Server</h3>
               </div>
-              <p className="text-xs text-muted-foreground">
-                Configure the connection to your local LLM provider.
-              </p>
+               {/* Specific Status Badge */}
+              {testResult && (
+                  <span className={`text-[10px] flex items-center gap-1 ${testResult.ollamaStatus === 'connected' ? 'text-green-500' : 'text-red-500'}`}>
+                    {testResult.ollamaStatus === 'connected' ? <CheckCircle2 className="w-3 h-3"/> : <XCircle className="w-3 h-3"/>}
+                    {testResult.ollamaStatus === 'connected' ? 'Connected' : 'Failed'}
+                  </span>
+              )}
             </div>
+            <p className="text-xs text-muted-foreground">
+                Configure the connection to your local LLM provider.
+            </p>
 
             <div className="space-y-4">
               <div className="grid gap-2">
@@ -296,6 +303,27 @@ export default function Settings() {
                 />
               </div>
             </div>
+          </section>
+
+          <Separator />
+
+          {/* Storage Preference Section */}
+          <section className="flex items-center justify-between p-3 border rounded-md bg-muted/20">
+              <div className="space-y-0.5">
+                  <div className="flex items-center gap-2">
+                      {useGlobalStorage ? <Globe className="w-4 h-4"/> : <HardDrive className="w-4 h-4"/>}
+                      <h4 className="text-sm font-medium">Configuration Storage</h4>
+                  </div>
+                  <p className="text-xs text-muted-foreground">
+                      {useGlobalStorage
+                          ? "Settings saved to User Profile (Shared across workspaces)"
+                          : "Settings saved to .qdrant/ in this workspace"}
+                  </p>
+              </div>
+              <Switch
+                  checked={useGlobalStorage}
+                  onCheckedChange={setUseGlobalStorage}
+              />
           </section>
 
           <Separator />
