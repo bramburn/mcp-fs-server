@@ -21,9 +21,14 @@ import {
   OPEN_FILE_METHOD,
   OpenFileParams,
   QdrantOllamaConfig,
+  SAVE_CONFIG_METHOD,
   SEARCH_METHOD,
   SearchRequestParams,
   START_INDEX_METHOD,
+  TEST_CONFIG_METHOD,
+  SaveConfigParams,
+  TestConfigParams,
+  TestConfigResponse,
 } from "./protocol.js";
 
 /**
@@ -73,8 +78,10 @@ export class WebviewController
 
   // Helper log wrapper
   private log(message: string, level: any = "INFO") {
-      const safeLevel = ["INFO", "ERROR", "WARN", "FATAL"].includes(level) ? level : "INFO";
-      this._logger.log(message, safeLevel);
+    const safeLevel = ["INFO", "ERROR", "WARN", "FATAL"].includes(level)
+      ? level
+      : "INFO";
+    this._logger.log(message, safeLevel);
   }
 
   public dispose() {
@@ -91,13 +98,20 @@ export class WebviewController
     _context: vscode.WebviewViewResolveContext,
     _token: vscode.CancellationToken
   ): void {
-    this.log(`🎯 resolveWebviewView called for ${WebviewController.viewType}`, "WEBVIEW");
+    this.log(
+      `🎯 resolveWebviewView called for ${WebviewController.viewType}`,
+      "WEBVIEW"
+    );
 
     try {
       this._view = webviewView;
       this._analyticsService.trackPageView("search_view");
 
-      vscode.commands.executeCommand("setContext", "qdrant.searchView.visible", true); // !AI: Future - 'setContext' is an internal command; consider using a public API if available for better stability across VS Code versions.
+      vscode.commands.executeCommand(
+        "setContext",
+        "qdrant.searchView.visible",
+        true
+      ); // !AI: Future - 'setContext' is an internal command; consider using a public API if available for better stability across VS Code versions.
 
       webviewView.onDidChangeVisibility(() => {
         this._isViewVisible = webviewView.visible;
@@ -116,7 +130,10 @@ export class WebviewController
       };
 
       const html = this._getHtmlForWebview(webviewView.webview);
-      this.log(`📝 Setting webview HTML, length: ${html.length} bytes`, "WEBVIEW");
+      this.log(
+        `📝 Setting webview HTML, length: ${html.length} bytes`,
+        "WEBVIEW"
+      );
       webviewView.webview.html = html;
 
       const listener = webviewView.webview.onDidReceiveMessage(
@@ -278,20 +295,46 @@ export class WebviewController
           // !AI: CRITICAL SECURITY RISK - Arbitrary command execution from webview. Must whitelist 'command' and 'args' before calling executeCommand.
           await this.handleExecuteCommand(command as ExecuteCommand);
           break;
+
+        // FIX 1: Handle ipc:ready-request (sent as kind: 'command' by App.tsx)
+        case "ipc:ready-request":
+          this.log("Webview ready, sending initial status", "IPC");
+          // Check actual status instead of hardcoding 'ready'
+          const currentStatus = this._indexingService.isIndexing
+            ? "indexing"
+            : "ready";
+          this.sendNotification(INDEX_STATUS_METHOD, { status: currentStatus });
+          break;
+
+        // FIX 2: Handle update/preferences command
+        case "update/preferences":
+          this.log(
+            `Received preferences update: ${JSON.stringify(command.params)}`,
+            "CONFIG"
+          );
+          // Future: Persist these preferences if needed. For now, logging prevents the error.
+          break;
+
         default:
           this.log(`Unknown command method: ${command.method}`, "IPC");
           throw new Error(`Unknown command method: ${command.method}`);
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.log(`Error handling command ${command.method}: ${errorMsg}`, "ERROR");
-      this._analyticsService.trackError("command_handler_failed", command.method);
-      
+      this.log(
+        `Error handling command ${command.method}: ${errorMsg}`,
+        "ERROR"
+      );
+      this._analyticsService.trackError(
+        "command_handler_failed",
+        command.method
+      );
+
       // Send error notification back to webview
       this.sendNotification("error", {
         type: "command_error",
         method: command.method,
-        message: errorMsg
+        message: errorMsg,
       });
     }
   }
@@ -313,10 +356,25 @@ export class WebviewController
         case LOAD_CONFIG_METHOD:
           response = await this.handleLoadConfigRequest(request);
           break;
-        case "ipc:ready-request":
-          this.log("Webview ready, sending initial status", "IPC");
-          this.sendNotification(INDEX_STATUS_METHOD, { status: "ready" });
+        case SAVE_CONFIG_METHOD:
+          await this.handleSaveConfigRequest(
+            request as IpcRequest<SaveConfigParams>
+          );
+          response = {
+            kind: "response",
+            scope: request.scope,
+            id: crypto.randomUUID(),
+            responseId: request.id,
+            timestamp: Date.now(),
+            data: { success: true },
+          };
           break;
+        case TEST_CONFIG_METHOD:
+          response = await this.handleTestConfigRequest(
+            request as IpcRequest<TestConfigParams>
+          );
+          break;
+        // FIX 3: Removed "ipc:ready-request" from here since it is a command, not a request
         default:
           this.log(`Unknown request method: ${request.method}`, "IPC");
           response = {
@@ -335,9 +393,15 @@ export class WebviewController
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.log(`Error handling request ${request.method}: ${errorMsg}`, "ERROR");
-      this._analyticsService.trackError("request_handler_failed", request.method);
-      
+      this.log(
+        `Error handling request ${request.method}: ${errorMsg}`,
+        "ERROR"
+      );
+      this._analyticsService.trackError(
+        "request_handler_failed",
+        request.method
+      );
+
       // Send error response back to webview
       const errorResponse: IpcResponse<any> = {
         kind: "response",
@@ -345,7 +409,7 @@ export class WebviewController
         id: crypto.randomUUID(),
         responseId: request.id,
         timestamp: Date.now(),
-        error: errorMsg
+        error: errorMsg,
       };
       this.sendResponse(errorResponse);
     }
@@ -361,8 +425,14 @@ export class WebviewController
       switch (notification.method) {
         case INDEX_STATUS_METHOD:
           // Handle index status notifications
-          if (notification.params && typeof notification.params.status === 'string') {
-            this.log(`Received index status: ${notification.params.status}`, "IPC");
+          if (
+            notification.params &&
+            typeof notification.params.status === "string"
+          ) {
+            this.log(
+              `Received index status: ${notification.params.status}`,
+              "IPC"
+            );
           }
           break;
         case CONFIG_DATA_METHOD:
@@ -377,19 +447,30 @@ export class WebviewController
           );
           break;
         default:
-          this.log(`Unknown notification method: ${notification.method}`, "IPC");
-          throw new Error(`Unknown notification method: ${notification.method}`);
+          this.log(
+            `Unknown notification method: ${notification.method}`,
+            "IPC"
+          );
+          throw new Error(
+            `Unknown notification method: ${notification.method}`
+          );
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.log(`Error handling notification ${notification.method}: ${errorMsg}`, "ERROR");
-      this._analyticsService.trackError("notification_handler_failed", notification.method);
-      
+      this.log(
+        `Error handling notification ${notification.method}: ${errorMsg}`,
+        "ERROR"
+      );
+      this._analyticsService.trackError(
+        "notification_handler_failed",
+        notification.method
+      );
+
       // Send error notification back to webview
       this.sendNotification("error", {
         type: "notification_error",
         method: notification.method,
-        message: errorMsg
+        message: errorMsg,
       });
     }
   }
@@ -421,8 +502,8 @@ export class WebviewController
       if (!request.params) {
         throw new Error("Missing request parameters");
       }
-      
-      if (!request.params.query || typeof request.params.query !== 'string') {
+
+      if (!request.params.query || typeof request.params.query !== "string") {
         throw new Error("Invalid or missing search query parameter");
       }
 
@@ -484,21 +565,59 @@ export class WebviewController
     };
   }
 
+  private async handleSaveConfigRequest(
+    request: IpcRequest<SaveConfigParams>
+  ): Promise<void> {
+    const folder = this._workspaceManager.getActiveWorkspaceFolder();
+    if (!folder) {
+      throw new Error(
+        "No active workspace folder found. Cannot save configuration."
+      );
+    }
+    await this._configService.saveQdrantConfig(folder, request.params.config);
+    vscode.window.showInformationMessage(
+      "Qdrant configuration saved successfully."
+    );
+  }
+
+  private async handleTestConfigRequest(
+    request: IpcRequest<TestConfigParams>
+  ): Promise<IpcResponse<TestConfigResponse>> {
+    const isValid = await this._configService.validateConnection(
+      request.params.config
+    );
+    return {
+      kind: "response",
+      scope: request.scope,
+      id: crypto.randomUUID(),
+      responseId: request.id,
+      timestamp: Date.now(),
+      data: {
+        success: isValid,
+        message: isValid
+          ? "Connection successful!"
+          : "Connection failed. Check Output logs for details.",
+      },
+    };
+  }
+
   private async handleOpenFile(command: IpcCommand<OpenFileParams>) {
     try {
       // Enhanced parameter validation
       if (!command.params) {
         throw new Error("Missing command parameters");
       }
-      
+
       const { uri, line } = command.params;
-      
-      if (!uri || typeof uri !== 'string') {
+
+      if (!uri || typeof uri !== "string") {
         throw new Error("Invalid or missing URI parameter");
       }
-      
-      if (line !== undefined && (typeof line !== 'number' || line < 0)) {
-        throw new Error("Invalid line parameter - must be a non-negative number");
+
+      if (line !== undefined && (typeof line !== "number" || line < 0)) {
+        throw new Error(
+          "Invalid line parameter - must be a non-negative number"
+        );
       }
 
       let fileUri: vscode.Uri;
@@ -534,8 +653,13 @@ export class WebviewController
       this.log(`Opened file ${uri} at line ${line || 1}`, "OPEN");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.log(`Failed to open file ${command.params?.uri || 'unknown'}: ${errorMsg}`, "ERROR");
-      vscode.window.showErrorMessage(`Failed to open file: ${command.params?.uri || 'unknown'}`);
+      this.log(
+        `Failed to open file ${command.params?.uri || "unknown"}: ${errorMsg}`,
+        "ERROR"
+      );
+      vscode.window.showErrorMessage(
+        `Failed to open file: ${command.params?.uri || "unknown"}`
+      );
       this._analyticsService.trackError("open_file_failed", "handleOpenFile");
     }
   }
@@ -546,11 +670,14 @@ export class WebviewController
       if (!command.params) {
         throw new Error("Missing command parameters");
       }
-      
-      if (!command.params.command || typeof command.params.command !== 'string') {
+
+      if (
+        !command.params.command ||
+        typeof command.params.command !== "string"
+      ) {
         throw new Error("Invalid or missing command parameter");
       }
-      
+
       if (command.params.args && !Array.isArray(command.params.args)) {
         throw new Error("Command args must be an array");
       }
@@ -563,13 +690,18 @@ export class WebviewController
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.log(
-        `Failed to execute command ${command.params?.command || 'unknown'}: ${errorMsg}`,
+        `Failed to execute command ${
+          command.params?.command || "unknown"
+        }: ${errorMsg}`,
         "ERROR"
       );
       vscode.window.showErrorMessage(
-        `Failed to execute command: ${command.params?.command || 'unknown'}`
+        `Failed to execute command: ${command.params?.command || "unknown"}`
       );
-      this._analyticsService.trackError("execute_command_failed", "handleExecuteCommand");
+      this._analyticsService.trackError(
+        "execute_command_failed",
+        "handleExecuteCommand"
+      );
     }
   }
 

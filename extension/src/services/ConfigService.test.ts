@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 // ✅ FIX: Import mocked vscode instead of real vscode API
-import vscode from "../test/mocks/vscode-api.js";
 import { DefaultConfiguration } from "../config/Configuration.js";
+import vscode from "../test/mocks/vscode-api.js";
 import { ConfigService } from "./ConfigService.js";
 import type { ILogger } from "./LoggerService.js";
 
@@ -32,7 +32,7 @@ vi.mock("vscode", () => {
     return "default";
   });
 
-  return {
+  const mockVscode = {
     workspace: {
       getConfiguration: () => ({ get: mockGet }),
       // Mock change event registration
@@ -65,6 +65,17 @@ vi.mock("vscode", () => {
       dispose = vi.fn();
     },
     ConfigurationChangeEvent: class {},
+    FileType: {
+      Unknown: 0,
+      File: 1,
+      Directory: 2,
+      SymbolicLink: 64,
+    },
+  };
+
+  return {
+    default: mockVscode,
+    ...mockVscode,
   };
 });
 
@@ -119,9 +130,9 @@ describe("ConfigService", () => {
     expect(configService.get("general.trace")).toBe(false);
   });
 
-  test("ConfigService.get returns undefined for invalid paths", () => {
-    expect(configService.get("invalid.path")).toBeUndefined();
-    expect(configService.get("indexing.invalid")).toBeUndefined();
+  test("ConfigService.get throws error for invalid paths", () => {
+    expect(() => configService.get("invalid.path")).toThrow();
+    expect(() => configService.get("indexing.invalid")).toThrow();
   });
 
   test("ConfigService.update modifies configuration correctly", () => {
@@ -278,10 +289,12 @@ describe("ConfigService", () => {
 
     expect(result).toBe(true);
     expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost:11434/api/tags"
+      "http://localhost:11434/api/tags",
+      expect.objectContaining({ signal: expect.any(Object) })
     );
     expect(global.fetch).toHaveBeenCalledWith(
-      "http://localhost:6333/collections"
+      "http://localhost:6333/collections",
+      expect.objectContaining({ signal: expect.any(Object) })
     );
   });
 
@@ -513,5 +526,74 @@ describe("ConfigService", () => {
     });
 
     expect(configService.qdrantConfig).toEqual(result);
+  });
+
+  describe("saveQdrantConfig", () => {
+    test("saveQdrantConfig creates directory and writes file", async () => {
+      const mockFolder = {
+        uri: { fsPath: "/test/workspace" },
+        name: "test-workspace",
+        index: 0,
+      } as any;
+
+      const newConfig = {
+        index_info: { name: "new-index" },
+        qdrant_config: { url: "http://localhost:6333", api_key: "secret" },
+        ollama_config: {
+          base_url: "http://localhost:11434",
+          model: "llama3",
+        },
+      };
+
+      // Mock stat to fail (dir does not exist) to trigger createDirectory
+      vi.mocked(vscode.workspace.fs.stat).mockRejectedValueOnce(
+        new Error("File not found")
+      );
+
+      // Mock createDirectory and writeFile success
+      vi.mocked(vscode.workspace.fs.createDirectory).mockResolvedValue(
+        undefined as any
+      );
+      vi.mocked(vscode.workspace.fs.writeFile).mockResolvedValue(
+        undefined as any
+      );
+
+      await configService.saveQdrantConfig(mockFolder as any, newConfig as any);
+
+      // Verify directory creation
+      expect(vscode.workspace.fs.createDirectory).toHaveBeenCalledWith(
+        expect.objectContaining({ fsPath: "/test/workspace/.qdrant" })
+      );
+
+      // Verify file write with correct content
+      expect(vscode.workspace.fs.writeFile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          fsPath: "/test/workspace/.qdrant/configuration.json",
+        }),
+        expect.any(Uint8Array)
+      );
+
+      // Verify the written content is valid JSON and matches input
+      const writeCall = vi.mocked(vscode.workspace.fs.writeFile).mock.calls[0];
+      const writtenContent = new TextDecoder().decode(writeCall[1] as any);
+      const parsedContent = JSON.parse(writtenContent);
+
+      expect(parsedContent.qdrant_config.url).toBe("http://localhost:6333");
+      expect(parsedContent.qdrant_config.api_key).toBe("secret");
+    });
+
+    test("saveQdrantConfig handles write errors", async () => {
+      const mockFolder = { uri: { fsPath: "/test/workspace" } } as any;
+      const config = { qdrant_config: { url: "http://localhost" } } as any;
+
+      vi.mocked(vscode.workspace.fs.stat).mockResolvedValue({} as any); // Dir exists
+      vi.mocked(vscode.workspace.fs.writeFile).mockRejectedValue(
+        new Error("Permission denied")
+      );
+
+      await expect(
+        configService.saveQdrantConfig(mockFolder, config as any)
+      ).rejects.toThrow("Failed to save configuration: Permission denied");
+    });
   });
 });

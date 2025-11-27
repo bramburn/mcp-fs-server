@@ -1,28 +1,29 @@
-import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import Settings from './Settings';
-import { IpcProvider, type HostIpc } from '../contexts/ipc';
-import { useAppStore } from '../store';
+import React from "react";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import Settings from "./Settings";
+import { IpcProvider, type HostIpc } from "../contexts/ipc";
+import { useAppStore } from "../store";
 
-type ViMockFn = ReturnType<typeof vi.fn>;
+// Mock Protocol
 import {
   LOAD_CONFIG_METHOD,
+  SAVE_CONFIG_METHOD,
+  TEST_CONFIG_METHOD,
   START_INDEX_METHOD,
-  CONFIG_DATA_METHOD,
-  DID_CHANGE_CONFIG_NOTIFICATION,
-  EXECUTE_COMMAND_METHOD,
   type QdrantOllamaConfig,
-} from '../../protocol';
+} from "../../protocol";
 
-vi.mock('../store', async () => {
-  const actual = await vi.importActual<typeof import('../store')>('../store');
+// Mock Store
+vi.mock("../store", async () => {
+  const actual = await vi.importActual<typeof import("../store")>("../store");
   return {
     ...actual,
     useAppStore: vi.fn(actual.useAppStore),
   };
 });
 
+// Helper to create mock IPC
 type MockHostIpc = HostIpc & {
   sendCommand: ReturnType<typeof vi.fn>;
   sendRequest: ReturnType<typeof vi.fn>;
@@ -32,7 +33,6 @@ type MockHostIpc = HostIpc & {
 function createMockIpc(): MockHostIpc {
   return {
     sendCommand: vi.fn(),
-    // Default to a resolved promise so components can safely call `.then`
     sendRequest: vi.fn().mockResolvedValue(null),
     onNotification: vi.fn(),
   } as unknown as MockHostIpc;
@@ -40,7 +40,7 @@ function createMockIpc(): MockHostIpc {
 
 function renderWithIpc(
   ui: React.ReactElement,
-  ipc: MockHostIpc = createMockIpc(),
+  ipc: MockHostIpc = createMockIpc()
 ) {
   return {
     ipc,
@@ -48,171 +48,128 @@ function renderWithIpc(
   };
 }
 
-describe('Settings view (React)', () => {
+describe("Settings View (React)", () => {
+  const mockConfig: QdrantOllamaConfig = {
+    index_info: { name: "test-index" },
+    qdrant_config: { url: "http://localhost:6333", api_key: "old-key" },
+    ollama_config: {
+      base_url: "http://localhost:11434",
+      model: "nomic-embed-text",
+    },
+  };
+
   beforeEach(() => {
     vi.clearAllMocks();
-    const useAppStoreMock = useAppStore as unknown as ViMockFn;
-    useAppStoreMock.mockImplementation((selector: any) =>
-      selector({
-        config: undefined as QdrantOllamaConfig | undefined,
-        setConfig: vi.fn(),
-        indexStatus: 'ready' as const,
-        setView: vi.fn(),
-      })
+    (useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (selector: any) =>
+        selector({
+          config: undefined,
+          setConfig: vi.fn(),
+          indexStatus: "ready",
+          setView: vi.fn(),
+        })
     );
   });
 
-  it('renders basic layout sections', () => {
+  it("renders form with default values when no config exists", () => {
     renderWithIpc(<Settings />);
 
-    expect(screen.getByText('Settings')).toBeInTheDocument();
-    expect(screen.getByText('Configuration')).toBeInTheDocument();
-    expect(screen.getByText('Actions')).toBeInTheDocument();
-    expect(screen.getByText('Status')).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("http://localhost:6333")
+    ).toBeInTheDocument();
+    expect(
+      screen.getByPlaceholderText("nomic-embed-text")
+    ).toBeInTheDocument();
+    expect(screen.getByText("Save & Create")).toBeInTheDocument();
   });
 
-  it('requests config on mount when no config present', async () => {
+  it("pre-fills form when config loads", async () => {
     const ipc = createMockIpc();
-
-    (ipc.sendRequest as ReturnType<typeof vi.fn>).mockResolvedValue(null);
-
-    const setConfig = vi.fn();
-    (useAppStore as unknown as ViMockFn).mockImplementation((selector: any) =>
-      selector({
-        config: undefined,
-        setConfig,
-        indexStatus: 'ready' as const,
-        setView: vi.fn(),
-      })
-    );
+    ipc.sendRequest.mockResolvedValueOnce(mockConfig); // Mock LOAD_CONFIG response
 
     renderWithIpc(<Settings />, ipc);
+
+    await waitFor(() => {
+      const input = screen.getByDisplayValue("test-index");
+      expect(input).toBeInTheDocument();
+    });
+
+    expect(screen.getByDisplayValue("old-key")).toBeInTheDocument();
+  });
+
+  it('sends TEST_CONFIG_METHOD when "Test Connection" is clicked', async () => {
+    const ipc = createMockIpc();
+    ipc.sendRequest.mockImplementation((method) => {
+      if (method === LOAD_CONFIG_METHOD) return Promise.resolve(mockConfig);
+      if (method === TEST_CONFIG_METHOD)
+        return Promise.resolve({ success: true, message: "OK" });
+      return Promise.resolve(null);
+    });
+
+    renderWithIpc(<Settings />, ipc);
+
+    // Wait for load
+    await waitFor(() => screen.getByDisplayValue("test-index"));
+
+    const testBtn = screen.getByText("Test Connection");
+    fireEvent.click(testBtn);
 
     await waitFor(() => {
       expect(ipc.sendRequest).toHaveBeenCalledWith(
-        LOAD_CONFIG_METHOD,
-        'qdrantIndex',
-        {}
+        TEST_CONFIG_METHOD,
+        "webview-mgmt",
+        expect.objectContaining({
+          config: expect.objectContaining({
+            index_info: { name: "test-index" },
+          }),
+        })
+      );
+    });
+
+    expect(screen.getByText("OK")).toBeInTheDocument();
+  });
+
+  it('sends SAVE_CONFIG_METHOD with updated data when "Save" is clicked', async () => {
+    const ipc = createMockIpc();
+    ipc.sendRequest.mockResolvedValue(mockConfig); // Default load
+
+    renderWithIpc(<Settings />, ipc);
+
+    // Wait for load
+    await waitFor(() => screen.getByDisplayValue("test-index"));
+
+    // Change Index Name
+    const nameInput = screen.getByDisplayValue("test-index");
+    fireEvent.change(nameInput, { target: { value: "new-production-index" } });
+
+    // Click Save
+    const saveBtn = screen.getByText("Save & Create");
+    fireEvent.click(saveBtn);
+
+    await waitFor(() => {
+      expect(ipc.sendRequest).toHaveBeenCalledWith(
+        SAVE_CONFIG_METHOD,
+        "webview-mgmt",
+        expect.objectContaining({
+          config: expect.objectContaining({
+            index_info: { name: "new-production-index" },
+          }),
+        })
       );
     });
   });
 
-  it('subscribes to CONFIG_DATA_METHOD and updates config', () => {
+  it("triggers Force Re-Index when button is clicked", async () => {
     const ipc = createMockIpc();
-
-    const setConfig = vi.fn();
-    const useAppStoreMock = useAppStore as unknown as ViMockFn;
-    useAppStoreMock.mockImplementation((selector: any) =>
-      selector({
-        config: undefined,
-        setConfig,
-        indexStatus: 'ready' as const,
-        setView: vi.fn(),
-      })
-    );
-
     renderWithIpc(<Settings />, ipc);
 
-    expect(ipc.onNotification).toHaveBeenCalledWith(
-      CONFIG_DATA_METHOD,
-      expect.any(Function)
-    );
-
-    const handlerCall = (ipc.onNotification as ReturnType<typeof vi.fn>).mock.calls.find(
-      (call) => call[0] === CONFIG_DATA_METHOD
-    );
-    const handler = handlerCall?.[1] as (cfg: QdrantOllamaConfig | null) => void;
-
-    const cfg: QdrantOllamaConfig = {
-      index_info: { name: 'test-index' },
-      qdrant_config: { url: 'http://localhost:6333' },
-      ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' },
-    };
-
-    handler(cfg);
-
-    expect(setConfig).toHaveBeenCalledWith(cfg);
-  });
-
-  it('renders configuration details when config is present', async () => {
-    const cfg: QdrantOllamaConfig = {
-      index_info: { name: 'test-index' },
-      qdrant_config: { url: 'http://localhost:6333' },
-      ollama_config: { base_url: 'http://localhost:11434', model: 'nomic-embed-text' },
-    };
-
-    const useAppStoreMock = useAppStore as unknown as ViMockFn;
-    useAppStoreMock.mockImplementation((selector: any) =>
-      selector({
-        config: cfg,
-        setConfig: vi.fn(),
-        indexStatus: 'ready' as const,
-        setView: vi.fn(),
-      })
-    );
-
-    renderWithIpc(<Settings />);
-
-    // Assert that the concrete values are rendered, not just the labels
-    await screen.findByText('test-index');
-    await screen.findByText('http://localhost:6333');
-    await screen.findByText('nomic-embed-text');
-  });
-
-  it('triggers re-index when Force Re-index is clicked', async () => {
-    const ipc = createMockIpc();
-
-    renderWithIpc(<Settings />, ipc);
-
-    const button = await screen.findByText('Force Re-index');
-    await fireEvent.click(button);
+    const reindexBtn = screen.getByText("Force Re-Index Workspace");
+    fireEvent.click(reindexBtn);
 
     expect(ipc.sendCommand).toHaveBeenCalledWith(
       START_INDEX_METHOD,
-      'qdrantIndex',
+      "qdrantIndex",
       {}
     );
-  });
-
-  it('sends EXECUTE_COMMAND_METHOD when Open Workspace Settings clicked', async () => {
-    const ipc = createMockIpc();
-
-    renderWithIpc(<Settings />, ipc);
-
-    const button = await screen.findByText('Open Workspace Settings');
-    await fireEvent.click(button);
-
-    expect(ipc.sendCommand).toHaveBeenCalledWith(
-      EXECUTE_COMMAND_METHOD,
-      'webview-mgmt',
-      { command: 'qdrant.openSettings' }
-    );
-  });
-
-  it('updates showStale via DID_CHANGE_CONFIG_NOTIFICATION and sends update/preferences command', async () => {
-    const ipc = createMockIpc();
-
-    renderWithIpc(<Settings />, ipc);
-
-    expect(ipc.onNotification).toHaveBeenCalledWith(
-      DID_CHANGE_CONFIG_NOTIFICATION,
-      expect.any(Function)
-    );
-
-    const prefHandlerCall = (ipc.onNotification as ReturnType<typeof vi.fn>).mock.calls.find(
-      (call) => call[0] === DID_CHANGE_CONFIG_NOTIFICATION
-    );
-    const prefHandler = prefHandlerCall?.[1] as (params: { configKey: string; value: unknown }) => void;
-
-    // Simulate host notifying about stale preference change
-    prefHandler({ configKey: 'overview.stale.show', value: true });
-
-    await waitFor(() => {
-      expect(ipc.sendCommand).toHaveBeenCalledWith(
-        'update/preferences',
-        'webview-mgmt',
-        { 'overview.stale.show': true }
-      );
-    });
   });
 });

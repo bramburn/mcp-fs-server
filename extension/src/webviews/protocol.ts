@@ -126,10 +126,26 @@ export interface ExecuteCommandParams {
 export type ExecuteCommand = IpcCommand<ExecuteCommandParams>;
 export const EXECUTE_COMMAND_METHOD = 'webview/execute-command';
 
-// 9. Did Change Configuration Notification (Host -> Guest)
+ // 9. Did Change Configuration Notification (Host -> Guest)
 export interface DidChangeConfigurationParams {
     configKey: string;
     value: any;
 }
 export type DidChangeConfigurationNotification = IpcNotification<DidChangeConfigurationParams>;
 export const DID_CHANGE_CONFIG_NOTIFICATION = 'webview/did-change-configuration';
+
+// 10. Save Configuration Request (Guest -> Host)
+export interface SaveConfigParams {
+    config: QdrantOllamaConfig;
+}
+export const SAVE_CONFIG_METHOD = 'config/save';
+
+// 11. Test Configuration Request (Guest -> Host)
+export interface TestConfigParams {
+    config: QdrantOllamaConfig;
+}
+export interface TestConfigResponse {
+    success: boolean;
+    message: string;
+}
+export const TEST_CONFIG_METHOD = 'config/test';

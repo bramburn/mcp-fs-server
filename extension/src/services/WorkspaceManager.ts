@@ -1,5 +1,3 @@
-import "reflect-metadata";
-import { inject, injectable } from "tsyringe";
 import * as vscode from "vscode";
 import {
   FallbackGitProvider,
@@ -9,7 +7,6 @@ import {
 } from "../git/GitProvider.js";
 import { ConfigService } from "./ConfigService.js";
 import { ILogger } from "./LoggerService.js";
-import { ILOGGER_TOKEN, EXTENSION_CONTEXT_TOKEN } from "./ServiceTokens.js";
 
 /**
  * Workspace change event data
@@ -25,7 +22,6 @@ export type WorkspaceChangeListener = (event: WorkspaceChangeEvent) => void;
  * Service responsible for managing workspace context, repository discovery,
  * and coordinating of active configuration with Git integration
  */
-@injectable()
 export class WorkspaceManager implements vscode.Disposable {
   private readonly _disposable: vscode.Disposable;
   private _repositories: GitRepository[] = [];
@@ -33,9 +29,9 @@ export class WorkspaceManager implements vscode.Disposable {
   private _listeners: WorkspaceChangeListener[] = [];
 
   constructor(
-    @inject(EXTENSION_CONTEXT_TOKEN) private readonly _context: vscode.ExtensionContext,
+    private readonly _context: vscode.ExtensionContext,
     private readonly _configService: ConfigService,
-    @inject(ILOGGER_TOKEN) private readonly _logger: ILogger,
+    private readonly _logger: ILogger,
     gitProvider?: GitProvider
   ) {
     // Use dependency injection for Git provider, with fallback
@@ -70,7 +66,7 @@ export class WorkspaceManager implements vscode.Disposable {
     }
   }
 
-  private async initialize(): Promise<void> {
+  public async initialize(): Promise<void> {
     // Find repositories immediately upon activation
     await this.findRepositories();
   }

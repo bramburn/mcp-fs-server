@@ -26,8 +26,6 @@
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
     "jsx": "react-jsx",
     "types": ["vite/client", "node", "vitest/globals"]
   },

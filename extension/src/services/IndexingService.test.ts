@@ -38,8 +38,14 @@ vi.mock("vscode", () => {
   });
 
   const MockCancellationTokenSource = class {
-    token: { isCancellationRequested: boolean } = {
+    token: {
+      isCancellationRequested: boolean;
+      onCancellationRequested: (callback: () => void) => {
+        dispose: () => void;
+      };
+    } = {
       isCancellationRequested: false,
+      onCancellationRequested: vi.fn(() => ({ dispose: vi.fn() })),
     };
     cancel = vi.fn(() => {
       this.token.isCancellationRequested = true;
@@ -47,7 +53,7 @@ vi.mock("vscode", () => {
     dispose = vi.fn();
   };
 
-  return {
+  const mockVscode = {
     workspace: {
       fs: {
         stat: vi.fn(),
@@ -111,6 +117,11 @@ vi.mock("vscode", () => {
       Directory: 2,
       SymbolicLink: 64,
     },
+  };
+
+  return {
+    default: mockVscode,
+    ...mockVscode,
   };
 });
 

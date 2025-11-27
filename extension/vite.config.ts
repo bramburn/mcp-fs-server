@@ -37,7 +37,13 @@ export default defineConfig({
       output: {
         entryFileNames: "assets/[name].js",
         chunkFileNames: "assets/[name].js",
-        assetFileNames: "assets/[name].[ext]",
+        // Ensure CSS is named index.css to match WebviewController expectation
+        assetFileNames: (assetInfo) => {
+          if (assetInfo.name && assetInfo.name.endsWith(".css")) {
+            return "assets/index.css";
+          }
+          return "assets/[name].[ext]";
+        },
       },
     },
     minify: "esbuild",

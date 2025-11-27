@@ -1,5 +1,3 @@
-import "reflect-metadata";
-import { inject, injectable } from "tsyringe";
 import * as vscode from "vscode";
 import {
   ConfigPath,
@@ -9,7 +7,6 @@ import {
 } from "../config/Configuration.js";
 import { QdrantOllamaConfig } from "../webviews/protocol.js";
 import { ILogger } from "./LoggerService.js";
-import { ILOGGER_TOKEN } from "./ServiceTokens.js";
 
 /**
  * Ensures a URL has a proper protocol (http:// or https://)
@@ -45,7 +42,6 @@ export type ConfigurationChangeListener = (
  * Service responsible for managing VS Code configuration and file-based Qdrant configuration
  * Implements proper TypeScript typing and VS Code API integration with change subscription
  */
-@injectable()
 export class ConfigService implements vscode.Disposable {
   private _disposable: vscode.Disposable;
   private _config: Configuration = DefaultConfiguration;
@@ -53,7 +49,7 @@ export class ConfigService implements vscode.Disposable {
   private _listeners: ConfigurationChangeListener[] = [];
   private _disposed = false;
 
-  constructor(@inject(ILOGGER_TOKEN) private readonly _logger: ILogger) {
+  constructor(private readonly _logger: ILogger) {
     // Initialize and load the strongly typed configuration
     this.loadConfiguration();
 
@@ -186,6 +182,47 @@ export class ConfigService implements vscode.Disposable {
         "WARN"
       );
       return null;
+    }
+  }
+
+  /**
+   * Saves the Qdrant configuration to the active workspace folder.
+   * Creates the .qdrant directory if it doesn't exist.
+   */
+  public async saveQdrantConfig(
+    folder: vscode.WorkspaceFolder,
+    config: QdrantOllamaConfig
+  ): Promise<void> {
+    const dirUri = vscode.Uri.joinPath(folder.uri, ".qdrant");
+    const configUri = vscode.Uri.joinPath(dirUri, "configuration.json");
+
+    try {
+      // Ensure .qdrant directory exists
+      try {
+        await vscode.workspace.fs.stat(dirUri);
+      } catch {
+        await vscode.workspace.fs.createDirectory(dirUri);
+      }
+
+      // Ensure URLs are clean before saving
+      config.qdrant_config.url = ensureAbsoluteUrl(
+        config.qdrant_config.url
+      ).replace(/\/$/, "");
+      config.ollama_config.base_url = ensureAbsoluteUrl(
+        config.ollama_config.base_url
+      ).replace(/\/$/, "");
+
+      // Write file
+      const content = new TextEncoder().encode(JSON.stringify(config, null, 2));
+      await vscode.workspace.fs.writeFile(configUri, content);
+
+      // Update in-memory state
+      this._qdrantConfig = config;
+      this._logger.log(`Configuration saved to ${configUri.fsPath}`, "CONFIG");
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      this._logger.log(`Failed to save config: ${msg}`, "ERROR");
+      throw new Error(`Failed to save configuration: ${msg}`);
     }
   }
 

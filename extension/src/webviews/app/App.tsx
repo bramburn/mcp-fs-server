@@ -20,9 +20,48 @@ import Search from './views/Search';
 import Settings from './views/Settings';
 import CommandPaletteTest from './components/CommandPaletteTest';
 
+/**
+ * Helper hook to sync VS Code theme classes on <body> with Tailwind's `dark` class.
+ * This ensures Tailwind dark mode utilities respond to VS Code's active theme.
+ */
+function useThemeSync() {
+  useEffect(() => {
+    const syncTheme = () => {
+      const body = document.body;
+      // Check if VS Code is in dark mode or high contrast
+      const isDark =
+        body.classList.contains('vscode-dark') ||
+        body.classList.contains('vscode-high-contrast');
+
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+      } else {
+        document.documentElement.classList.remove('dark');
+      }
+    };
+
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.type === 'attributes' && mutation.attributeName === 'class') {
+          syncTheme();
+        }
+      }
+    });
+
+    // Initial sync
+    syncTheme();
+    observer.observe(document.body, { attributes: true });
+
+    return () => observer.disconnect();
+  }, []);
+}
+ 
 export default function App() {
   const vscodeApi = useVSCodeApi();
   const hostIpc = createHostIpc(vscodeApi);
+
+  // Keep Tailwind's `dark` class in sync with VS Code theme classes
+  useThemeSync();
   
   const view = useAppStore((state) => state.view);
   const setSearchResults = useAppStore((state) => state.setSearchResults);

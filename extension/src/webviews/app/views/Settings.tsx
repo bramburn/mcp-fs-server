@@ -1,211 +1,361 @@
-import { useEffect, useState, useCallback } from 'react';
-import { useAppStore } from '../store';
-import { useIpc } from '../contexts/ipc';
+import { useEffect, useState, useCallback } from "react";
+import { useAppStore } from "../store";
+import { useIpc } from "../contexts/ipc";
 import {
   LOAD_CONFIG_METHOD,
   START_INDEX_METHOD,
-  CONFIG_DATA_METHOD,
-  DID_CHANGE_CONFIG_NOTIFICATION,
-  EXECUTE_COMMAND_METHOD,
+  SAVE_CONFIG_METHOD,
+  TEST_CONFIG_METHOD,
   type QdrantOllamaConfig,
-} from '../../protocol';
-import { Button } from '../components/ui/button';
-import { Switch } from '../components/ui/switch';
-import { Settings as SettingsIcon, ChevronLeft } from 'lucide-react';
+  type TestConfigResponse,
+} from "../../protocol";
+import { Button } from "../components/ui/button";
+import { Input } from "../components/ui/input";
+import { Label } from "../components/ui/label";
+import { Separator } from "../components/ui/separator";
+import {
+  ChevronLeft,
+  Save,
+  Loader2,
+  CheckCircle2,
+  XCircle,
+  Database,
+  Server,
+  Cpu,
+} from "lucide-react";
 
 export default function Settings() {
   const ipc = useIpc();
-
   const config = useAppStore((state) => state.config);
   const setConfig = useAppStore((state) => state.setConfig);
   const indexStatus = useAppStore((state) => state.indexStatus);
   const setView = useAppStore((state) => state.setView);
 
-  const [loading, setLoading] = useState(false);
-  const [showStale, setShowStale] = useState(false);
+  // Local form state
+  const [formData, setFormData] = useState<QdrantOllamaConfig>({
+    index_info: { name: "codebase-index" },
+    qdrant_config: { url: "http://localhost:6333", api_key: "" },
+    ollama_config: {
+      base_url: "http://localhost:11434",
+      model: "nomic-embed-text",
+    },
+  });
 
+  const [loading, setLoading] = useState(false);
+  const [isTesting, setIsTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    message: string;
+  } | null>(null);
+
+  // Track dirty state to show "Unsaved changes" if needed
+  const [isDirty, setIsDirty] = useState(false);
+
+  // Load initial config
   const refreshConfig = useCallback(() => {
     setLoading(true);
     ipc
-      .sendRequest<Record<string, never>, QdrantOllamaConfig | null>(LOAD_CONFIG_METHOD, 'qdrantIndex', {})
+      .sendRequest<Record<string, never>, QdrantOllamaConfig | null>(
+        LOAD_CONFIG_METHOD,
+        "qdrantIndex",
+        {}
+      )
       .then((cfg) => {
-        setConfig(cfg ?? undefined);
+        if (cfg) {
+          setConfig(cfg);
+          setFormData(cfg);
+          setIsDirty(false);
+        }
       })
-      .catch((error) => {
-        console.error('Failed to load config:', error);
-        setConfig(undefined);
-      })
-      .finally(() => {
-        setLoading(false);
-      });
+      .finally(() => setLoading(false));
   }, [ipc, setConfig]);
 
-  const handleReindex = useCallback(() => {
-    ipc.sendCommand(START_INDEX_METHOD, 'qdrantIndex', {});
-  }, [ipc]);
-
-  const handleOpenSettings = useCallback(() => {
-    ipc.sendCommand(
-      EXECUTE_COMMAND_METHOD,
-      'webview-mgmt',
-      {
-        command: 'qdrant.openSettings',
-      }
-    );
-  }, [ipc]);
-
-  const goBack = useCallback(() => {
-    setView('search');
-  }, [setView]);
-
-  // Initial load + notifications
   useEffect(() => {
-    if (!config) {
-      refreshConfig();
+    if (!config) refreshConfig();
+  }, [config, refreshConfig]);
+
+  // Handle Input Changes
+  const handleInputChange = (
+    section: "qdrant_config" | "ollama_config" | "index_info",
+    field: string,
+    value: string
+  ) => {
+    setFormData((prev) => ({
+      ...prev,
+      [section]: {
+        ...prev[section],
+        [field]: value,
+      },
+    }));
+    setTestResult(null);
+    setIsDirty(true);
+  };
+
+  // Test Connection
+  const handleTestConnection = async () => {
+    setIsTesting(true);
+    setTestResult(null);
+    try {
+      const response = await ipc.sendRequest<
+        { config: QdrantOllamaConfig },
+        TestConfigResponse
+      >(TEST_CONFIG_METHOD, "webview-mgmt", { config: formData });
+      setTestResult(response);
+    } catch (error) {
+      setTestResult({ success: false, message: String(error) });
+    } finally {
+      setIsTesting(false);
     }
+  };
 
-    ipc.onNotification<QdrantOllamaConfig | null>(CONFIG_DATA_METHOD, (cfg) => {
-      setConfig(cfg ?? undefined);
-    });
-
-    ipc.onNotification<{ configKey: string; value: unknown }>(
-      DID_CHANGE_CONFIG_NOTIFICATION,
-      (params) => {
-        if (params.configKey === 'overview.stale.show') {
-          setShowStale(Boolean(params.value));
-        }
-      }
-    );
-  }, [ipc, config, refreshConfig, setConfig]);
-
-  // Mirror React effect that pushes stale preference changes to host
-  useEffect(() => {
-    ipc.sendCommand('update/preferences', 'webview-mgmt', {
-      'overview.stale.show': showStale,
-    });
-  }, [ipc, showStale]);
-
-  const effectiveConfig = config;
+  // Save Configuration
+  const handleSave = async () => {
+    setLoading(true);
+    try {
+      await ipc.sendRequest<{ config: QdrantOllamaConfig }, void>(
+        SAVE_CONFIG_METHOD,
+        "webview-mgmt",
+        { config: formData }
+      );
+      setIsDirty(false);
+      refreshConfig();
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
-    <div className="flex flex-col h-full w-full bg-background text-foreground">
-      {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-border/40 bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-        <div className="flex items-center gap-3 p-4">
-          <Button variant="ghost" size="icon" onClick={goBack} className="p-1" title="Back to search">
-            <ChevronLeft className="w-5 h-5" />
+    <div className="flex flex-col h-screen w-full bg-background text-foreground overflow-hidden">
+      {/* Navigation Header - Minimalist */}
+      <div className="flex-none px-4 py-3 border-b bg-background/95 backdrop-blur z-10 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => setView("search")}
+            className="h-8 w-8 -ml-2 text-muted-foreground hover:text-foreground"
+          >
+            <ChevronLeft className="h-4 w-4" />
           </Button>
-          <div className="flex items-center gap-2">
-            <SettingsIcon className="w-5 h-5 text-primary" />
-            <h2 className="text-sm font-semibold tracking-tight">Settings</h2>
-          </div>
+          <span className="text-sm font-medium">Settings</span>
         </div>
+
+        {/* Quick Save Action in header if dirty */}
+        {isDirty && (
+          <Button
+            size="sm"
+            onClick={handleSave}
+            disabled={loading}
+            className="h-7 px-3 text-xs"
+          >
+            {loading ? (
+              <Loader2 className="h-3 w-3 animate-spin mr-2" />
+            ) : (
+              "Save"
+            )}
+          </Button>
+        )}
       </div>
 
-      {/* Content */}
-      <div className="flex-1 overflow-y-auto min-h-0 p-4">
-        <div className="flex flex-col gap-6">
-          {/* Configuration Section */}
-          <div className="flex flex-col gap-3">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-foreground/90">Configuration</h3>
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl mx-auto p-6 space-y-8">
+          {/* Index Settings Section */}
+          <section className="space-y-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Database className="h-4 w-4 text-primary" />
+                <h3 className="text-base font-semibold tracking-tight">
+                  Index Settings
+                </h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Configure the identity of your codebase index.
+              </p>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="indexName">Index Name</Label>
+              <Input
+                id="indexName"
+                value={formData.index_info?.name || ""}
+                onChange={(e) =>
+                  handleInputChange("index_info", "name", e.target.value)
+                }
+                placeholder="codebase-index"
+                className="max-w-md"
+              />
+            </div>
+          </section>
+
+          <Separator />
+
+          {/* Qdrant Configuration Section */}
+          <section className="space-y-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Server className="h-4 w-4 text-primary" />
+                <h3 className="text-base font-semibold tracking-tight">
+                  Qdrant Server
+                </h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Configure the connection to your Qdrant vector database instance.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid gap-2">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="qdrantUrl">Server URL</Label>
+                  {/* Visual feedback for connection test */}
+                  {testResult && !testResult.success && (
+                    <span className="text-[10px] text-destructive flex items-center gap-1">
+                      <XCircle className="h-3 w-3" /> Connection Failed
+                    </span>
+                  )}
+                  {testResult && testResult.success && (
+                    <span className="text-[10px] text-green-600 flex items-center gap-1">
+                      <CheckCircle2 className="h-3 w-3" /> Verified
+                    </span>
+                  )}
+                </div>
+                <Input
+                  id="qdrantUrl"
+                  value={formData.qdrant_config.url}
+                  onChange={(e) =>
+                    handleInputChange("qdrant_config", "url", e.target.value)
+                  }
+                  placeholder="http://localhost:6333"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="qdrantApiKey">
+                  API Key{" "}
+                  <span className="text-muted-foreground font-normal">
+                    (Optional)
+                  </span>
+                </Label>
+                <Input
+                  id="qdrantApiKey"
+                  type="password"
+                  value={formData.qdrant_config.api_key || ""}
+                  onChange={(e) =>
+                    handleInputChange("qdrant_config", "api_key", e.target.value)
+                  }
+                  placeholder="Enter API Key"
+                />
+              </div>
+            </div>
+          </section>
+
+          <Separator />
+
+          {/* Ollama Configuration Section */}
+          <section className="space-y-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Cpu className="h-4 w-4 text-primary" />
+                <h3 className="text-base font-semibold tracking-tight">
+                  Ollama Server
+                </h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Configure the connection to your local LLM provider.
+              </p>
+            </div>
+
+            <div className="space-y-4">
+              <div className="grid gap-2">
+                <Label htmlFor="ollamaUrl">Base URL</Label>
+                <Input
+                  id="ollamaUrl"
+                  value={formData.ollama_config.base_url}
+                  onChange={(e) =>
+                    handleInputChange(
+                      "ollama_config",
+                      "base_url",
+                      e.target.value
+                    )
+                  }
+                  placeholder="http://localhost:11434"
+                />
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="ollamaModel">Embedding Model</Label>
+                <Input
+                  id="ollamaModel"
+                  value={formData.ollama_config.model}
+                  onChange={(e) =>
+                    handleInputChange("ollama_config", "model", e.target.value)
+                  }
+                  placeholder="nomic-embed-text"
+                />
+              </div>
+            </div>
+          </section>
+
+          <Separator />
+
+          {/* Actions Footer */}
+          <div className="pt-2 pb-10 space-y-4">
+            <div className="flex items-center gap-3">
               <Button
-                variant="link"
-                size="sm"
-                onClick={refreshConfig}
-                className="text-xs p-0 h-auto"
+                variant="outline"
+                onClick={handleTestConnection}
+                disabled={isTesting || loading}
+                className="flex-1"
               >
-                Refresh
+                {isTesting ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Server className="mr-2 h-4 w-4" />
+                )}
+                Test Connection
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={loading}
+                className="flex-1"
+              >
+                {loading ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
+                Save Configuration
               </Button>
             </div>
 
-            {loading && !effectiveConfig && (
-              <div className="text-xs text-muted-foreground">Loading configuration...</div>
-            )}
-
-            {!loading && effectiveConfig && (
-              <div className="flex flex-col gap-2 text-xs text-muted-foreground bg-secondary/20 p-3 rounded border border-border/50">
-                <div>
-                  <strong>Index Name:</strong>{' '}
-                  {effectiveConfig.index_info?.name ?? 'Not configured'}
+            {/* Maintenance Zone */}
+            <div className="rounded-lg border border-border bg-muted/30 p-4 mt-6">
+              <div className="flex items-center justify-between">
+                <div className="space-y-0.5">
+                  <h4 className="text-sm font-medium">Re-index Workspace</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Force a complete re-indexing of the current workspace.
+                  </p>
                 </div>
-                <div>
-                  <strong>Qdrant URL:</strong>{' '}
-                  {effectiveConfig.qdrant_config?.url ?? 'Not configured'}
-                </div>
-                <div>
-                  <strong>Ollama Model:</strong>{' '}
-                  {effectiveConfig.ollama_config?.model ?? 'Not configured'}
-                </div>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={() =>
+                    ipc.sendCommand(START_INDEX_METHOD, "qdrantIndex", {})
+                  }
+                  disabled={indexStatus === "indexing"}
+                >
+                  {indexStatus === "indexing" ? (
+                    <>
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Indexing...
+                    </>
+                  ) : (
+                    "Re-Index"
+                  )}
+                </Button>
               </div>
-            )}
-
-            {!loading && !effectiveConfig && (
-              <div className="text-xs text-muted-foreground bg-yellow-500/10 p-3 rounded border border-yellow-500/20">
-                No configuration loaded. Ensure{' '}
-                <code>.qdrant/configuration.json</code> exists in your workspace.
-              </div>
-            )}
-          </div>
-
-          {/* Actions Section */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-foreground/90">Actions</h3>
-
-            <Button
-              variant="outline"
-              onClick={handleOpenSettings}
-              className="w-full justify-start"
-            >
-              Open Workspace Settings
-            </Button>
-
-            <Button
-              onClick={handleReindex}
-              disabled={indexStatus === 'indexing'}
-              className="w-full"
-            >
-              {indexStatus === 'indexing' ? 'Indexing...' : 'Force Re-index'}
-            </Button>
-          </div>
-
-          {/* Filters / Stale Switch */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-foreground/90">Filters</h3>
-            <div className="flex items-center justify-between p-2 border rounded">
-              <label htmlFor="stale-filter" className="text-sm">
-                Show Stale Results
-              </label>
-              <Switch
-                id="stale-filter"
-                checked={showStale}
-                onCheckedChange={(value) => setShowStale(Boolean(value))}
-              />
-            </div>
-          </div>
-
-          {/* Status Section */}
-          <div className="flex flex-col gap-3">
-            <h3 className="text-sm font-semibold text-foreground/90">Status</h3>
-
-            <div className="flex items-center gap-2 text-xs">
-              <span
-                className={
-                  'w-2 h-2 rounded-full ' +
-                  (indexStatus === 'ready'
-                    ? 'bg-green-500'
-                    : indexStatus === 'indexing'
-                    ? 'bg-yellow-500 animate-pulse'
-                    : 'bg-red-500')
-                }
-              />
-              <span className="text-muted-foreground">
-                {indexStatus === 'ready'
-                  ? 'Index Ready'
-                  : indexStatus === 'indexing'
-                  ? 'Indexing in progress...'
-                  : 'Index Error'}
-              </span>
             </div>
           </div>
         </div>

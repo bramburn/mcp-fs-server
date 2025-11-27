@@ -1,12 +1,9 @@
-import "reflect-metadata";
-import { inject, injectable } from "tsyringe";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import * as vscode from "vscode";
 import { QdrantOllamaConfig } from "../webviews/protocol.js";
 import { AnalyticsService } from "./AnalyticsService.js";
 import { ConfigService } from "./ConfigService.js";
 import { ILogger } from "./LoggerService.js";
-import { ILOGGER_TOKEN, EXTENSION_CONTEXT_TOKEN } from "./ServiceTokens.js";
 // Use a relative import so compiled extension can resolve this at runtime
 // when packaged and installed in VS Code. The previous bare "shared" import
 // relied on TS path aliases and failed in extension host.
@@ -39,7 +36,6 @@ export type IndexingProgressListener = (progress: IndexingProgress) => void;
  * Core service to handle file indexing and interaction with Qdrant/Ollama
  * with proper cancellation token support and dependency injection
  */
-@injectable()
 export class IndexingService implements vscode.Disposable {
   private _isIndexing = false;
   private _client: QdrantClient | null = null;
@@ -54,11 +50,35 @@ export class IndexingService implements vscode.Disposable {
 
   constructor(
     private readonly _configService: ConfigService,
-    @inject(EXTENSION_CONTEXT_TOKEN) private readonly _context: vscode.ExtensionContext,
+    private readonly _context: vscode.ExtensionContext,
     private readonly _analyticsService: AnalyticsService,
-    @inject(ILOGGER_TOKEN) private readonly _logger: ILogger
+    private readonly _logger: ILogger
   ) {
     this._splitter = new CodeSplitter();
+  }
+
+  /**
+   * Add a listener for indexing progress
+   */
+  public async initializeSplitter(): Promise<void> {
+    try {
+      const wasmPath = vscode.Uri.joinPath(
+        this._context.extensionUri,
+        "resources",
+        "tree-sitter.wasm"
+      ).fsPath;
+      const langPath = vscode.Uri.joinPath(
+        this._context.extensionUri,
+        "resources",
+        "tree-sitter-typescript.wasm"
+      ).fsPath;
+      await this._splitter.initialize(wasmPath, langPath);
+    } catch (e) {
+      this._logger.log(
+        "Failed to init splitter WASM (falling back to line split)",
+        "WARN"
+      );
+    }
   }
 
   /**
@@ -289,6 +309,7 @@ export class IndexingService implements vscode.Disposable {
           status: "cancelled",
         });
         vscode.window.showInformationMessage("Indexing was cancelled");
+        // We generally don't re-throw cancellations as errors to the UI
       } else {
         this.notifyProgress({
           current: 0,
@@ -296,11 +317,13 @@ export class IndexingService implements vscode.Disposable {
           status: "error",
         });
         this._logger.log("Indexing critical failure:", "ERROR");
-        vscode.window.showErrorMessage(
-          `Indexing failed: ${
-            error instanceof Error ? error.message : "Unknown error"
-          }`
-        );
+
+        const errorMessage =
+          error instanceof Error ? error.message : "Unknown error";
+        vscode.window.showErrorMessage(`Indexing failed: ${errorMessage}`);
+
+        // Re-throw the error so callers (e.g., WebviewController) can surface failure
+        throw error;
       }
     } finally {
       this._isIndexing = false;

@@ -1,18 +1,12 @@
 import { PostHog } from "posthog-node";
-import "reflect-metadata";
-import { inject, injectable } from "tsyringe";
 import * as vscode from "vscode";
-import { EXTENSION_CONTEXT_TOKEN } from "./ServiceTokens.js";
 
-@injectable()
 export class AnalyticsService {
   private client: PostHog | null = null;
   private readonly extensionId = "qdrant-codesearch";
   private readonly extensionVersion = "0.0.1";
 
-  constructor(
-    @inject(EXTENSION_CONTEXT_TOKEN) private context: vscode.ExtensionContext
-  ) {
+  constructor(private context: vscode.ExtensionContext) {
     this.initialize();
   }
 
