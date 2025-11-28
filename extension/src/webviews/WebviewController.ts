@@ -6,10 +6,14 @@ import { ILogger } from "../services/LoggerService.js";
 import { WorkspaceManager } from "../services/WorkspaceManager.js";
 import {
   CONFIG_DATA_METHOD,
+  COPY_RESULTS_METHOD,
+  CopyResultsParams,
   DID_CHANGE_CONFIG_NOTIFICATION,
   DidChangeConfigurationNotification,
   EXECUTE_COMMAND_METHOD,
   ExecuteCommand,
+  // New imports for copy results
+  FileSnippetResult,
   INDEX_STATUS_METHOD,
   IpcCommand,
   IpcMessage,
@@ -22,17 +26,13 @@ import {
   OpenFileParams,
   QdrantOllamaConfig,
   SAVE_CONFIG_METHOD,
+  SaveConfigParams,
   SEARCH_METHOD,
   SearchRequestParams,
   START_INDEX_METHOD,
   TEST_CONFIG_METHOD,
-  SaveConfigParams,
   TestConfigParams,
   TestConfigResponse,
-  // New imports for copy results
-  FileSnippetResult,
-  CopyResultsParams,
-  COPY_RESULTS_METHOD,
 } from "./protocol.js";
 
 /**
@@ -142,10 +142,18 @@ export class WebviewController
 
       const listener = webviewView.webview.onDidReceiveMessage(
         async (data: any) => {
+          this.log(
+            `[IPC Host] Received message from webview: ${JSON.stringify(data)}`,
+            "WEBVIEW"
+          );
           const message: any = data;
 
           // Handle simple debug/fallback commands from error HTML
           if (message && typeof message.command === "string") {
+            this.log(
+              `[IPC Host] Processing fallback command: ${message.command}`,
+              "WEBVIEW"
+            );
             switch (message.command) {
               case "extension.reload": {
                 this.log(
@@ -187,6 +195,11 @@ export class WebviewController
           }
 
           const typed = data as IpcMessage;
+          const method = "method" in typed ? typed.method : "N/A";
+          this.log(
+            `[IPC Host] Message kind: ${typed.kind}, scope: ${typed.scope}, method: ${method}`,
+            "WEBVIEW"
+          );
 
           // Security: Validate message scope
           const validScopes: IpcScope[] = ["qdrantIndex", "webview-mgmt"];
@@ -199,11 +212,18 @@ export class WebviewController
           }
 
           // IPC Handler: Use type guards for stricter handling
+          this.log(`[IPC Host] Routing message to handler...`, "WEBVIEW");
           if (typed.kind === "command") {
+            this.log(`[IPC Host] Handling command: ${typed.method}`, "WEBVIEW");
             await this.handleCommand(typed as IpcCommand<any>);
           } else if (typed.kind === "request") {
+            this.log(`[IPC Host] Handling request: ${typed.method}`, "WEBVIEW");
             await this.handleRequest(typed as IpcRequest<any>);
           } else if (typed.kind === "notification") {
+            this.log(
+              `[IPC Host] Handling notification: ${typed.method}`,
+              "WEBVIEW"
+            );
             await this.handleNotification(typed as IpcNotification<any>);
           }
           // Responses are typically handled by caller logic, not controller here
@@ -304,14 +324,33 @@ export class WebviewController
           break;
 
         // FIX 1: Handle ipc:ready-request (sent as kind: 'command' by App.tsx)
-        case "ipc:ready-request":
+        case "ipc:ready-request": {
           this.log("Webview ready, sending initial status", "IPC");
+
+          // Ensure indexing service is initialized for search
+          const folder = this._workspaceManager.getActiveWorkspaceFolder();
+          if (folder) {
+            this.log(
+              "[IPC] Ensuring IndexingService is initialized on webview ready",
+              "WEBVIEW"
+            );
+            await this._indexingService.initializeForSearch(folder);
+          }
+
           // Check actual status instead of hardcoding 'ready'
           const currentStatus = this._indexingService.isIndexing
             ? "indexing"
             : "ready";
-          this.sendNotification(INDEX_STATUS_METHOD, { status: currentStatus });
+
+          // Fetch stats
+          const stats = await this._indexingService.getCollectionStats();
+
+          this.sendNotification(INDEX_STATUS_METHOD, {
+            status: currentStatus,
+            stats: stats ?? undefined,
+          });
           break;
+        }
 
         // FIX 2: Handle update/preferences command
         case "update/preferences":
@@ -349,16 +388,27 @@ export class WebviewController
   private async handleRequest(
     request: IpcRequest<any>
   ): Promise<IpcResponse<any> | void> {
+    this.log(
+      `[IPC Host] handleRequest called for method: ${request.method}`,
+      "WEBVIEW"
+    );
     try {
       // Validate request structure
       if (!request || !request.method || !request.id) {
+        this.log(`[IPC Host] Invalid request structure`, "ERROR");
         throw new Error("Invalid request structure: missing method or id");
       }
 
+      this.log(
+        `[IPC Host] Request validated, routing to handler...`,
+        "WEBVIEW"
+      );
       let response: IpcResponse<any> | undefined;
       switch (request.method) {
         case SEARCH_METHOD:
+          this.log(`[IPC Host] Calling handleSearchRequest...`, "WEBVIEW");
           response = await this.handleSearchRequest(request);
+          this.log(`[IPC Host] handleSearchRequest completed`, "WEBVIEW");
           break;
         case LOAD_CONFIG_METHOD:
           response = await this.handleLoadConfigRequest(request);
@@ -396,12 +446,15 @@ export class WebviewController
       }
 
       if (response) {
+        this.log(`[IPC Host] Sending response back to webview`, "WEBVIEW");
         this.sendResponse(response);
+      } else {
+        this.log(`[IPC Host] No response generated`, "WARN");
       }
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.log(
-        `Error handling request ${request.method}: ${errorMsg}`,
+        `[IPC Host] Error handling request ${request.method}: ${errorMsg}`,
         "ERROR"
       );
       this._analyticsService.trackError(
@@ -418,6 +471,7 @@ export class WebviewController
         timestamp: Date.now(),
         error: errorMsg,
       };
+      this.log(`[IPC Host] Sending error response back to webview`, "ERROR");
       this.sendResponse(errorResponse);
     }
   }
@@ -486,15 +540,22 @@ export class WebviewController
   private async handleIndexRequest() {
     const folder = this._workspaceManager.getActiveWorkspaceFolder();
     if (!folder) {
-        this.sendNotification(INDEX_STATUS_METHOD, { status: "no_workspace" });
-        vscode.window.showErrorMessage("Please open a workspace folder first.");
-        return;
+      this.sendNotification(INDEX_STATUS_METHOD, { status: "no_workspace" });
+      vscode.window.showErrorMessage("Please open a workspace folder first.");
+      return;
     }
-    
+
     this.sendNotification(INDEX_STATUS_METHOD, { status: "indexing" });
     try {
       await this._indexingService.startIndexing(folder);
-      this.sendNotification(INDEX_STATUS_METHOD, { status: "ready" });
+
+      // Fetch stats after indexing completes
+      const stats = await this._indexingService.getCollectionStats();
+
+      this.sendNotification(INDEX_STATUS_METHOD, {
+        status: "ready",
+        stats: stats ?? undefined,
+      });
     } catch (e) {
       this.sendNotification(INDEX_STATUS_METHOD, {
         status: "error",
@@ -517,90 +578,164 @@ export class WebviewController
     if (byUri.size > 20) {
       const choice = await vscode.window.showWarningMessage(
         `Copying ${byUri.size} files may create a large payload. Continue?`,
-        'Copy anyway',
-        'Cancel',
+        "Copy anyway",
+        "Cancel"
       );
-      if (choice !== 'Copy anyway') return;
+      if (choice !== "Copy anyway") return;
     }
 
-    let buffer = '';
+    let buffer = "";
 
     for (const [uriString, snippets] of byUri) {
-        try {
-            const uri = vscode.Uri.parse(uriString);
-            const rel = vscode.workspace.asRelativePath(uri, false);
+      try {
+        const uri = vscode.Uri.parse(uriString);
+        const rel = vscode.workspace.asRelativePath(uri, false);
 
-            if (mode === 'files') {
-                const bytes = await vscode.workspace.fs.readFile(uri);
-                const text = new TextDecoder('utf-8').decode(bytes);
-                buffer += `// File: ${rel}\n`;
-                buffer += `${text}\n\n`;
-            } else {
-                buffer += `// File: ${rel}\n`;
-                // Sort snippets by line number
-                snippets.sort((a, b) => a.lineStart - b.lineStart);
-                for (const s of snippets) {
-                    buffer += `// Lines ${s.lineStart}-${s.lineEnd}\n`;
-                    buffer += `${s.snippet ?? ''}\n\n`;
-                }
-            }
-        } catch (e) {
-            this.log(`Failed to read file for copy: ${uriString}`, 'ERROR');
-            buffer += `// File: ${uriString} (Error reading file)\n\n`;
+        if (mode === "files") {
+          const bytes = await vscode.workspace.fs.readFile(uri);
+          const text = new TextDecoder("utf-8").decode(bytes);
+          buffer += `// File: ${rel}\n`;
+          buffer += `${text}\n\n`;
+        } else {
+          buffer += `// File: ${rel}\n`;
+          // Sort snippets by line number
+          snippets.sort((a, b) => a.lineStart - b.lineStart);
+          for (const s of snippets) {
+            buffer += `// Lines ${s.lineStart}-${s.lineEnd}\n`;
+            buffer += `${s.snippet ?? ""}\n\n`;
+          }
         }
+      } catch {
+        this.log(`Failed to read file for copy: ${uriString}`, "ERROR");
+        buffer += `// File: ${uriString} (Error reading file)\n\n`;
+      }
     }
 
     if (!buffer) {
-        vscode.window.showInformationMessage('Qdrant: Nothing to copy.');
-        return;
+      vscode.window.showInformationMessage("Qdrant: Nothing to copy.");
+      return;
     }
 
     await vscode.env.clipboard.writeText(buffer);
     vscode.window.setStatusBarMessage(
-        `Qdrant: Copied context from ${byUri.size} file(s)`,
-        3000,
+      `Qdrant: Copied context from ${byUri.size} file(s)`,
+      3000
     );
-    this._analyticsService.trackEvent("results_copied", { mode, fileCount: byUri.size });
+    this._analyticsService.trackEvent("results_copied", {
+      mode,
+      fileCount: byUri.size,
+    });
   }
 
   private async handleSearchRequest(
     request: IpcRequest<SearchRequestParams>
   ): Promise<IpcResponse<any>> {
+    this.log(`[IPC Host] handleSearchRequest called`, "WEBVIEW");
+    this.log(
+      `[IPC Host] Request params: ${JSON.stringify(request.params)}`,
+      "WEBVIEW"
+    );
     try {
       // Enhanced parameter validation
       if (!request.params) {
+        this.log(`[IPC Host] Missing request parameters`, "ERROR");
         throw new Error("Missing request parameters");
       }
 
       if (!request.params.query || typeof request.params.query !== "string") {
+        this.log(
+          `[IPC Host] Invalid or missing search query parameter`,
+          "ERROR"
+        );
         throw new Error("Invalid or missing search query parameter");
       }
 
       if (request.params.query.trim().length === 0) {
+        this.log(`[IPC Host] Search query is empty`, "ERROR");
         throw new Error("Search query cannot be empty");
       }
 
+      // Ensure indexing service is initialized for search
+      const folder = this._workspaceManager.getActiveWorkspaceFolder();
+      if (folder) {
+        this.log(
+          `[IPC Host] Ensuring IndexingService is initialized for search...`,
+          "WEBVIEW"
+        );
+        const initSuccess = await this._indexingService.initializeForSearch(
+          folder
+        );
+        if (!initSuccess) {
+          this.log(
+            `[IPC Host] Failed to initialize IndexingService for search`,
+            "ERROR"
+          );
+          throw new Error(
+            "Indexing service failed to initialize. Please check your configuration."
+          );
+        }
+        this.log(
+          `[IPC Host] IndexingService initialization verified`,
+          "WEBVIEW"
+        );
+      } else {
+        this.log(`[IPC Host] No workspace folder found`, "ERROR");
+        throw new Error("No workspace folder found");
+      }
+
       const query = request.params.query.trim();
-      this.log(`Executing search for query: "${query}"`, "SEARCH");
-      const results = await this._indexingService.search(query);
+      this.log(`[IPC Host] Executing search for query: "${query}"`, "SEARCH");
+      this.log(`[IPC Host] Calling indexingService.search()...`, "WEBVIEW");
+      const searchResults = await this._indexingService.search(query);
+      this.log(`[IPC Host] indexingService.search() completed`, "WEBVIEW");
+
+      // Transform SearchResultItem[] to FileSnippetResult[]
+      const transformedResults: FileSnippetResult[] = searchResults.map(
+        (item) => {
+          const workspaceFolder =
+            this._workspaceManager.getActiveWorkspaceFolder();
+          const workspacePath = workspaceFolder?.uri.fsPath || "";
+
+          // Construct full file path
+          const fullPath = item.payload.filePath.startsWith("/")
+            ? item.payload.filePath
+            : `${workspacePath}/${item.payload.filePath}`;
+
+          const uri = vscode.Uri.file(fullPath).toString();
+
+          return {
+            uri,
+            filePath: item.payload.filePath,
+            snippet: item.payload.content, // Map 'content' to 'snippet'
+            lineStart: item.payload.lineStart,
+            lineEnd: item.payload.lineEnd,
+            score: item.score,
+          };
+        }
+      );
 
       this._analyticsService.trackSearch({
         queryLength: query.length,
-        resultsCount: results?.length || 0,
+        resultsCount: transformedResults?.length || 0,
       });
 
-      this.log(`Search completed: ${results?.length || 0} results`, "SEARCH");
+      this.log(
+        `[IPC Host] Search completed: ${
+          transformedResults?.length || 0
+        } results`,
+        "SEARCH"
+      );
       return {
         kind: "response",
         scope: request.scope,
         id: crypto.randomUUID(),
         responseId: request.id,
         timestamp: Date.now(),
-        data: { results },
+        data: { results: transformedResults },
       };
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
-      this.log(`Search error: ${errorMsg}`, "ERROR");
+      this.log(`[IPC Host] Search error: ${errorMsg}`, "ERROR");
 
       this._analyticsService.trackError("search_failed", "handleSearchRequest");
 
@@ -643,35 +778,36 @@ export class WebviewController
         "No active workspace folder found. Cannot save configuration."
       );
     }
-    
+
     // Pass the useGlobal flag from the request to the service
     await this._configService.saveQdrantConfig(
-        folder,
-        request.params.config,
-        request.params.useGlobal ?? false
+      folder,
+      request.params.config,
+      request.params.useGlobal ?? false
     );
-    
+
     vscode.window.showInformationMessage(
-      `Qdrant configuration saved ${request.params.useGlobal ? 'globally' : 'locally'}.`
+      `Qdrant configuration saved ${
+        request.params.useGlobal ? "globally" : "locally"
+      }.`
     );
   }
 
   private async handleTestConfigRequest(
     request: IpcRequest<TestConfigParams>
   ): Promise<IpcResponse<TestConfigResponse>> {
-    
     // Call the new detailed validation
     const result = await this._configService.validateConnectionDetailed(
-        request.params.config
+      request.params.config
     );
 
     return {
-        kind: "response",
-        scope: request.scope,
-        id: crypto.randomUUID(),
-        responseId: request.id,
-        timestamp: Date.now(),
-        data: result,
+      kind: "response",
+      scope: request.scope,
+      id: crypto.randomUUID(),
+      responseId: request.id,
+      timestamp: Date.now(),
+      data: result,
     };
   }
 

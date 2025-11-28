@@ -113,6 +113,10 @@ export interface IndexStatusParams {
   status: "ready" | "indexing" | "error" | "no_workspace";
   message?: string;
   progress?: number; // 0-100
+  stats?: {
+    // <--- Add this
+    vectorCount: number;
+  };
 }
 export const INDEX_STATUS_METHOD = "index/status";
 
@@ -165,19 +169,19 @@ export type DidChangeConfigurationNotification =
 export const DID_CHANGE_CONFIG_NOTIFICATION =
   "webview/did-change-configuration";
 
- // 10. Save Configuration Request (Guest -> Host)
- /**
-  * Parameters for SAVE_CONFIG_METHOD.
-  *
-  * This message is sent as an IpcRequest from the webview to the host.
-  * The host MUST reply with an IpcResponse so that the Promise returned
-  * by sendRequest in the webview can resolve and tests do not stall.
-  */
- export interface SaveConfigParams {
-   config: QdrantOllamaConfig;
-   useGlobal?: boolean; // New optional flag
- }
- export const SAVE_CONFIG_METHOD = "config/save";
+// 10. Save Configuration Request (Guest -> Host)
+/**
+ * Parameters for SAVE_CONFIG_METHOD.
+ *
+ * This message is sent as an IpcRequest from the webview to the host.
+ * The host MUST reply with an IpcResponse so that the Promise returned
+ * by sendRequest in the webview can resolve and tests do not stall.
+ */
+export interface SaveConfigParams {
+  config: QdrantOllamaConfig;
+  useGlobal?: boolean; // New optional flag
+}
+export const SAVE_CONFIG_METHOD = "config/save";
 
 // 11. Test Configuration Request (Guest -> Host)
 export interface TestConfigParams {

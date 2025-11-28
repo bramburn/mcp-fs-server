@@ -73,7 +73,24 @@ export class Container implements vscode.Disposable {
           const folder = this.workspaceManager.getActiveWorkspaceFolder();
           if (folder) {
             await this.configService.loadQdrantConfig(folder);
-            this.statusBarItem.text = "$(database) Qdrant: Ready";
+            // Initialize indexing service for search operations
+            this.logger.log(
+              "[CONTAINER] Initializing IndexingService for search",
+              "INFO"
+            );
+            const initSuccess = await this.indexingService.initializeForSearch(
+              folder
+            );
+            if (initSuccess) {
+              this.statusBarItem.text = "$(database) Qdrant: Ready";
+            } else {
+              this.logger.log(
+                "[CONTAINER] IndexingService initialization failed, search may not work",
+                "WARN"
+              );
+              this.statusBarItem.text =
+                "$(database) Qdrant: Ready (Search Unavailable)";
+            }
           } else {
             // No workspace folder
             this.statusBarItem.text = "$(database) Qdrant: No Workspace";

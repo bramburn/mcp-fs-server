@@ -1,8 +1,12 @@
-import { create } from 'zustand';
-import type { FileSnippetResult, IndexStatusParams, QdrantOllamaConfig } from '../protocol';
+import { create } from "zustand";
+import type {
+  FileSnippetResult,
+  IndexStatusParams,
+  QdrantOllamaConfig,
+} from "../protocol";
 
-export type ViewType = 'search' | 'settings' | 'test';
-export type IndexStatus = IndexStatusParams['status'] | 'ready';
+export type ViewType = "search" | "settings" | "test";
+export type IndexStatus = IndexStatusParams["status"] | "ready";
 
 interface AppState {
   // View management
@@ -22,6 +26,8 @@ interface AppState {
   setIndexStatus: (status: IndexStatus) => void;
   indexProgress: number;
   setIndexProgress: (progress: number) => void;
+  indexStats: { vectorCount: number } | undefined;
+  setIndexStats: (stats: { vectorCount: number } | undefined) => void;
 
   // Configuration
   config: QdrantOllamaConfig | undefined;
@@ -30,12 +36,13 @@ interface AppState {
 
 export const useAppStore = create<AppState>((set) => ({
   // Initial state
-  view: 'search',
-  query: '',
+  view: "search",
+  query: "",
   searchResults: [],
   isSearching: false,
-  indexStatus: 'ready',
+  indexStatus: "ready",
   indexProgress: 0,
+  indexStats: undefined,
   config: undefined,
 
   // Actions
@@ -45,5 +52,6 @@ export const useAppStore = create<AppState>((set) => ({
   setIsSearching: (isSearching) => set({ isSearching }),
   setIndexStatus: (indexStatus) => set({ indexStatus }),
   setIndexProgress: (indexProgress) => set({ indexProgress }),
+  setIndexStats: (indexStats) => set({ indexStats }),
   setConfig: (config) => set({ config }),
 }));

@@ -1102,7 +1102,7 @@ export class IndexingService implements vscode.Disposable {
   }
 
   /**
-   * Add a listener for indexing progress
+   * Initialize the splitter with WASM resources
    */
   public async initializeSplitter(): Promise<void> {
     try {
@@ -1122,6 +1122,100 @@ export class IndexingService implements vscode.Disposable {
         "Failed to init splitter WASM (falling back to line split)",
         "WARN"
       );
+    }
+  }
+
+  /**
+   * Initialize the indexing service for search operations
+   * This sets up the vector store, embedding provider, and configuration
+   * without performing a full re-index
+   */
+  public async initializeForSearch(
+    folder: vscode.WorkspaceFolder
+  ): Promise<boolean> {
+    // If already initialized, return success
+    if (this._vectorStore && this._activeConfig) {
+      this._logger.log(
+        "[INIT] IndexingService already initialized for search",
+        "INFO"
+      );
+      return true;
+    }
+
+    try {
+      this._logger.log(
+        "[INIT] Initializing IndexingService for search operations",
+        "INFO"
+      );
+
+      // Load configuration
+      const config = await this._configService.loadQdrantConfig(folder);
+      if (!config) {
+        this._logger.log("[INIT] Failed to load Qdrant configuration", "ERROR");
+        return false;
+      }
+
+      this._logger.log(
+        `[INIT] Configuration loaded: ${config.active_vector_db}`,
+        "INFO"
+      );
+
+      // Validate connections
+      this._logger.log("[INIT] Validating connections...", "INFO");
+      const isHealthy = await this.retryWithBackoff(
+        () => this._configService.validateConnection(config),
+        3,
+        1000
+      );
+
+      if (!isHealthy) {
+        this._logger.log("[INIT] Connection validation failed", "ERROR");
+        return false;
+      }
+
+      this._logger.log("[INIT] Connections validated successfully", "INFO");
+
+      // Store active config
+      this._activeConfig = config;
+
+      // Initialize embedding provider
+      this._logger.log("[INIT] Initializing embedding provider...", "INFO");
+      this._embeddingProvider = this.createEmbeddingProvider(config);
+      this._logger.log(
+        `[INIT] ✓ Embedding provider initialized: ${config.active_embedding_provider}`,
+        "INFO"
+      );
+
+      // Initialize vector store client
+      if (config.active_vector_db === "qdrant" && config.qdrant_config) {
+        this._logger.log("[INIT] Initializing Qdrant client...", "INFO");
+        this._client = this.getOrCreateClient(
+          config.qdrant_config.url,
+          config.qdrant_config.api_key
+        );
+        this._logger.log("[INIT] ✓ Qdrant client initialized", "INFO");
+      }
+
+      // Create vector store instance
+      this._logger.log("[INIT] Initializing vector store...", "INFO");
+      this._vectorStore = this.createVectorStore(config);
+      this._logger.log(
+        `[INIT] ✓ Vector store initialized: ${config.active_vector_db}`,
+        "INFO"
+      );
+
+      this._logger.log(
+        "[INIT] ✓ IndexingService successfully initialized for search",
+        "INFO"
+      );
+      return true;
+    } catch (error) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this._logger.log(
+        `[INIT] Failed to initialize for search: ${errorMsg}`,
+        "ERROR"
+      );
+      return false;
     }
   }
 
@@ -1252,6 +1346,10 @@ export class IndexingService implements vscode.Disposable {
     let wasCancelled = false;
 
     try {
+      this._logger.log("=".repeat(60));
+      this._logger.log("[INDEXING] Starting indexing process...");
+      this._logger.log("=".repeat(60));
+
       this.notifyProgress({
         current: 0,
         total: 0,
@@ -1264,6 +1362,10 @@ export class IndexingService implements vscode.Disposable {
         throw new Error("No active workspace folder found");
       }
 
+      this._logger.log(
+        `[INDEXING] Workspace: ${workspaceFolder.name} (${workspaceFolder.uri.fsPath})`
+      );
+
       const config = await this._configService.loadQdrantConfig(
         workspaceFolder
       );
@@ -1273,7 +1375,17 @@ export class IndexingService implements vscode.Disposable {
         );
       }
 
+      this._logger.log(`[INDEXING] Configuration loaded successfully`);
+      this._logger.log(`[INDEXING] Vector DB: ${config.active_vector_db}`);
+      this._logger.log(
+        `[INDEXING] Embedding Provider: ${config.active_embedding_provider}`
+      );
+      this._logger.log(
+        `[INDEXING] Collection Name: ${config.index_info?.name || "codebase"}`
+      );
+
       // Validate connections before starting heavy work with retry logic
+      this._logger.log(`[INDEXING] Validating connections...`);
       const connectionStartTime = Date.now();
       const isHealthy = await this.retryWithBackoff(
         () => this._configService.validateConnection(config),
@@ -1283,12 +1395,19 @@ export class IndexingService implements vscode.Disposable {
       const connectionDuration = Date.now() - connectionStartTime;
 
       if (isHealthy) {
+        this._logger.log(
+          `[INDEXING] ✓ Connection validated successfully in ${connectionDuration}ms`
+        );
         this._analyticsService.trackEvent("connection_success", {
           connectionDuration,
           vectorDb: config.active_vector_db,
           embeddingProvider: config.active_embedding_provider,
         });
       } else {
+        this._logger.log(
+          `[INDEXING] ✗ Connection validation failed after ${connectionDuration}ms`,
+          "ERROR"
+        );
         this._analyticsService.trackEvent("connection_failed", {
           connectionDuration,
           vectorDb: config.active_vector_db,
@@ -1302,26 +1421,29 @@ export class IndexingService implements vscode.Disposable {
       this._activeConfig = config;
 
       // Initialize embedding provider
+      this._logger.log(`[INDEXING] Initializing embedding provider...`);
       this._embeddingProvider = this.createEmbeddingProvider(config);
       this._logger.log(
-        `[INDEXING] Embedding provider initialized: ${config.active_embedding_provider}`
+        `[INDEXING] ✓ Embedding provider initialized: ${config.active_embedding_provider}`
       );
 
       // Initialize vector store (Qdrant-specific setup)
       if (config.active_vector_db === "qdrant" && config.qdrant_config) {
+        this._logger.log(`[INDEXING] Initializing Qdrant client...`);
         this._client = this.getOrCreateClient(
           config.qdrant_config.url,
           config.qdrant_config.api_key
         );
         this._logger.log(
-          `[INDEXING] Qdrant client initialized successfully (using connection pool)`
+          `[INDEXING] ✓ Qdrant client initialized (using connection pool)`
         );
       }
 
       // Create vector store instance
+      this._logger.log(`[INDEXING] Initializing vector store...`);
       this._vectorStore = this.createVectorStore(config);
       this._logger.log(
-        `[INDEXING] Vector store initialized: ${config.active_vector_db}`
+        `[INDEXING] ✓ Vector store initialized: ${config.active_vector_db}`
       );
 
       // Initialize Splitter with WASM paths
@@ -1378,11 +1500,13 @@ export class IndexingService implements vscode.Disposable {
             )
           : new vscode.RelativePattern(workspaceFolder, "**/*");
 
+      this._logger.log(`[INDEXING] Scanning for files...`);
       const files = await vscode.workspace.findFiles(
         includePattern,
         excludePattern,
         configSettings.indexing.maxFiles
       );
+      this._logger.log(`[INDEXING] Found ${files.length} files to index.`);
 
       // Check for cancellation before starting heavy work
       if (token.isCancellationRequested) {
@@ -1397,39 +1521,70 @@ export class IndexingService implements vscode.Disposable {
 
       let processedCount = 0;
 
-      for (const fileUri of files) {
-        // Check for cancellation before each file
-        if (token.isCancellationRequested) {
-          wasCancelled = true;
-          throw new Error("Indexing cancelled");
-        }
+      // Parallel Indexing Configuration
+      const CONCURRENCY_LIMIT = 8;
+      const queue = [...files];
+      const activeWorkers: Promise<void>[] = [];
 
-        try {
-          const content = await vscode.workspace.fs.readFile(fileUri);
-          const text = new TextDecoder().decode(content);
-          const relativePath = vscode.workspace.asRelativePath(fileUri);
+      this._logger.log(
+        `[INDEXING] Starting parallel indexing with concurrency: ${CONCURRENCY_LIMIT}`
+      );
 
-          await this.indexFile(collectionName, relativePath, text, token);
-          processedCount++;
+      // Worker function
+      const worker = async (id: number) => {
+        while (queue.length > 0) {
+          if (token.isCancellationRequested || wasCancelled) return;
 
-          this.notifyProgress({
-            current: processedCount,
-            total: files.length,
-            currentFile: relativePath,
-            status: "indexing",
-          });
-        } catch (err) {
-          // Enhanced error handling for both cancellation and other errors
-          if (err instanceof Error && err.message === "Indexing cancelled") {
-            wasCancelled = true;
-            throw err;
+          const fileUri = queue.shift();
+          if (!fileUri) return;
+
+          try {
+            const relativePath = vscode.workspace.asRelativePath(fileUri);
+            this._logger.log(
+              `[INDEXING] Worker ${id} processing: ${relativePath}`
+            );
+
+            const content = await vscode.workspace.fs.readFile(fileUri);
+            const text = new TextDecoder().decode(content);
+
+            await this.indexFile(collectionName, relativePath, text, token);
+            processedCount++;
+
+            this.notifyProgress({
+              current: processedCount,
+              total: files.length,
+              currentFile: relativePath,
+              status: "indexing",
+            });
+          } catch (err) {
+            // Enhanced error handling for both cancellation and other errors
+            if (err instanceof Error && err.message === "Indexing cancelled") {
+              wasCancelled = true;
+              return; // Stop worker
+            }
+            if (token.isCancellationRequested) {
+              wasCancelled = true;
+              return; // Stop worker
+            }
+            this._logger.log(
+              `[INDEXING] Failed to index file ${fileUri.fsPath}: ${err}`,
+              "ERROR"
+            );
           }
-          if (token.isCancellationRequested) {
-            wasCancelled = true;
-            throw new Error("Indexing cancelled");
-          }
-          this._logger.log(`Failed to index file ${fileUri.fsPath}:`, "ERROR");
         }
+      };
+
+      // Start workers
+      for (let i = 0; i < CONCURRENCY_LIMIT; i++) {
+        activeWorkers.push(worker(i + 1));
+      }
+
+      // Wait for all workers to finish
+      await Promise.all(activeWorkers);
+
+      if (token.isCancellationRequested) {
+        wasCancelled = true;
+        throw new Error("Indexing cancelled");
       }
 
       // Only show success message if not cancelled
@@ -1439,6 +1594,14 @@ export class IndexingService implements vscode.Disposable {
           total: files.length,
           status: "completed",
         });
+
+        this._logger.log("=".repeat(60));
+        this._logger.log(`[INDEXING] ✓ Indexing completed successfully!`);
+        this._logger.log(
+          `[INDEXING] Total files processed: ${processedCount}/${files.length}`
+        );
+        this._logger.log(`[INDEXING] Collection: ${collectionName}`);
+        this._logger.log("=".repeat(60));
 
         vscode.window.showInformationMessage(
           `Indexed ${processedCount} files successfully to collection '${collectionName}'.`
@@ -1451,6 +1614,9 @@ export class IndexingService implements vscode.Disposable {
           total: 0,
           status: "cancelled",
         });
+        this._logger.log("=".repeat(60));
+        this._logger.log("[INDEXING] ⚠ Indexing was cancelled by user");
+        this._logger.log("=".repeat(60));
         vscode.window.showInformationMessage("Indexing was cancelled");
         // We generally don't re-throw cancellations as errors to the UI
       } else {
@@ -1459,10 +1625,17 @@ export class IndexingService implements vscode.Disposable {
           total: 0,
           status: "error",
         });
-        this._logger.log("Indexing critical failure:", "ERROR");
+        this._logger.log("=".repeat(60));
+        this._logger.log(
+          "[INDEXING] ✗ Indexing failed with critical error",
+          "ERROR"
+        );
 
         const errorMessage =
           error instanceof Error ? error.message : "Unknown error";
+        this._logger.log(`[INDEXING] Error: ${errorMessage}`, "ERROR");
+        this._logger.log("=".repeat(60));
+
         vscode.window.showErrorMessage(`Indexing failed: ${errorMessage}`);
 
         // Re-throw the error so callers (e.g., WebviewController) can surface failure
@@ -1479,6 +1652,7 @@ export class IndexingService implements vscode.Disposable {
           total: 0,
           status: "cancelled",
         });
+        this._logger.log("[INDEXING] ⚠ Indexing cancelled (cleanup)");
         vscode.window.showInformationMessage("Indexing was cancelled");
       }
     }
@@ -1498,6 +1672,27 @@ export class IndexingService implements vscode.Disposable {
    */
   public get isIndexing(): boolean {
     return this._isIndexing;
+  }
+
+  /**
+   * Get collection statistics including vector count
+   * @returns Collection stats or null if unavailable
+   */
+  public async getCollectionStats(): Promise<{ vectorCount: number } | null> {
+    if (!this._client || !this._activeConfig) return null;
+
+    const collectionName = this._activeConfig.index_info?.name || "codebase";
+
+    try {
+      const info = await this._client.getCollection(collectionName);
+      return {
+        vectorCount: info.points_count ?? 0,
+      };
+    } catch (e) {
+      // Collection might not exist yet
+      this._logger.log(`Failed to get stats: ${e}`, "WARN");
+      return null;
+    }
   }
 
   private getActiveWorkspaceFolder(): vscode.WorkspaceFolder | undefined {
@@ -1570,12 +1765,27 @@ export class IndexingService implements vscode.Disposable {
       throw new Error("Indexing cancelled");
     }
 
+    const fileStartTime = Date.now();
+    this._logger.log(
+      `[INDEXING] Processing file: ${filePath} (${content.length} bytes)`
+    );
+
     // Use shared splitter logic
     const chunks = this._splitter.split(content, filePath);
 
-    if (chunks.length === 0) return;
+    if (chunks.length === 0) {
+      this._logger.log(
+        `[INDEXING] No chunks generated for ${filePath}, skipping`
+      );
+      return;
+    }
+
+    this._logger.log(
+      `[INDEXING] Split ${filePath} into ${chunks.length} chunks`
+    );
 
     const points = [];
+    let embeddingCount = 0;
 
     for (const chunk of chunks) {
       // Check for cancellation before each embedding
@@ -1584,8 +1794,15 @@ export class IndexingService implements vscode.Disposable {
       }
 
       const vector = await this.generateEmbedding(chunk.content, token);
-      if (!vector) continue;
+      if (!vector) {
+        this._logger.log(
+          `[INDEXING] Failed to generate embedding for chunk in ${filePath}, skipping chunk`,
+          "WARN"
+        );
+        continue;
+      }
 
+      embeddingCount++;
       points.push({
         id: chunk.id,
         vector: vector,
@@ -1598,6 +1815,10 @@ export class IndexingService implements vscode.Disposable {
       });
     }
 
+    this._logger.log(
+      `[INDEXING] Generated ${embeddingCount}/${chunks.length} embeddings for ${filePath}`
+    );
+
     if (this._vectorStore && points.length > 0) {
       // Final cancellation check before network operation
       if (token.isCancellationRequested) {
@@ -1606,8 +1827,9 @@ export class IndexingService implements vscode.Disposable {
 
       try {
         await this._vectorStore.upsertPoints(collectionName, points, token);
+        const fileDuration = Date.now() - fileStartTime;
         this._logger.log(
-          `[INDEXING] Upsert completed successfully for ${points.length} points`
+          `[INDEXING] ✓ Completed ${filePath}: ${points.length} chunks indexed in ${fileDuration}ms`
         );
       } catch (e) {
         const error = e instanceof Error ? e : new Error(String(e));
@@ -1618,7 +1840,7 @@ export class IndexingService implements vscode.Disposable {
         }
 
         this._logger.log(
-          `[INDEXING] Upsert failed for ${points.length} points:`,
+          `[INDEXING] Upsert failed for ${points.length} points in ${filePath}:`,
           "ERROR"
         );
         throw e;

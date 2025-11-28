@@ -1,5 +1,5 @@
 import { Copy, FileText, FolderOpen, Scissors } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   FileSnippetResult,
   SearchRequestParams,
@@ -26,12 +26,21 @@ export default function Search() {
   const ipc = useIpc();
 
   const indexStatus = useAppStore((state) => state.indexStatus);
+  const indexStats = useAppStore((state) => state.indexStats);
   const setView = useAppStore((state) => state.setView);
 
   const [searchInput, setSearchInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<FileSnippetResult[]>([]);
   const [copyMode, setCopyMode] = useState<"files" | "snippets">("files");
+
+  // Use a ref to track the latest search input value
+  const searchInputRef = useRef(searchInput);
+
+  // Update ref whenever searchInput changes
+  useEffect(() => {
+    searchInputRef.current = searchInput;
+  }, [searchInput]);
 
   const handleCopyContext = useCallback(() => {
     if (!results.length) return;
@@ -41,37 +50,75 @@ export default function Search() {
     });
   }, [ipc, results, copyMode]);
 
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+  // 1. Extract search logic into a reusable function
+  const executeSearch = useCallback(
+    (query: string) => {
+      console.log("[Webview] executeSearch called with query:", query);
+      console.log(
+        "[Webview] Query length:",
+        query?.length,
+        "Trimmed length:",
+        query?.trim().length
+      );
 
-    if (searchInput.length > 2) {
-      timer = setTimeout(() => {
-        setIsLoading(true);
-        ipc
-          .sendRequest<SearchRequestParams, SearchResponseParams>(
-            SEARCH_METHOD,
-            "qdrantIndex",
-            { query: searchInput }
-          )
-          .then((response) => {
-            setResults(response.results ?? []);
+      if (!query || query.trim().length === 0) {
+        console.log("[Webview] Query is empty, returning early");
+        return;
+      }
+
+      console.log("[Webview] Executing search for:", query);
+      console.log("[Webview] IPC object available:", !!ipc);
+      setIsLoading(true);
+
+      console.log("[Webview] Calling ipc.sendRequest...");
+      ipc
+        .sendRequest<SearchRequestParams, SearchResponseParams>(
+          SEARCH_METHOD,
+          "qdrantIndex",
+          { query }
+        )
+        .then((response) => {
+          try {
+            console.log("[Webview] Received response:", response);
+            console.log("[Webview] Response type:", typeof response);
+            console.log(
+              "[Webview] Response keys:",
+              Object.keys(response || {})
+            );
+
+            if (!response) {
+              console.warn("[Webview] Response is null or undefined");
+              setResults([]);
+            } else {
+              const results = response.results ?? [];
+              console.log("[Webview] Received results:", results?.length);
+              setResults(results);
+            }
             setIsLoading(false);
-          })
-          .catch((error) => {
-            console.error("Search request failed:", error);
+          } catch (error) {
+            console.error("[Webview] Error processing search response:", error);
+            setResults([]);
             setIsLoading(false);
-          });
-      }, 300);
-    } else if (searchInput.length === 0) {
+          }
+        })
+        .catch((error) => {
+          console.error("[Webview] Search request failed:", error);
+          console.error(
+            "[Webview] Error details:",
+            JSON.stringify(error, null, 2)
+          );
+          setIsLoading(false);
+        });
+    },
+    [ipc]
+  );
+
+  // Clear results when input is cleared
+  useEffect(() => {
+    if (searchInput.length === 0) {
       setResults([]);
     }
-
-    return () => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-    };
-  }, [searchInput, ipc]);
+  }, [searchInput]);
 
   useEffect(() => {
     if (indexStatus === "indexing") {
@@ -128,13 +175,26 @@ export default function Search() {
             </Button>
           </div>
           <Command
-            value={searchInput}
-            onValueChange={setSearchInput}
             filter={() => 1}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault(); // Prevent default form submission/filtering
+                console.log("[Webview] Enter key pressed, executing search");
+                console.log("[Webview] searchInput state:", searchInput);
+                console.log(
+                  "[Webview] searchInputRef.current:",
+                  searchInputRef.current
+                );
+                // Use the ref which should have the latest value
+                executeSearch(searchInputRef.current);
+              }
+            }}
           >
             <CommandInput
               placeholder="Search codebase..."
               className="text-xs h-9"
+              value={searchInput}
+              onValueChange={setSearchInput}
             />
 
             {/* Results Toolbar - Responsive Flex */}
@@ -196,6 +256,9 @@ export default function Search() {
                   No results found for "{searchInput}".
                 </CommandEmpty>
               )}
+              {!isLoading && results.length > 0 && (
+                <SnippetList results={results} />
+              )}
             </CommandList>
           </Command>
           {/* Footer Status - Stack on very small screens */}
@@ -212,6 +275,12 @@ export default function Search() {
               />
               <span className="truncate">
                 {indexStatus === "indexing" ? "Indexing..." : "Index Ready"}
+                {/* Display count if available */}
+                {indexStats?.vectorCount !== undefined && (
+                  <span className="ml-2 text-[10px] opacity-70">
+                    ({indexStats.vectorCount} vectors)
+                  </span>
+                )}
               </span>
             </div>
 
@@ -226,10 +295,6 @@ export default function Search() {
             </Button>
           </div>
         </div>
-      </div>
-
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <SnippetList results={results} />
       </div>
     </div>
   );
