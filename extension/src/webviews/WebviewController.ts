@@ -1,5 +1,6 @@
 import * as vscode from "vscode";
 import { AnalyticsService } from "../services/AnalyticsService.js";
+import { ClipboardService } from "../services/ClipboardService.js";
 import { ConfigService } from "../services/ConfigService.js";
 import { IndexingService } from "../services/IndexingService.js";
 import { ILogger } from "../services/LoggerService.js";
@@ -14,6 +15,8 @@ import {
   ExecuteCommand,
   // New imports for copy results
   FileSnippetResult,
+  GET_SEARCH_SETTINGS_METHOD,
+  GetSearchSettingsResponse,
   INDEX_STATUS_METHOD,
   IpcCommand,
   IpcMessage,
@@ -33,6 +36,8 @@ import {
   TEST_CONFIG_METHOD,
   TestConfigParams,
   TestConfigResponse,
+  UPDATE_SEARCH_SETTINGS_METHOD,
+  UpdateSearchSettingsParams,
 } from "./protocol.js";
 
 /**
@@ -67,7 +72,8 @@ export class WebviewController
     private readonly _workspaceManager: WorkspaceManager,
     private readonly _configService: ConfigService,
     private readonly _analyticsService: AnalyticsService,
-    private readonly _logger: ILogger
+    private readonly _logger: ILogger,
+    private readonly _clipboardService: ClipboardService
   ) {
     this._logger.log(
       `WebviewController created for viewType ${
@@ -86,6 +92,59 @@ export class WebviewController
       ? level
       : "INFO";
     this._logger.log(message, safeLevel);
+  }
+
+  // Helper method to get language from file extension for syntax highlighting
+  private getLanguageFromExtension(extension: string): string {
+    const languageMap: { [key: string]: string } = {
+      ts: "typescript",
+      tsx: "typescript",
+      js: "javascript",
+      jsx: "javascript",
+      py: "python",
+      java: "java",
+      rust: "rust",
+      rs: "rust",
+      go: "go",
+      kt: "kotlin",
+      kts: "kotlin",
+      cpp: "cpp",
+      c: "c",
+      cs: "csharp",
+      php: "php",
+      rb: "ruby",
+      swift: "swift",
+      scala: "scala",
+      sh: "bash",
+      bash: "bash",
+      zsh: "bash",
+      fish: "bash",
+      ps1: "powershell",
+      bat: "batch",
+      cmd: "batch",
+      html: "html",
+      htm: "html",
+      xml: "xml",
+      css: "css",
+      scss: "scss",
+      sass: "sass",
+      less: "less",
+      json: "json",
+      yaml: "yaml",
+      yml: "yaml",
+      toml: "toml",
+      ini: "ini",
+      sql: "sql",
+      md: "markdown",
+      dockerfile: "dockerfile",
+      docker: "dockerfile",
+      makefile: "makefile",
+      vue: "vue",
+      svelte: "svelte",
+      astro: "astro",
+    };
+
+    return languageMap[extension] || "text";
   }
 
   public dispose() {
@@ -431,6 +490,14 @@ export class WebviewController
             request as IpcRequest<TestConfigParams>
           );
           break;
+        case UPDATE_SEARCH_SETTINGS_METHOD:
+          response = await this.handleUpdateSearchSettingsRequest(
+            request as IpcRequest<UpdateSearchSettingsParams>
+          );
+          break;
+        case GET_SEARCH_SETTINGS_METHOD:
+          response = await this.handleGetSearchSettingsRequest(request);
+          break;
         // FIX 3: Removed "ipc:ready-request" from here since it is a command, not a request
         default:
           this.log(`Unknown request method: ${request.method}`, "IPC");
@@ -584,47 +651,67 @@ export class WebviewController
       if (choice !== "Copy anyway") return;
     }
 
-    let buffer = "";
-
-    for (const [uriString, snippets] of byUri) {
+    if (mode === "files") {
+      // Use native file clipboard for file mode
       try {
-        const uri = vscode.Uri.parse(uriString);
-        const rel = vscode.workspace.asRelativePath(uri, false);
+        const filePaths = Array.from(byUri.keys()).map((uriString) => {
+          const uri = vscode.Uri.parse(uriString);
+          return uri.fsPath;
+        });
 
-        if (mode === "files") {
-          const bytes = await vscode.workspace.fs.readFile(uri);
-          const text = new TextDecoder("utf-8").decode(bytes);
-          buffer += `// File: ${rel}\n`;
-          buffer += `${text}\n\n`;
-        } else {
+        await this._clipboardService.copyFilesToClipboard(filePaths);
+        this._analyticsService.trackEvent("results_copied", {
+          mode,
+          fileCount: byUri.size,
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.log(`Failed to copy files: ${message}`, "ERROR");
+        vscode.window.showErrorMessage(`Failed to copy files: ${message}`);
+      }
+    } else {
+      // Snippet mode: copy as text
+      let buffer = "";
+
+      for (const [uriString, snippets] of byUri) {
+        try {
+          const uri = vscode.Uri.parse(uriString);
+          const rel = vscode.workspace.asRelativePath(uri, false);
+
           buffer += `// File: ${rel}\n`;
           // Sort snippets by line number
           snippets.sort((a, b) => a.lineStart - b.lineStart);
           for (const s of snippets) {
+            // Detect language from file extension for syntax highlighting
+            const extension = rel.split(".").pop()?.toLowerCase();
+            const language = this.getLanguageFromExtension(extension || "");
+
             buffer += `// Lines ${s.lineStart}-${s.lineEnd}\n`;
-            buffer += `${s.snippet ?? ""}\n\n`;
+            buffer += `\`\`\`${language}\n`;
+            buffer += `${s.snippet ?? ""}\n`;
+            buffer += `\`\`\`\n\n`;
           }
+        } catch {
+          this.log(`Failed to read file for copy: ${uriString}`, "ERROR");
+          buffer += `// File: ${uriString} (Error reading file)\n\n`;
         }
-      } catch {
-        this.log(`Failed to read file for copy: ${uriString}`, "ERROR");
-        buffer += `// File: ${uriString} (Error reading file)\n\n`;
       }
-    }
 
-    if (!buffer) {
-      vscode.window.showInformationMessage("Qdrant: Nothing to copy.");
-      return;
-    }
+      if (!buffer) {
+        vscode.window.showInformationMessage("Qdrant: Nothing to copy.");
+        return;
+      }
 
-    await vscode.env.clipboard.writeText(buffer);
-    vscode.window.setStatusBarMessage(
-      `Qdrant: Copied context from ${byUri.size} file(s)`,
-      3000
-    );
-    this._analyticsService.trackEvent("results_copied", {
-      mode,
-      fileCount: byUri.size,
-    });
+      await vscode.env.clipboard.writeText(buffer);
+      vscode.window.setStatusBarMessage(
+        `Qdrant: Copied context from ${byUri.size} file(s)`,
+        3000
+      );
+      this._analyticsService.trackEvent("results_copied", {
+        mode,
+        fileCount: byUri.size,
+      });
+    }
   }
 
   private async handleSearchRequest(
@@ -684,9 +771,15 @@ export class WebviewController
       }
 
       const query = request.params.query.trim();
-      this.log(`[IPC Host] Executing search for query: "${query}"`, "SEARCH");
+      const limit = request.params.limit;
+      this.log(
+        `[IPC Host] Executing search for query: "${query}" with limit: ${limit}`,
+        "SEARCH"
+      );
       this.log(`[IPC Host] Calling indexingService.search()...`, "WEBVIEW");
-      const searchResults = await this._indexingService.search(query);
+      const searchResults = await this._indexingService.search(query, {
+        limit,
+      });
       this.log(`[IPC Host] indexingService.search() completed`, "WEBVIEW");
 
       // Transform SearchResultItem[] to FileSnippetResult[]
@@ -811,9 +904,93 @@ export class WebviewController
     };
   }
 
+  private async handleUpdateSearchSettingsRequest(
+    request: IpcRequest<UpdateSearchSettingsParams>
+  ): Promise<IpcResponse<{ success: boolean }>> {
+    try {
+      const { limit, threshold } = request.params;
+
+      // Update settings in VS Code configuration (global settings)
+      if (limit !== undefined) {
+        await this._configService.updateVSCodeSetting(
+          "search.limit",
+          limit,
+          true
+        );
+      }
+      if (threshold !== undefined) {
+        await this._configService.updateVSCodeSetting(
+          "search.threshold",
+          threshold,
+          true
+        );
+      }
+
+      this.log(
+        `Updated search settings: limit=${limit}, threshold=${threshold}`,
+        "CONFIG"
+      );
+
+      return {
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        data: { success: true },
+      };
+    } catch (error) {
+      this.log(`Failed to update search settings: ${error}`, "ERROR");
+      return {
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async handleGetSearchSettingsRequest(
+    request: IpcRequest<any>
+  ): Promise<IpcResponse<GetSearchSettingsResponse>> {
+    try {
+      const config = this._configService.config;
+      const searchSettings = {
+        limit: config.search.limit,
+        threshold: config.search.threshold,
+      };
+
+      this.log(
+        `Retrieved search settings: ${JSON.stringify(searchSettings)}`,
+        "CONFIG"
+      );
+
+      return {
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        data: searchSettings,
+      };
+    } catch (error) {
+      this.log(`Failed to get search settings: ${error}`, "ERROR");
+      return {
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
   private async handleOpenFile(command: IpcCommand<OpenFileParams>) {
     try {
-      // Enhanced parameter validation
+      // 1. Validate parameters
       if (!command.params) {
         throw new Error("Missing command parameters");
       }
@@ -824,52 +1001,40 @@ export class WebviewController
         throw new Error("Invalid or missing URI parameter");
       }
 
-      if (line !== undefined && (typeof line !== "number" || line < 0)) {
-        throw new Error(
-          "Invalid line parameter - must be a non-negative number"
-        );
-      }
+      // 2. Parse URI
+      // The search result sends a serialized string via Uri.toString(), so we must use Uri.parse()
+      // This handles 'file://' correctly on all OSs (Windows/Mac/Linux).
+      const fileUri = vscode.Uri.parse(uri);
 
-      let fileUri: vscode.Uri;
+      // 3. Prepare Position (VS Code lines are 0-indexed)
+      // Input 'line' is usually 1-indexed from the search result, so we subtract 1.
+      const lineNumber = Math.max(0, (line || 1) - 1);
+      const position = new vscode.Position(lineNumber, 0);
+      const range = new vscode.Range(position, position);
 
-      // Handle different URI schemes properly
-      if (uri.startsWith("vscode-userdata:")) {
-        this.log(`Skipping vscode-userdata URI: ${uri}`, "WARN");
-        vscode.window.showInformationMessage(
-          `Cannot open VS Code user data files: ${uri}`
-        );
-        return;
-      } else if (uri.startsWith("/") || uri.match(/^[a-zA-Z]:/)) {
-        fileUri = vscode.Uri.file(uri);
-      } else if (uri.startsWith("file://")) {
-        fileUri = vscode.Uri.parse(uri);
-      } else {
-        try {
-          fileUri = vscode.Uri.parse(uri);
-        } catch {
-          fileUri = vscode.Uri.file(uri);
-        }
-      }
-
+      // 4. Open Document
       const doc = await vscode.workspace.openTextDocument(fileUri);
-      const editor = await vscode.window.showTextDocument(doc);
-      // !AI: Line number mapping: (line || 1) - 1 correctly maps 1-based input to 0-based index, but if line=0 is passed, it maps to line 0. If user input is strictly 1-based, line=0 should be rejected by validation.
-      const position = new vscode.Position(Math.max(0, (line || 1) - 1), 0);
-      editor.selection = new vscode.Selection(position, position);
-      editor.revealRange(
-        new vscode.Range(position, position),
-        vscode.TextEditorRevealType.InCenter
-      );
-      this.log(`Opened file ${uri} at line ${line || 1}`, "OPEN");
+
+      // 5. Show Document
+      // We pass the selection range directly in options for immediate highlighting
+      const editor = await vscode.window.showTextDocument(doc, {
+        viewColumn: vscode.ViewColumn.Active,
+        preview: false, // Open as persistent tab, not preview (italic)
+        selection: range, // Set the cursor/selection immediately
+      });
+
+      // 6. Reveal Range
+      // Force the editor to scroll the selected line into the center of the viewport
+      editor.revealRange(range, vscode.TextEditorRevealType.InCenter);
+
+      this.log(`Opened file ${uri} at line ${lineNumber + 1}`, "OPEN");
     } catch (error) {
       const errorMsg = error instanceof Error ? error.message : String(error);
       this.log(
         `Failed to open file ${command.params?.uri || "unknown"}: ${errorMsg}`,
         "ERROR"
       );
-      vscode.window.showErrorMessage(
-        `Failed to open file: ${command.params?.uri || "unknown"}`
-      );
+      vscode.window.showErrorMessage(`Failed to open file. Error: ${errorMsg}`);
       this._analyticsService.trackError("open_file_failed", "handleOpenFile");
     }
   }

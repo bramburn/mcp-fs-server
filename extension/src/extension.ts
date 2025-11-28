@@ -26,7 +26,8 @@ export async function activate(
     container.workspaceManager,
     container.configService,
     container.analyticsService,
-    container.logger
+    container.logger,
+    container.clipboardService
   );
 
   context.subscriptions.push(
@@ -58,10 +59,7 @@ export async function activate(
       }
     }),
     vscode.commands.registerCommand("qdrant.openSettings", () => {
-      vscode.commands.executeCommand(
-        "workbench.action.openSettings",
-        "qdrant"
-      );
+      vscode.commands.executeCommand("workbench.action.openSettings", "qdrant");
     })
   );
 

@@ -1969,6 +1969,7 @@ export class IndexingService implements vscode.Disposable {
 
   public async search(
     query: string,
+    options?: { limit?: number },
     token?: vscode.CancellationToken
   ): Promise<SearchResultItem[]> {
     if (!this._vectorStore || !this._activeConfig) {
@@ -2018,7 +2019,7 @@ export class IndexingService implements vscode.Disposable {
         `[SEARCH] Embedding generated in ${embeddingDuration}ms with ${vector.length} dimensions`
       );
 
-      const searchLimit = this._configService.config.search.limit;
+      const searchLimit = options?.limit ?? this._configService.config.search.limit;
       const searchStartTime = Date.now();
       this._logger.log(
         `[SEARCH] Executing vector search with limit ${searchLimit}`

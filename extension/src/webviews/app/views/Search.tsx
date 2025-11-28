@@ -7,6 +7,8 @@ import type {
 } from "../../protocol";
 import {
   COPY_RESULTS_METHOD,
+  GET_SEARCH_SETTINGS_METHOD,
+  type GetSearchSettingsResponse,
   SEARCH_METHOD,
   START_INDEX_METHOD,
 } from "../../protocol";
@@ -34,6 +36,10 @@ export default function Search() {
   const [results, setResults] = useState<FileSnippetResult[]>([]);
   const [copyMode, setCopyMode] = useState<"files" | "snippets">("files");
 
+  // Load search settings from VS Code configuration
+  const [maxResults, setMaxResults] = useState(10);
+  const [scoreThreshold, setScoreThreshold] = useState(0.7);
+
   // Use a ref to track the latest search input value
   const searchInputRef = useRef(searchInput);
 
@@ -41,6 +47,25 @@ export default function Search() {
   useEffect(() => {
     searchInputRef.current = searchInput;
   }, [searchInput]);
+
+  // Load search settings on mount
+  useEffect(() => {
+    ipc
+      .sendRequest<Record<string, never>, GetSearchSettingsResponse>(
+        GET_SEARCH_SETTINGS_METHOD,
+        "qdrantIndex",
+        {}
+      )
+      .then((settings) => {
+        if (settings) {
+          setMaxResults(settings.limit);
+          setScoreThreshold(settings.threshold);
+        }
+      })
+      .catch((error) => {
+        console.error("Failed to load search settings:", error);
+      });
+  }, [ipc]);
 
   const handleCopyContext = useCallback(() => {
     if (!results.length) return;
@@ -50,9 +75,9 @@ export default function Search() {
     });
   }, [ipc, results, copyMode]);
 
-  // 1. Extract search logic into a reusable function
+  // MODIFIED: Accept options parameter
   const executeSearch = useCallback(
-    (query: string) => {
+    async (query: string, options?: { limit?: number; threshold?: number }) => {
       console.log("[Webview] executeSearch called with query:", query);
       console.log(
         "[Webview] Query length:",
@@ -61,8 +86,18 @@ export default function Search() {
         query?.trim().length
       );
 
-      if (!query || query.trim().length === 0) {
+      const trimmed = query?.trim() ?? "";
+
+      // Ignore empty or very short queries (<= 2 chars)
+      if (trimmed.length === 0) {
         console.log("[Webview] Query is empty, returning early");
+        return;
+      }
+
+      if (trimmed.length <= 2) {
+        console.log(
+          "[Webview] Query too short, minimum length is 3 characters"
+        );
         return;
       }
 
@@ -71,46 +106,54 @@ export default function Search() {
       setIsLoading(true);
 
       console.log("[Webview] Calling ipc.sendRequest...");
-      ipc
-        .sendRequest<SearchRequestParams, SearchResponseParams>(
-          SEARCH_METHOD,
-          "qdrantIndex",
-          { query }
-        )
-        .then((response) => {
-          try {
-            console.log("[Webview] Received response:", response);
-            console.log("[Webview] Response type:", typeof response);
-            console.log(
-              "[Webview] Response keys:",
-              Object.keys(response || {})
-            );
-
-            if (!response) {
-              console.warn("[Webview] Response is null or undefined");
-              setResults([]);
-            } else {
-              const results = response.results ?? [];
-              console.log("[Webview] Received results:", results?.length);
-              setResults(results);
-            }
-            setIsLoading(false);
-          } catch (error) {
-            console.error("[Webview] Error processing search response:", error);
-            setResults([]);
-            setIsLoading(false);
-          }
-        })
-        .catch((error) => {
-          console.error("[Webview] Search request failed:", error);
-          console.error(
-            "[Webview] Error details:",
-            JSON.stringify(error, null, 2)
-          );
-          setIsLoading(false);
+      try {
+        const response = await ipc.sendRequest<
+          SearchRequestParams,
+          SearchResponseParams
+        >(SEARCH_METHOD, "qdrantIndex", {
+          query: trimmed,
+          limit: options?.limit ?? maxResults,
         });
+
+        try {
+          console.log("[Webview] Received response:", response);
+          console.log("[Webview] Response type:", typeof response);
+          console.log("[Webview] Response keys:", Object.keys(response || {}));
+
+          if (!response) {
+            console.warn("[Webview] Response is null or undefined");
+            setResults([]);
+          } else {
+            const allResults = response.results ?? [];
+            // Apply threshold filter
+            const threshold = options?.threshold ?? scoreThreshold;
+            const filteredResults = allResults.filter(
+              (r) => r.score >= threshold
+            );
+            console.log(
+              "[Webview] Received results:",
+              allResults.length,
+              "Filtered:",
+              filteredResults.length
+            );
+            setResults(filteredResults);
+          }
+          setIsLoading(false);
+        } catch (error) {
+          console.error("[Webview] Error processing search response:", error);
+          setResults([]);
+          setIsLoading(false);
+        }
+      } catch (error) {
+        console.error("[Webview] Search request failed:", error);
+        console.error(
+          "[Webview] Error details:",
+          JSON.stringify(error, null, 2)
+        );
+        setIsLoading(false);
+      }
     },
-    [ipc]
+    [ipc, maxResults, scoreThreshold]
   );
 
   // Clear results when input is cleared
@@ -119,6 +162,12 @@ export default function Search() {
       setResults([]);
     }
   }, [searchInput]);
+
+  // MODIFIED: Remove auto-search, just update input
+  const handleSearchValueChange = useCallback((value: string) => {
+    setSearchInput(value);
+    searchInputRef.current = value;
+  }, []);
 
   useEffect(() => {
     if (indexStatus === "indexing") {
@@ -159,8 +208,6 @@ export default function Search() {
       {/* Header */}
       <div className="sticky top-0 z-10 border-b border-border/40 bg-background/95 backdrop-blur">
         <div className="flex flex-col gap-2 p-3">
-          {" "}
-          {/* Reduced padding p-4 -> p-3 */}
           <div className="flex items-center justify-between">
             <h2 className="text-sm font-semibold tracking-tight text-foreground/80">
               Semantic Search
@@ -174,27 +221,24 @@ export default function Search() {
               Settings
             </Button>
           </div>
-          <Command
-            filter={() => 1}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault(); // Prevent default form submission/filtering
-                console.log("[Webview] Enter key pressed, executing search");
-                console.log("[Webview] searchInput state:", searchInput);
-                console.log(
-                  "[Webview] searchInputRef.current:",
-                  searchInputRef.current
-                );
-                // Use the ref which should have the latest value
-                executeSearch(searchInputRef.current);
-              }
-            }}
-          >
+
+          <Command filter={() => 1}>
             <CommandInput
               placeholder="Search codebase..."
               className="text-xs h-9"
               value={searchInput}
-              onValueChange={setSearchInput}
+              onValueChange={handleSearchValueChange}
+              onKeyDown={(e: React.KeyboardEvent) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (searchInput.trim().length > 2) {
+                    executeSearch(searchInput, {
+                      limit: maxResults,
+                      threshold: scoreThreshold,
+                    });
+                  }
+                }
+              }}
             />
 
             {/* Results Toolbar - Responsive Flex */}
@@ -261,6 +305,7 @@ export default function Search() {
               )}
             </CommandList>
           </Command>
+
           {/* Footer Status - Stack on very small screens */}
           <div className="flex flex-wrap items-center justify-between gap-2 mt-2 text-xs text-muted-foreground">
             <div className="flex items-center gap-2 min-w-0">
@@ -275,7 +320,6 @@ export default function Search() {
               />
               <span className="truncate">
                 {indexStatus === "indexing" ? "Indexing..." : "Index Ready"}
-                {/* Display count if available */}
                 {indexStats?.vectorCount !== undefined && (
                   <span className="ml-2 text-[10px] opacity-70">
                     ({indexStats.vectorCount} vectors)

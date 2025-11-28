@@ -9,17 +9,22 @@ import {
   HardDrive,
   Loader2,
   Save,
+  Search,
   Server,
   XCircle,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import {
+  GET_SEARCH_SETTINGS_METHOD,
+  type GetSearchSettingsResponse,
   LOAD_CONFIG_METHOD,
+  type QdrantOllamaConfig,
   SAVE_CONFIG_METHOD,
+  type SaveConfigParams,
   START_INDEX_METHOD,
   TEST_CONFIG_METHOD,
-  type QdrantOllamaConfig,
-  type SaveConfigParams,
+  UPDATE_SEARCH_SETTINGS_METHOD,
+  type UpdateSearchSettingsParams,
 } from "../../protocol";
 import { Button } from "../components/ui/button";
 import { Input } from "../components/ui/input";
@@ -107,7 +112,7 @@ export default function Settings() {
   const [formData, setFormData] = useState<QdrantOllamaConfig>({
     active_vector_db: "qdrant",
     active_embedding_provider: "ollama",
-    index_info: { name: "codebase-index", embedding_dimension: 768 },
+    index_info: { name: "", embedding_dimension: 768 },
     qdrant_config: { url: "http://localhost:6333", api_key: "" },
     pinecone_config: { index_name: "", environment: "", api_key: "" },
     ollama_config: {
@@ -118,28 +123,24 @@ export default function Settings() {
     gemini_config: { api_key: "", model: "text-embedding-004" },
   });
 
-  const [loading, setLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  // Update Test Result State to match new protocol
   const [testResult, setTestResult] = useState<{
     success: boolean;
     message: string;
     qdrantStatus: "connected" | "failed";
     ollamaStatus: "connected" | "failed";
   } | null>(null);
-
-  // Track dirty state to show "Unsaved changes" if needed
   const [isDirty, setIsDirty] = useState(false);
-
-  // New State for Save Location
   const [useGlobalStorage, setUseGlobalStorage] = useState(false);
 
-  // Debug initial form state for tests
-  console.log("Settings formData", formData);
+  // Search settings state
+  const [searchLimit, setSearchLimit] = useState(10);
+  const [searchThreshold, setSearchThreshold] = useState(0.7);
+  const [searchSettingsDirty, setSearchSettingsDirty] = useState(false);
 
   // Load initial config
   const refreshConfig = useCallback(() => {
-    setLoading(true);
     ipc
       .sendRequest<Record<string, never>, QdrantOllamaConfig | null>(
         LOAD_CONFIG_METHOD,
@@ -149,17 +150,53 @@ export default function Settings() {
       .then((cfg) => {
         if (cfg) {
           setConfig(cfg);
-          // Merge loaded config with defaults to ensure all fields exist
           setFormData((prev) => ({ ...prev, ...cfg }));
           setIsDirty(false);
         }
-      })
-      .finally(() => setLoading(false));
+      });
   }, [ipc, setConfig]);
 
   useEffect(() => {
     if (!config) refreshConfig();
   }, [config, refreshConfig]);
+
+  // Load search settings
+  const loadSearchSettings = useCallback(() => {
+    ipc
+      .sendRequest<Record<string, never>, GetSearchSettingsResponse>(
+        GET_SEARCH_SETTINGS_METHOD,
+        "qdrantIndex",
+        {}
+      )
+      .then((settings) => {
+        if (settings) {
+          setSearchLimit(settings.limit);
+          setSearchThreshold(settings.threshold);
+          setSearchSettingsDirty(false);
+        }
+      });
+  }, [ipc]);
+
+  useEffect(() => {
+    loadSearchSettings();
+  }, [loadSearchSettings]);
+
+  // Save search settings
+  const saveSearchSettings = useCallback(async () => {
+    try {
+      await ipc.sendRequest<UpdateSearchSettingsParams, { success: boolean }>(
+        UPDATE_SEARCH_SETTINGS_METHOD,
+        "qdrantIndex",
+        {
+          limit: searchLimit,
+          threshold: searchThreshold,
+        }
+      );
+      setSearchSettingsDirty(false);
+    } catch (error) {
+      console.error("Failed to save search settings:", error);
+    }
+  }, [ipc, searchLimit, searchThreshold]);
 
   // AUTO-POPULATE: Watch for provider/model changes and update dimension
   useEffect(() => {
@@ -172,13 +209,11 @@ export default function Settings() {
 
     const suggestedDim = getModelDefaults(provider, model);
 
-    // Update only if different to avoid loops
     if (formData.index_info?.embedding_dimension !== suggestedDim) {
       setFormData((prev) => ({
         ...prev,
         index_info: {
           ...prev.index_info,
-          name: prev.index_info?.name || "codebase-index",
           embedding_dimension: suggestedDim,
         },
       }));
@@ -191,7 +226,7 @@ export default function Settings() {
     formData.index_info?.embedding_dimension,
   ]);
 
-  // Handle Input Changes - Generic handler for all config sections
+  // Handle Input Changes
   const handleInputChange = (
     section: keyof QdrantOllamaConfig,
     field: string,
@@ -208,7 +243,7 @@ export default function Settings() {
     setIsDirty(true);
   };
 
-  // Update Handle Test Connection
+  // Test Connection
   const handleTestConnection = async () => {
     setIsTesting(true);
     setTestResult(null);
@@ -233,7 +268,7 @@ export default function Settings() {
 
   // Save Configuration
   const handleSave = async () => {
-    setLoading(true);
+    setIsSaving(true);
     try {
       await ipc.sendRequest<SaveConfigParams, void>(
         SAVE_CONFIG_METHOD,
@@ -248,7 +283,7 @@ export default function Settings() {
     } catch (error) {
       console.error(error);
     } finally {
-      setLoading(false);
+      setIsSaving(false);
     }
   };
 
@@ -273,10 +308,10 @@ export default function Settings() {
           <Button
             size="sm"
             onClick={handleSave}
-            disabled={loading}
+            disabled={isSaving}
             className="h-7 px-3 text-xs"
           >
-            {loading ? (
+            {isSaving ? (
               <Loader2 className="h-3 w-3 animate-spin mr-2" />
             ) : (
               "Save"
@@ -312,6 +347,92 @@ export default function Settings() {
                 placeholder="codebase-index"
                 className="max-w-md"
               />
+            </div>
+          </section>
+
+          <Separator />
+
+          {/* Search Settings Section */}
+          <section className="space-y-4">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2">
+                <Search className="h-4 w-4 text-primary" />
+                <h3 className="text-base font-semibold tracking-tight">
+                  Search Settings
+                </h3>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Configure semantic search behavior. These settings are stored
+                globally.
+              </p>
+            </div>
+
+            <div className="grid gap-4">
+              <div className="grid gap-2">
+                <Label htmlFor="searchLimit">
+                  Maximum Results
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    ({searchLimit})
+                  </span>
+                </Label>
+                <Input
+                  id="searchLimit"
+                  type="number"
+                  min={5}
+                  max={100}
+                  value={searchLimit}
+                  onChange={(e) => {
+                    const value = parseInt(e.target.value, 10);
+                    if (!isNaN(value) && value >= 5 && value <= 100) {
+                      setSearchLimit(value);
+                      setSearchSettingsDirty(true);
+                    }
+                  }}
+                  className="max-w-md"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Number of search results to return (5-100)
+                </p>
+              </div>
+
+              <div className="grid gap-2">
+                <Label htmlFor="searchThreshold">
+                  Score Threshold
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    ({searchThreshold.toFixed(2)})
+                  </span>
+                </Label>
+                <Input
+                  id="searchThreshold"
+                  type="number"
+                  min={0}
+                  max={1}
+                  step={0.05}
+                  value={searchThreshold}
+                  onChange={(e) => {
+                    const value = parseFloat(e.target.value);
+                    if (!isNaN(value) && value >= 0 && value <= 1) {
+                      setSearchThreshold(value);
+                      setSearchSettingsDirty(true);
+                    }
+                  }}
+                  className="max-w-md"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Minimum similarity score for results (0.0-1.0)
+                </p>
+              </div>
+
+              {searchSettingsDirty && (
+                <Button
+                  onClick={saveSearchSettings}
+                  size="sm"
+                  className="w-fit"
+                >
+                  <Save className="h-3 w-3 mr-2" />
+                  Save Search Settings
+                </Button>
+              )}
             </div>
           </section>
 
@@ -378,7 +499,7 @@ export default function Settings() {
               }
             >
               <div className="grid gap-2">
-                <Label htmlFor="pinecone-index-name">Index Name</Label>
+                <Label htmlFor="pinecone-index-name">Pinecone Index Name</Label>
                 <Input
                   id="pinecone-index-name"
                   value={formData.pinecone_config?.index_name || ""}
@@ -590,7 +711,14 @@ export default function Settings() {
             </div>
             <Switch
               checked={useGlobalStorage}
-              onCheckedChange={setUseGlobalStorage}
+              onCheckedChange={(checked) => {
+                setUseGlobalStorage(checked);
+                setTestResult(null);
+              }}
+              onClick={() => {
+                setUseGlobalStorage(!useGlobalStorage);
+                setTestResult(null);
+              }}
             />
           </section>
 
@@ -602,7 +730,7 @@ export default function Settings() {
               <Button
                 variant="outline"
                 onClick={handleTestConnection}
-                disabled={isTesting || loading}
+                disabled={isTesting}
                 className="flex-1"
               >
                 {isTesting ? (
@@ -614,10 +742,10 @@ export default function Settings() {
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={loading}
+                disabled={isSaving}
                 className="flex-1"
               >
-                {loading ? (
+                {isSaving ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <Save className="mr-2 h-4 w-4" />

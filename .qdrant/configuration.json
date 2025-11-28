@@ -1,15 +1,29 @@
 {
-  "$schema": "../extension/schemas/qdrant-config.schema.json",
+  "active_vector_db": "qdrant",
+  "active_embedding_provider": "gemini",
   "index_info": {
-    "name": "my-project-index-2",
-    "version": "1.0"
+    "name": "sasdasd",
+    "embedding_dimension": 768
   },
   "qdrant_config": {
-    "url": "https://qdrant.icelabz.co.uk",
-    "api_key": "V5A+DBkRGFh2oUzlZLOLbW0DMLO0X2J9"
+    "url": "http://localhost:6333",
+    "api_key": ""
+  },
+  "pinecone_config": {
+    "index_name": "test",
+    "environment": "aws",
+    "api_key": "pcsk_2f2u7M_BQBvPr5ZMhscU9xBbMioqAKW1zcUWXcbDLPohTJeFBi2MWti4PbaW6msC2Vc9bx"
   },
   "ollama_config": {
-    "base_url": "http://localhost:6333",
+    "base_url": "http://localhost:11434",
     "model": "nomic-embed-text"
+  },
+  "openai_config": {
+    "api_key": "",
+    "model": "text-embedding-3-small"
+  },
+  "gemini_config": {
+    "api_key": "AIzaSyCMa8BvB3dmQ9D9f72E6m1tUbWGCVyavMM",
+    "model": "text-embedding-004"
   }
 }

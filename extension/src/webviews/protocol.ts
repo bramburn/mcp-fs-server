@@ -65,7 +65,7 @@ export interface QdrantOllamaConfig {
   active_embedding_provider: "ollama" | "openai" | "gemini";
 
   index_info?: {
-    name: string;
+    name?: string;
     version?: string;
     embedding_dimension?: number; // Vector size for the embedding model
   };
@@ -101,6 +101,7 @@ export interface QdrantOllamaConfig {
 // 1. Search Request (Guest -> Host)
 export interface SearchRequestParams {
   query: string;
+  limit?: number; // Maximum number of results to return
 }
 export interface SearchResponseParams {
   results: FileSnippetResult[];
@@ -195,3 +196,17 @@ export interface TestConfigResponse {
   ollamaStatus: "connected" | "failed";
 }
 export const TEST_CONFIG_METHOD = "config/test";
+
+// 12. Update Search Settings Request (Guest -> Host)
+export interface UpdateSearchSettingsParams {
+  limit?: number;
+  threshold?: number;
+}
+export const UPDATE_SEARCH_SETTINGS_METHOD = "config/update-search-settings";
+
+// 13. Get Search Settings Request (Guest -> Host)
+export interface GetSearchSettingsResponse {
+  limit: number;
+  threshold: number;
+}
+export const GET_SEARCH_SETTINGS_METHOD = "config/get-search-settings";

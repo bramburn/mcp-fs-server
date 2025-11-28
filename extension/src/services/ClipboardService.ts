@@ -177,47 +177,131 @@ export class ClipboardService implements vscode.Disposable {
     }
   }
 
-  private getBinaryPath(): string | null {
+  /**
+   * Copy actual file references to clipboard using native OS APIs
+   * Deduplicates paths and validates files exist before copying
+   */
+  public async copyFilesToClipboard(filePaths: string[]): Promise<void> {
+    if (!filePaths.length) {
+      vscode.window.showWarningMessage("No files selected to copy");
+      return;
+    }
+
+    // DEDUPLICATE: Remove duplicate file paths
+    const uniqueFilePaths = [...new Set(filePaths)];
+
+    if (uniqueFilePaths.length < filePaths.length) {
+      this.outputChannel.appendLine(
+        `[clipboard-files] Removed ${filePaths.length - uniqueFilePaths.length} duplicate paths`
+      );
+    }
+
+    const binaryName = "clipboard-files";
+    const binPath = this.getBinaryPath(binaryName);
+    if (!binPath) {
+      const msg = `${binaryName} binary not found for ${os.platform()}-${os.arch()}`;
+      this.outputChannel.appendLine(msg);
+      vscode.window.showErrorMessage(msg);
+      return;
+    }
+
+    // Validate all files exist
+    const missingFiles = uniqueFilePaths.filter((p) => !fs.existsSync(p));
+    if (missingFiles.length > 0) {
+      vscode.window.showErrorMessage(
+        `Files not found: ${missingFiles.join(", ")}`
+      );
+      return;
+    }
+
+    return new Promise((resolve, reject) => {
+      this.outputChannel.appendLine(
+        `[${binaryName}] Copying ${uniqueFilePaths.length} files...`
+      );
+
+      const proc = spawn(binPath, uniqueFilePaths, {
+        cwd: path.dirname(binPath),
+        env: { ...process.env },
+        shell: os.platform() === "win32",
+        // Don't pipe stdio - we just wait for exit code
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+
+      let stderrOutput = "";
+      proc.stderr?.setEncoding("utf8");
+      proc.stderr?.on("data", (data: string) => {
+        stderrOutput += data;
+        this.outputChannel.appendLine(`[${binaryName} stderr] ${data}`);
+      });
+
+      proc.stdout?.setEncoding("utf8");
+      proc.stdout?.on("data", (data: string) => {
+        this.outputChannel.appendLine(`[${binaryName} stdout] ${data}`);
+      });
+
+      proc.on("error", (err) => {
+        const msg = `Failed to spawn ${binaryName}: ${err.message}`;
+        this.outputChannel.appendLine(`❌ ${msg}`);
+        vscode.window.showErrorMessage(msg);
+        reject(err);
+      });
+
+      proc.on("exit", (code, signal) => {
+        if (code === 0) {
+          const successMsg = `✅ Copied ${uniqueFilePaths.length} files to clipboard`;
+          this.outputChannel.appendLine(successMsg);
+          vscode.window.showInformationMessage(successMsg);
+          resolve();
+        } else {
+          const errorMsg = `${binaryName} failed (code: ${code}, signal: ${signal}): ${stderrOutput}`;
+          this.outputChannel.appendLine(`❌ ${errorMsg}`);
+          vscode.window.showErrorMessage(errorMsg);
+          reject(new Error(errorMsg));
+        }
+      });
+    });
+  }
+
+  private getBinaryPath(
+    binaryName: string = "clipboard-monitor"
+  ): string | null {
     /**
      * Resolves the path to the sidecar binary based on the current OS and Arch.
      * Matches the naming convention used in build-rust.js:
-     * - clipboard-monitor-<platform>-<arch> (or .exe on Windows)
-     * - Examples: clipboard-monitor-darwin-arm64, clipboard-monitor-win32-x64.exe
+     * - <binaryName>-<platform>-<arch> (or .exe on Windows)
+     * - Examples: clipboard-monitor-darwin-arm64, clipboard-files-win32-x64.exe
      */
     const platform = os.platform(); // 'win32', 'darwin', 'linux'
     const arch = os.arch(); // 'x64', 'arm64'
 
     // Generate platform-specific binary name
-    let binaryName = `clipboard-monitor-${platform}-${arch}`;
+    let fileName = `${binaryName}-${platform}-${arch}`;
     if (platform === "win32") {
-      binaryName += ".exe";
+      fileName += ".exe";
     }
 
     const extRoot = this.context.extensionPath;
 
-    // Primary location: bin/ directory (packaged extension)
-    const primaryPath = path.join(extRoot, "bin", binaryName);
-
-    // Fallback locations for development
+    // Search paths: packaged -> release -> debug -> resources
     const candidates = [
-      primaryPath,
+      path.join(extRoot, "bin", fileName),
       path.join(
         extRoot,
         "rust",
-        "clipboard-monitor",
+        binaryName,
         "target",
         "release",
-        binaryName
+        platform === "win32" ? `${binaryName}.exe` : binaryName
       ),
       path.join(
         extRoot,
         "rust",
-        "clipboard-monitor",
+        binaryName,
         "target",
         "debug",
-        binaryName
+        platform === "win32" ? `${binaryName}.exe` : binaryName
       ),
-      path.join(extRoot, "resources", binaryName),
+      path.join(extRoot, "resources", fileName),
     ];
 
     for (const p of candidates) {
@@ -231,7 +315,7 @@ export class ClipboardService implements vscode.Disposable {
     }
 
     this.outputChannel.appendLine(
-      `No clipboard-monitor binary found for ${platform}-${arch} in expected locations.`
+      `[ClipboardService] No ${binaryName} binary found for ${platform}-${arch}`
     );
     return null;
   }

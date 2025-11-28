@@ -28,6 +28,7 @@ describe("WebviewController", () => {
   let mockAnalyticsService: any;
   let mockLogger: ILogger;
   let mockWebview: any;
+  let mockClipboardService: any;
 
   const mockExtensionUri = vscode.Uri.file("/test/extension");
 
@@ -82,6 +83,12 @@ describe("WebviewController", () => {
       log: vi.fn(),
     };
 
+    mockClipboardService = {
+      copyFilesToClipboard: vi.fn().mockResolvedValue(undefined),
+      start: vi.fn(),
+      dispose: vi.fn(),
+    };
+
     mockWebview = {
       asWebviewUri: vi.fn((uri: any) => uri),
       onDidReceiveMessage: vi.fn(),
@@ -96,7 +103,8 @@ describe("WebviewController", () => {
       mockWorkspaceManager,
       mockConfigService,
       mockAnalyticsService,
-      mockLogger
+      mockLogger,
+      mockClipboardService
     );
   });
 

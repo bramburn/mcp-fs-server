@@ -29,8 +29,8 @@ components.json
 idea.md
 
 
-bin/
-!bin/clipboard-monitor.exe
-!bin/clipboard-monitor
+bin/**
+!bin/clipboard-monitor*
+!bin/clipboard-files*
 resources/
 !resources/*.wasm

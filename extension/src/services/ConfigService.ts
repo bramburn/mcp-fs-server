@@ -471,6 +471,39 @@ export class ConfigService implements vscode.Disposable {
     });
   }
 
+  /**
+   * Update a VS Code workspace setting
+   * @param key Configuration key (e.g., "search.limit")
+   * @param value Value to set
+   * @param global Whether to update global (user) settings or workspace settings
+   */
+  public async updateVSCodeSetting(
+    key: string,
+    value: any,
+    global: boolean = false
+  ): Promise<void> {
+    try {
+      const fullKey = `${ConfigPath.GENERAL}.${key}`;
+      const config = vscode.workspace.getConfiguration();
+      await config.update(fullKey, value, global);
+
+      // Also update in-memory config
+      this.update(key, value);
+
+      this._logger.log(
+        `Updated VS Code setting: ${fullKey} = ${JSON.stringify(
+          value
+        )} (global: ${global})`
+      );
+    } catch (error) {
+      this._logger.log(
+        `Failed to update VS Code setting ${key}: ${error}`,
+        "ERROR"
+      );
+      throw error;
+    }
+  }
+
   private getGlobalConfigUri(folder: vscode.WorkspaceFolder): vscode.Uri {
     // Create a safe filename based on the workspace name and hash of the path to avoid collisions
     const safeName = folder.name.replace(/[^a-z0-9]/gi, "_").toLowerCase();

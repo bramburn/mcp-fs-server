@@ -56,6 +56,20 @@
           "type": "boolean",
           "default": false,
           "description": "Enable debug tracing"
+        },
+        "qdrant.search.limit": {
+          "type": "number",
+          "default": 10,
+          "minimum": 5,
+          "maximum": 100,
+          "description": "Maximum number of search results to return"
+        },
+        "qdrant.search.threshold": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Minimum similarity score threshold for search results (0-1)"
         }
       }
     }
@@ -77,14 +91,6 @@
     "lint": "eslint src/webviews",
     "lint:fix": "eslint src/webviews --fix"
   },
-  "files": [
-    "out/",
-    "bin/",
-    "resources/",
-    "package.json",
-    "README.md",
-    "LICENSE.md"
-  ],
   "dependencies": {
     "@alloc/quick-lru": "^5.2.0",
     "@qdrant/js-client-rest": "^1.16.1",
