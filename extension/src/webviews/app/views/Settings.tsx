@@ -337,8 +337,9 @@ export default function Settings() {
               }
             >
               <div className="grid gap-2">
-                <Label>Server URL</Label>
+                <Label htmlFor="qdrant-url">Server URL</Label>
                 <Input
+                  id="qdrant-url"
                   value={formData.qdrant_config?.url || ""}
                   onChange={(e) =>
                     handleInputChange("qdrant_config", "url", e.target.value)
@@ -347,8 +348,9 @@ export default function Settings() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>API Key (Optional)</Label>
+                <Label htmlFor="qdrant-api-key">API Key (Optional)</Label>
                 <Input
+                  id="qdrant-api-key"
                   type="password"
                   value={formData.qdrant_config?.api_key || ""}
                   onChange={(e) =>
@@ -376,8 +378,9 @@ export default function Settings() {
               }
             >
               <div className="grid gap-2">
-                <Label>Index Name</Label>
+                <Label htmlFor="pinecone-index-name">Index Name</Label>
                 <Input
+                  id="pinecone-index-name"
                   value={formData.pinecone_config?.index_name || ""}
                   onChange={(e) =>
                     handleInputChange(
@@ -390,8 +393,11 @@ export default function Settings() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Environment (e.g. gcp-starter)</Label>
+                <Label htmlFor="pinecone-environment">
+                  Environment (e.g. gcp-starter)
+                </Label>
                 <Input
+                  id="pinecone-environment"
                   value={formData.pinecone_config?.environment || ""}
                   onChange={(e) =>
                     handleInputChange(
@@ -404,8 +410,9 @@ export default function Settings() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>API Key</Label>
+                <Label htmlFor="pinecone-api-key">API Key</Label>
                 <Input
+                  id="pinecone-api-key"
                   type="password"
                   value={formData.pinecone_config?.api_key || ""}
                   onChange={(e) =>
@@ -446,8 +453,9 @@ export default function Settings() {
               }
             >
               <div className="grid gap-2">
-                <Label>Base URL</Label>
+                <Label htmlFor="ollama-base-url">Base URL</Label>
                 <Input
+                  id="ollama-base-url"
                   value={formData.ollama_config?.base_url || ""}
                   onChange={(e) =>
                     handleInputChange(
@@ -460,8 +468,9 @@ export default function Settings() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Model</Label>
+                <Label htmlFor="ollama-model">Model</Label>
                 <Input
+                  id="ollama-model"
                   value={formData.ollama_config?.model || ""}
                   onChange={(e) =>
                     handleInputChange("ollama_config", "model", e.target.value)
@@ -487,8 +496,9 @@ export default function Settings() {
               }
             >
               <div className="grid gap-2">
-                <Label>API Key</Label>
+                <Label htmlFor="openai-api-key">API Key</Label>
                 <Input
+                  id="openai-api-key"
                   type="password"
                   value={formData.openai_config?.api_key || ""}
                   onChange={(e) =>
@@ -502,8 +512,9 @@ export default function Settings() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Model</Label>
+                <Label htmlFor="openai-model">Model</Label>
                 <Input
+                  id="openai-model"
                   value={formData.openai_config?.model || ""}
                   onChange={(e) =>
                     handleInputChange("openai_config", "model", e.target.value)
@@ -529,8 +540,9 @@ export default function Settings() {
               }
             >
               <div className="grid gap-2">
-                <Label>API Key</Label>
+                <Label htmlFor="gemini-api-key">API Key</Label>
                 <Input
+                  id="gemini-api-key"
                   type="password"
                   value={formData.gemini_config?.api_key || ""}
                   onChange={(e) =>
@@ -544,8 +556,9 @@ export default function Settings() {
                 />
               </div>
               <div className="grid gap-2">
-                <Label>Model</Label>
+                <Label htmlFor="gemini-model">Model</Label>
                 <Input
+                  id="gemini-model"
                   value={formData.gemini_config?.model || ""}
                   onChange={(e) =>
                     handleInputChange("gemini_config", "model", e.target.value)

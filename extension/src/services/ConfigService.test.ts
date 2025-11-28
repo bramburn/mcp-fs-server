@@ -527,6 +527,8 @@ describe("ConfigService", () => {
 
   test("ConfigService returns immutable qdrantConfig copies", async () => {
     const mockConfig = {
+      active_vector_db: "qdrant" as const,
+      active_embedding_provider: "ollama" as const,
       index_info: { name: "test-index" },
       qdrant_config: { url: "http://localhost:6333" },
       ollama_config: {
@@ -695,6 +697,8 @@ describe("ConfigService", () => {
     );
 
     expect(result).toEqual({
+      active_vector_db: "qdrant",
+      active_embedding_provider: "ollama",
       index_info: { name: "test-index" },
       qdrant_config: { url: "https://qdrant.example.com" }, // HTTPS protocol preserved, trailing slash removed
       ollama_config: {

@@ -1,7 +1,7 @@
-use std::io::BufRead;
-use std::io::BufReader;
-use std::process::Command;
-use std::process::Stdio;
+use std::io::{BufRead, BufReader};
+use std::process::{Command, Stdio};
+use std::path::PathBuf;
+use std::env;
 
 // Helper to compile binary before tests run
 fn compile_binary() {
@@ -17,13 +17,16 @@ fn compile_binary() {
 fn test_binary_starts_and_emits_ready() {
     compile_binary();
 
-    let target_dir = if cfg!(windows) {
-        "target/release/clipboard-monitor.exe"
-    } else {
-        "target/release/clipboard-monitor"
-    };
+    // Cross-platform binary path construction
+    let mut target_path = PathBuf::from("target/release/clipboard-monitor");
+    
+    // Automatically appends .exe on Windows, does nothing on Mac/Linux
+    target_path.set_extension(env::consts::EXE_EXTENSION);
 
-    let mut child = Command::new(target_dir)
+    // Ensure the binary exists before trying to run it
+    assert!(target_path.exists(), "Binary not found at {:?}", target_path);
+
+    let mut child = Command::new(target_path)
         .stdout(Stdio::piped())
         .spawn()
         .expect("Failed to start child process");
@@ -39,10 +42,10 @@ fn test_binary_starts_and_emits_ready() {
     let _ = child.kill();
 
     // Verify JSON output
+    // We trim to handle different newline characters (\r\n vs \n) across OSs
     assert!(
-        line.contains(r#"{"type":"ready"}"#),
+        line.trim().contains(r#"{"type":"ready"}"#),
         "First message was not ready signal: {}",
         line
     );
 }
-

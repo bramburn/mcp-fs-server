@@ -7,91 +7,91 @@
  * - Verifies the Windows .exe exists and copies it to extension/bin
  * - Exits with non-zero code on error
  */
-
 import { spawn } from "child_process";
 import { copyFileSync, existsSync, mkdirSync } from "fs";
 import * as os from "os";
 import * as path from "path";
 import { join } from "path";
 
-// Determine if we're running from the extension directory or the root
+// --- Configuration ---
+const BINARY_NAME = "clipboard-monitor";
+const IS_WINDOWS = os.platform() === "win32";
+
+// Paths
 const cwd = process.cwd();
 const isInExtensionDir = cwd.endsWith("extension");
+
+// Source Directory (Rust Project)
 const crateDir = isInExtensionDir
   ? join(cwd, "rust", "clipboard-monitor")
   : join(cwd, "extension", "rust", "clipboard-monitor");
-const targetReleaseDir = join(crateDir, "target", "release");
+
+// Destination Directory (Extension Bin)
 const binDestDir = isInExtensionDir
   ? join(cwd, "bin")
   : join(cwd, "extension", "bin");
 
-// Windows binary name (no platform suffix logic - Windows-only)
-const binaryName = "clipboard-monitor.exe";
-const compiledBinaryPath = join(targetReleaseDir, binaryName);
-const destBinaryPath = join(binDestDir, binaryName);
+// --- Helper: Generate the Platform-Specific Name ---
+// e.g., clipboard-monitor-win32-x64.exe or clipboard-monitor-darwin-arm64
+function getPlatformSpecificName() {
+  const platform = os.platform(); // 'win32', 'darwin', 'linux'
+  const arch = os.arch();         // 'x64', 'arm64'
 
-// Use cargo from PATH; on Windows users typically have cargo in PATH.
-const cargoCmd =
-  process.platform === "win32"
-    ? path.join(os.homedir(), ".cargo", "bin", "cargo.exe")
-    : "cargo";
+  let name = `${BINARY_NAME}-${platform}-${arch}`;
+  if (IS_WINDOWS) {
+    name += ".exe";
+  }
+  return name;
+}
 
-function runCargoBuild() {
-  return new Promise((resolve, reject) => {
-    console.log(`Running cargo build --release in ${crateDir}`);
-    console.log(`Using cargo: ${cargoCmd}`);
-    // On Windows, use shell: false to avoid cmd.exe issues
-    // cargo.exe is directly executable
-    const cargo = spawn(cargoCmd, ["build", "--release"], {
+// --- Helper: Get Original Cargo Output Name ---
+// Cargo always outputs 'clipboard-monitor' (or .exe) in target/release
+// regardless of the final name we want.
+function getCargoOutputName() {
+  return IS_WINDOWS ? `${BINARY_NAME}.exe` : BINARY_NAME;
+}
+
+async function buildAndCopy() {
+  console.log(`\n🏗️  Building Rust binary for host: ${os.platform()} (${os.arch()})...`);
+
+  // 1. Run Cargo Build (Standard Host Build)
+  // We do NOT force --target here. We let Cargo build for the current machine.
+  await new Promise((resolve, reject) => {
+    const cargo = spawn("cargo", ["build", "--release"], {
       cwd: crateDir,
       stdio: "inherit",
-      shell: false,
-    });
-
-    cargo.on("error", (err) => {
-      reject(new Error(`Failed to start cargo: ${err.message}`));
+      shell: IS_WINDOWS, // Windows requires shell:true for some env path resolutions
     });
 
     cargo.on("exit", (code) => {
-      if (code === 0) {
-        resolve();
-      } else {
-        reject(new Error(`cargo build exited with code ${code}`));
-      }
+      if (code === 0) resolve();
+      else reject(new Error(`Cargo build failed with code ${code}`));
     });
   });
-}
 
-async function main() {
-  try {
-    await runCargoBuild();
+  // 2. Locate the Artifact
+  // Without --target, cargo puts binaries in target/release/
+  const originalBinPath = join(crateDir, "target", "release", getCargoOutputName());
 
-    // ensure destination directory exists
-    if (!existsSync(binDestDir)) {
-      console.log(`Creating bin directory at ${binDestDir}`);
-      mkdirSync(binDestDir, { recursive: true });
-    }
-
-    // verify compiled Windows binary exists
-    if (!existsSync(compiledBinaryPath)) {
-      throw new Error(
-        `Compiled Windows binary not found at ${compiledBinaryPath}. Ensure 'cargo build --release' succeeded and produced ${binaryName}.`
-      );
-    }
-
-    // copy binary
-    console.log(`Copying ${compiledBinaryPath} -> ${destBinaryPath}`);
-    copyFileSync(compiledBinaryPath, destBinaryPath);
-
-    console.log("Windows Rust binary build and copy completed successfully.");
-    process.exit(0);
-  } catch (err) {
-    console.error(
-      "Error building Windows Rust binary:",
-      err && err.message ? err.message : err
-    );
-    process.exit(1);
+  if (!existsSync(originalBinPath)) {
+    throw new Error(`Build finished but binary not found at: ${originalBinPath}`);
   }
+
+  // 3. Prepare Destination
+  if (!existsSync(binDestDir)) {
+    mkdirSync(binDestDir, { recursive: true });
+  }
+
+  // 4. Copy and Rename
+  const finalFileName = getPlatformSpecificName();
+  const destPath = join(binDestDir, finalFileName);
+
+  console.log(`📋 Copying to: ${destPath}`);
+  copyFileSync(originalBinPath, destPath);
+  console.log(`✅ Success! Binary packaged for local development.\n`);
 }
 
-main();
+buildAndCopy().catch((err) => {
+  console.error("❌ Build failed:", err.message);
+  process.exit(1);
+});

@@ -32,20 +32,10 @@ export class ClipboardService implements vscode.Disposable {
     }
     this.isStarting = true;
 
-    // Windows-only clipboard monitor
-    if (os.platform() !== "win32") {
-      const msg =
-        "Clipboard monitor is only supported on Windows (win32) in this build.";
-      this.outputChannel.appendLine(msg);
-      vscode.window.showErrorMessage(msg);
-      this.isStarting = false;
-      return;
-    }
-
     const binPath = this.getBinaryPath();
     if (!binPath) {
       const msg =
-        "clipboard-monitor.exe not found for Windows; ensure the extension includes the binary.";
+        "clipboard-monitor binary not found; ensure the extension includes the binary for your platform.";
       this.outputChannel.appendLine(msg);
       vscode.window.showErrorMessage(msg);
       this.isStarting = false;
@@ -53,13 +43,11 @@ export class ClipboardService implements vscode.Disposable {
     }
 
     try {
-      this.outputChannel.appendLine(
-        `Spawning Windows clipboard-monitor: ${binPath}`
-      );
+      this.outputChannel.appendLine(`Spawning clipboard-monitor: ${binPath}`);
 
       // verify binary exists before attempting to spawn
       if (!fs.existsSync(binPath)) {
-        const msg = `Windows clipboard-monitor binary missing at ${binPath}`;
+        const msg = `clipboard-monitor binary missing at ${binPath}`;
         this.outputChannel.appendLine(msg);
         vscode.window.showErrorMessage(msg);
         this.isStarting = false;
@@ -78,20 +66,20 @@ export class ClipboardService implements vscode.Disposable {
       this.process.stderr.on("data", this.handleStderr);
 
       this.process.on("error", (err) => {
-        const msg = `Windows clipboard-monitor failed to start: ${err.message}`;
+        const msg = `clipboard-monitor failed to start: ${err.message}`;
         this.outputChannel.appendLine(msg);
         vscode.window.showErrorMessage(msg);
         this.cleanupProcess();
       });
 
       this.process.on("exit", (code, signal) => {
-        const msg = `Windows clipboard-monitor exited with code=${code} signal=${signal}`;
+        const msg = `clipboard-monitor exited with code=${code} signal=${signal}`;
         this.outputChannel.appendLine(msg);
         this.cleanupProcess();
       });
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      const msg = `Failed to spawn Windows clipboard-monitor: ${errMsg}`;
+      const msg = `Failed to spawn clipboard-monitor: ${errMsg}`;
       this.outputChannel.appendLine(msg);
       vscode.window.showErrorMessage(msg);
       this.cleanupProcess();
@@ -190,19 +178,36 @@ export class ClipboardService implements vscode.Disposable {
   }
 
   private getBinaryPath(): string | null {
-    // Windows-only: only look for clipboard-monitor.exe in known locations
+    /**
+     * Resolves the path to the sidecar binary based on the current OS and Arch.
+     * Matches the naming convention used in build-rust.js:
+     * - clipboard-monitor-<platform>-<arch> (or .exe on Windows)
+     * - Examples: clipboard-monitor-darwin-arm64, clipboard-monitor-win32-x64.exe
+     */
+    const platform = os.platform(); // 'win32', 'darwin', 'linux'
+    const arch = os.arch(); // 'x64', 'arm64'
+
+    // Generate platform-specific binary name
+    let binaryName = `clipboard-monitor-${platform}-${arch}`;
+    if (platform === "win32") {
+      binaryName += ".exe";
+    }
+
     const extRoot = this.context.extensionPath;
 
-    const binName = "clipboard-monitor.exe";
+    // Primary location: bin/ directory (packaged extension)
+    const primaryPath = path.join(extRoot, "bin", binaryName);
 
+    // Fallback locations for development
     const candidates = [
+      primaryPath,
       path.join(
         extRoot,
         "rust",
         "clipboard-monitor",
         "target",
         "release",
-        binName
+        binaryName
       ),
       path.join(
         extRoot,
@@ -210,10 +215,9 @@ export class ClipboardService implements vscode.Disposable {
         "clipboard-monitor",
         "target",
         "debug",
-        binName
+        binaryName
       ),
-      path.join(extRoot, "bin", binName),
-      path.join(extRoot, "resources", binName),
+      path.join(extRoot, "resources", binaryName),
     ];
 
     for (const p of candidates) {
@@ -227,7 +231,7 @@ export class ClipboardService implements vscode.Disposable {
     }
 
     this.outputChannel.appendLine(
-      "No Windows clipboard-monitor.exe found in expected locations."
+      `No clipboard-monitor binary found for ${platform}-${arch} in expected locations.`
     );
     return null;
   }

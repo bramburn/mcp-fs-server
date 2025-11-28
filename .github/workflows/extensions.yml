@@ -1,0 +1,125 @@
+name: Build and Package Extension
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch: # Allows manual triggering from GitHub UI
+
+jobs:
+  # -----------------------------------------------------------------
+  # JOB 1: Build Rust Binaries (Parallel Matrix)
+  # -----------------------------------------------------------------
+  build-rust:
+    name: Build Rust (${{ matrix.os }} - ${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x64
+          - os: ubuntu-latest
+            arch: x64
+          # macOS 13 is Intel (x64)
+          - os: macos-13
+            arch: x64
+          # macOS 14 is Apple Silicon (ARM64) - Crucial for M1/M2/M3
+          - os: macos-14
+            arch: arm64
+
+    defaults:
+      run:
+        working-directory: ./extension
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # 1. Setup Node (needed for your build-rust.js script)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 2. Setup Rust
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: "${{ matrix.arch == 'arm64' && 'aarch64-apple-darwin' || '' }}"
+
+      # 3. Linux-Specific Dependencies (REQUIRED for arboard)
+      - name: Install Linux Dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libxcb1-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
+
+      # 4. Install NPM dependencies (to get scripts working)
+      - name: Install NPM dependencies
+        run: npm ci
+
+      # 5. Run your build script
+      # This script (from previous step) detects OS/Arch and creates:
+      # extension/bin/clipboard-monitor-<os>-<arch>
+      - name: Build Rust Binary
+        run: npm run build:rust
+
+      # 6. Upload the Binary as an Artifact
+      # We upload just the 'bin' folder so the next job can collect them all
+      - name: Upload Binary Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.os }}-${{ matrix.arch }}
+          path: extension/bin/*
+          if-no-files-found: error
+
+  # -----------------------------------------------------------------
+  # JOB 2: Package Extension (The Assembler)
+  # -----------------------------------------------------------------
+  package:
+    name: Package VS Code Extension
+    needs: build-rust # Wait for all matrix jobs to finish
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./extension
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install Dependencies
+        run: npm ci
+
+      # 1. Download ALL binaries built in the previous jobs
+      # This merges all "binary-*" artifacts into the extension/bin/ folder
+      - name: Download All Binaries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          path: extension/bin
+          merge-multiple: true
+
+      - name: Verify Binaries
+        run: ls -R bin/
+
+      # 2. Compile TypeScript / Webviews (Standard VS Code build)
+      # Assuming you have a 'compile' script in package.json
+      - name: Compile Extension
+        run: npm run compile
+
+      # 3. Package into .vsix
+      - name: Package Extension
+        run: npx vsce package --out ./qdrant-codesearch.vsix
+
+      # 4. Upload the final .vsix file
+      - name: Upload VSIX Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: qdrant-codesearch-extension
+          path: extension/qdrant-codesearch.vsix

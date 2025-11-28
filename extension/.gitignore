@@ -3,3 +3,4 @@ out/
 *.vsix
 bin/
 resources/
+results.json

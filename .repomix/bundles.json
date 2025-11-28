@@ -23,6 +23,18 @@
         "extension/src/services/ClipboardService.ts",
         "extension/src/container/Container.ts"
       ]
+    },
+    "rust-only-660": {
+      "name": "rust-only",
+      "created": "2025-11-28T11:16:39.511Z",
+      "lastUsed": "2025-11-28T11:22:19.762Z",
+      "tags": [],
+      "files": [
+        "extension/rust/clipboard-monitor",
+        "extension/scripts/build-rust.js",
+        "extension/package.json",
+        "extension/src/services/ClipboardService.ts"
+      ]
     }
   }
 }
