@@ -1,20 +1,39 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Qdrant Index Configuration",
-  "description": "Configuration for Qdrant Code Search local index",
+  "title": "Multi-Provider Index Configuration",
+  "description": "Configuration for Code Search with support for multiple vector databases and embedding providers",
   "type": "object",
-  "required": ["qdrant_config", "ollama_config"],
+  "required": ["active_vector_db", "active_embedding_provider"],
   "properties": {
+    "active_vector_db": {
+      "type": "string",
+      "enum": ["qdrant", "pinecone"],
+      "default": "qdrant",
+      "description": "The vector database to use for storage"
+    },
+    "active_embedding_provider": {
+      "type": "string",
+      "enum": ["ollama", "openai", "gemini"],
+      "default": "ollama",
+      "description": "The service used to generate embeddings"
+    },
     "index_info": {
       "type": "object",
       "description": "Metadata about the current index state",
       "properties": {
         "name": {
           "type": "string",
-          "description": "Name of the collection in Qdrant"
+          "description": "Name of the collection/index",
+          "default": "codebase-index"
         },
         "version": {
-          "type": "string"
+          "type": "string",
+          "description": "Version of the index schema"
+        },
+        "embedding_dimension": {
+          "type": "integer",
+          "default": 768,
+          "description": "Vector size for the embedding model (e.g., 1536 for OpenAI text-embedding-3-small, 768 for Nomic/Gemini)"
         }
       }
     },
@@ -33,6 +52,24 @@
         }
       }
     },
+    "pinecone_config": {
+      "type": "object",
+      "required": ["index_name", "environment", "api_key"],
+      "properties": {
+        "index_name": {
+          "type": "string",
+          "description": "Name of the Pinecone index"
+        },
+        "environment": {
+          "type": "string",
+          "description": "Pinecone environment (e.g., 'gcp-starter', 'us-east-1-aws')"
+        },
+        "api_key": {
+          "type": "string",
+          "description": "Pinecone API key"
+        }
+      }
+    },
     "ollama_config": {
       "type": "object",
       "required": ["model", "base_url"],
@@ -46,6 +83,36 @@
           "type": "string",
           "description": "Embedding model to use",
           "default": "nomic-embed-text"
+        }
+      }
+    },
+    "openai_config": {
+      "type": "object",
+      "required": ["api_key", "model"],
+      "properties": {
+        "api_key": {
+          "type": "string",
+          "description": "OpenAI API key"
+        },
+        "model": {
+          "type": "string",
+          "description": "OpenAI embedding model name",
+          "default": "text-embedding-3-small"
+        }
+      }
+    },
+    "gemini_config": {
+      "type": "object",
+      "required": ["api_key", "model"],
+      "properties": {
+        "api_key": {
+          "type": "string",
+          "description": "Google AI API key"
+        },
+        "model": {
+          "type": "string",
+          "description": "Gemini embedding model name",
+          "default": "text-embedding-004"
         }
       }
     }

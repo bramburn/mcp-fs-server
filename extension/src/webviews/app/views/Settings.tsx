@@ -1,13 +1,24 @@
-import { useEffect, useState, useCallback } from "react";
-import { useAppStore } from "../store";
-import { useIpc } from "../contexts/ipc";
+import {
+  CheckCircle2,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  Cpu,
+  Database,
+  Globe,
+  HardDrive,
+  Loader2,
+  Save,
+  Server,
+  XCircle,
+} from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import {
   LOAD_CONFIG_METHOD,
-  START_INDEX_METHOD,
   SAVE_CONFIG_METHOD,
+  START_INDEX_METHOD,
   TEST_CONFIG_METHOD,
   type QdrantOllamaConfig,
-  type TestConfigResponse,
   type SaveConfigParams,
 } from "../../protocol";
 import { Button } from "../components/ui/button";
@@ -15,18 +26,75 @@ import { Input } from "../components/ui/input";
 import { Label } from "../components/ui/label";
 import { Separator } from "../components/ui/separator";
 import { Switch } from "../components/ui/switch";
-import {
-  ChevronLeft,
-  Save,
-  Loader2,
-  CheckCircle2,
-  XCircle,
-  Database,
-  Server,
-  Cpu,
-  Globe,
-  HardDrive,
-} from "lucide-react";
+import { useIpc } from "../contexts/ipc";
+import { useAppStore } from "../store";
+
+// Helper for Collapsible Sections
+function AccordionItem({
+  title,
+  isOpen,
+  onToggle,
+  status,
+  children,
+}: {
+  title: string;
+  isOpen: boolean;
+  onToggle: () => void;
+  status?: "connected" | "failed" | null;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="border rounded-md overflow-hidden bg-background">
+      <button
+        onClick={onToggle}
+        className="flex items-center justify-between w-full p-3 text-left bg-muted/20 hover:bg-muted/40 transition-colors"
+      >
+        <div className="flex items-center gap-2 font-medium text-sm">
+          {isOpen ? (
+            <ChevronDown className="h-4 w-4" />
+          ) : (
+            <ChevronRight className="h-4 w-4" />
+          )}
+          {title}
+        </div>
+        {status && (
+          <span
+            className={`text-[10px] flex items-center gap-1 ${
+              status === "connected" ? "text-green-500" : "text-red-500"
+            }`}
+          >
+            {status === "connected" ? (
+              <CheckCircle2 className="w-3 h-3" />
+            ) : (
+              <XCircle className="w-3 h-3" />
+            )}
+            {status === "connected" ? "Connected" : "Failed"}
+          </span>
+        )}
+      </button>
+      {isOpen && <div className="p-4 space-y-4 border-t">{children}</div>}
+    </div>
+  );
+}
+
+// Helper to get default dimension for common models
+const getModelDefaults = (provider: string, model: string): number => {
+  if (provider === "openai") {
+    if (model.includes("text-embedding-3-large")) return 3072;
+    if (model.includes("text-embedding-3-small") || model.includes("ada-002"))
+      return 1536;
+  }
+  if (provider === "gemini") {
+    // text-embedding-004 defaults to 768
+    return 768;
+  }
+  if (provider === "ollama") {
+    if (model.includes("nomic")) return 768;
+    if (model.includes("mxbai")) return 1024;
+    if (model.includes("llama")) return 4096;
+  }
+  return 768; // Safe fallback
+};
 
 export default function Settings() {
   const ipc = useIpc();
@@ -35,14 +103,19 @@ export default function Settings() {
   const indexStatus = useAppStore((state) => state.indexStatus);
   const setView = useAppStore((state) => state.setView);
 
-  // Local form state
+  // Local form state with all provider defaults
   const [formData, setFormData] = useState<QdrantOllamaConfig>({
-    index_info: { name: "codebase-index" },
+    active_vector_db: "qdrant",
+    active_embedding_provider: "ollama",
+    index_info: { name: "codebase-index", embedding_dimension: 768 },
     qdrant_config: { url: "http://localhost:6333", api_key: "" },
+    pinecone_config: { index_name: "", environment: "", api_key: "" },
     ollama_config: {
       base_url: "http://localhost:11434",
       model: "nomic-embed-text",
     },
+    openai_config: { api_key: "", model: "text-embedding-3-small" },
+    gemini_config: { api_key: "", model: "text-embedding-004" },
   });
 
   const [loading, setLoading] = useState(false);
@@ -51,8 +124,8 @@ export default function Settings() {
   const [testResult, setTestResult] = useState<{
     success: boolean;
     message: string;
-    qdrantStatus: 'connected' | 'failed';
-    ollamaStatus: 'connected' | 'failed';
+    qdrantStatus: "connected" | "failed";
+    ollamaStatus: "connected" | "failed";
   } | null>(null);
 
   // Track dirty state to show "Unsaved changes" if needed
@@ -73,7 +146,8 @@ export default function Settings() {
       .then((cfg) => {
         if (cfg) {
           setConfig(cfg);
-          setFormData(cfg);
+          // Merge loaded config with defaults to ensure all fields exist
+          setFormData((prev) => ({ ...prev, ...cfg }));
           setIsDirty(false);
         }
       })
@@ -84,13 +158,43 @@ export default function Settings() {
     if (!config) refreshConfig();
   }, [config, refreshConfig]);
 
-  // Handle Input Changes
+  // AUTO-POPULATE: Watch for provider/model changes and update dimension
+  useEffect(() => {
+    const provider = formData.active_embedding_provider;
+    let model = "";
+
+    if (provider === "openai") model = formData.openai_config?.model || "";
+    else if (provider === "gemini") model = formData.gemini_config?.model || "";
+    else if (provider === "ollama") model = formData.ollama_config?.model || "";
+
+    const suggestedDim = getModelDefaults(provider, model);
+
+    // Update only if different to avoid loops
+    if (formData.index_info?.embedding_dimension !== suggestedDim) {
+      setFormData((prev) => ({
+        ...prev,
+        index_info: {
+          ...prev.index_info,
+          name: prev.index_info?.name || "codebase-index",
+          embedding_dimension: suggestedDim,
+        },
+      }));
+    }
+  }, [
+    formData.active_embedding_provider,
+    formData.openai_config?.model,
+    formData.gemini_config?.model,
+    formData.ollama_config?.model,
+    formData.index_info?.embedding_dimension,
+  ]);
+
+  // Handle Input Changes - Generic handler for all config sections
   const handleInputChange = (
-    section: "qdrant_config" | "ollama_config" | "index_info",
+    section: keyof QdrantOllamaConfig,
     field: string,
     value: string
   ) => {
-    setFormData((prev) => ({
+    setFormData((prev: any) => ({
       ...prev,
       [section]: {
         ...prev[section],
@@ -106,10 +210,19 @@ export default function Settings() {
     setIsTesting(true);
     setTestResult(null);
     try {
-      const response = await ipc.sendRequest<any, any>(TEST_CONFIG_METHOD, "webview-mgmt", { config: formData });
+      const response = await ipc.sendRequest<any, any>(
+        TEST_CONFIG_METHOD,
+        "webview-mgmt",
+        { config: formData }
+      );
       setTestResult(response);
     } catch (error) {
-      setTestResult({ success: false, message: String(error), qdrantStatus: 'failed', ollamaStatus: 'failed' });
+      setTestResult({
+        success: false,
+        message: String(error),
+        qdrantStatus: "failed",
+        ollamaStatus: "failed",
+      });
     } finally {
       setIsTesting(false);
     }
@@ -201,85 +314,138 @@ export default function Settings() {
 
           <Separator />
 
-          {/* Qdrant Configuration Section */}
+          {/* Vector Database Provider Selection */}
           <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Server className="h-4 w-4 text-primary" />
-                <h3 className="text-sm font-semibold">Qdrant Server</h3>
-              </div>
-              {/* Specific Status Badge */}
-              {testResult && (
-                  <span className={`text-[10px] flex items-center gap-1 ${testResult.qdrantStatus === 'connected' ? 'text-green-500' : 'text-red-500'}`}>
-                    {testResult.qdrantStatus === 'connected' ? <CheckCircle2 className="w-3 h-3"/> : <XCircle className="w-3 h-3"/>}
-                    {testResult.qdrantStatus === 'connected' ? 'Connected' : 'Failed'}
-                  </span>
-              )}
+            <div className="flex items-center gap-2 mb-2">
+              <Database className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-semibold">Vector Database</h3>
             </div>
-            <p className="text-xs text-muted-foreground">
-                Configure the connection to your Qdrant vector database instance.
-            </p>
 
-            <div className="space-y-4">
+            <AccordionItem
+              title="Qdrant (Local/Cloud)"
+              isOpen={formData.active_vector_db === "qdrant"}
+              onToggle={() =>
+                setFormData((p) => ({ ...p, active_vector_db: "qdrant" }))
+              }
+              status={
+                formData.active_vector_db === "qdrant"
+                  ? testResult?.qdrantStatus
+                  : undefined
+              }
+            >
               <div className="grid gap-2">
-                <Label htmlFor="qdrantUrl">Server URL</Label>
+                <Label>Server URL</Label>
                 <Input
-                  id="qdrantUrl"
-                  value={formData.qdrant_config.url}
+                  value={formData.qdrant_config?.url || ""}
                   onChange={(e) =>
                     handleInputChange("qdrant_config", "url", e.target.value)
                   }
                   placeholder="http://localhost:6333"
                 />
               </div>
-
               <div className="grid gap-2">
-                <Label htmlFor="qdrantApiKey">
-                  API Key{" "}
-                  <span className="text-muted-foreground font-normal">
-                    (Optional)
-                  </span>
-                </Label>
+                <Label>API Key (Optional)</Label>
                 <Input
-                  id="qdrantApiKey"
                   type="password"
-                  value={formData.qdrant_config.api_key || ""}
+                  value={formData.qdrant_config?.api_key || ""}
                   onChange={(e) =>
-                    handleInputChange("qdrant_config", "api_key", e.target.value)
+                    handleInputChange(
+                      "qdrant_config",
+                      "api_key",
+                      e.target.value
+                    )
                   }
-                  placeholder="Enter API Key"
+                  placeholder="********"
                 />
               </div>
-            </div>
+            </AccordionItem>
+
+            <AccordionItem
+              title="Pinecone (Cloud)"
+              isOpen={formData.active_vector_db === "pinecone"}
+              onToggle={() =>
+                setFormData((p) => ({ ...p, active_vector_db: "pinecone" }))
+              }
+              status={
+                formData.active_vector_db === "pinecone"
+                  ? testResult?.qdrantStatus
+                  : undefined
+              }
+            >
+              <div className="grid gap-2">
+                <Label>Index Name</Label>
+                <Input
+                  value={formData.pinecone_config?.index_name || ""}
+                  onChange={(e) =>
+                    handleInputChange(
+                      "pinecone_config",
+                      "index_name",
+                      e.target.value
+                    )
+                  }
+                  placeholder="my-index"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Environment (e.g. gcp-starter)</Label>
+                <Input
+                  value={formData.pinecone_config?.environment || ""}
+                  onChange={(e) =>
+                    handleInputChange(
+                      "pinecone_config",
+                      "environment",
+                      e.target.value
+                    )
+                  }
+                  placeholder="gcp-starter"
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>API Key</Label>
+                <Input
+                  type="password"
+                  value={formData.pinecone_config?.api_key || ""}
+                  onChange={(e) =>
+                    handleInputChange(
+                      "pinecone_config",
+                      "api_key",
+                      e.target.value
+                    )
+                  }
+                  placeholder="********"
+                />
+              </div>
+            </AccordionItem>
           </section>
 
           <Separator />
 
-          {/* Ollama Configuration Section */}
+          {/* Embedding Provider Selection */}
           <section className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Cpu className="h-4 w-4 text-primary" />
-                <h3 className="text-sm font-semibold">Ollama Server</h3>
-              </div>
-               {/* Specific Status Badge */}
-              {testResult && (
-                  <span className={`text-[10px] flex items-center gap-1 ${testResult.ollamaStatus === 'connected' ? 'text-green-500' : 'text-red-500'}`}>
-                    {testResult.ollamaStatus === 'connected' ? <CheckCircle2 className="w-3 h-3"/> : <XCircle className="w-3 h-3"/>}
-                    {testResult.ollamaStatus === 'connected' ? 'Connected' : 'Failed'}
-                  </span>
-              )}
+            <div className="flex items-center gap-2 mb-2">
+              <Cpu className="h-4 w-4 text-primary" />
+              <h3 className="text-sm font-semibold">Embedding Provider</h3>
             </div>
-            <p className="text-xs text-muted-foreground">
-                Configure the connection to your local LLM provider.
-            </p>
 
-            <div className="space-y-4">
+            <AccordionItem
+              title="Ollama (Local)"
+              isOpen={formData.active_embedding_provider === "ollama"}
+              onToggle={() =>
+                setFormData((p) => ({
+                  ...p,
+                  active_embedding_provider: "ollama",
+                }))
+              }
+              status={
+                formData.active_embedding_provider === "ollama"
+                  ? testResult?.ollamaStatus
+                  : undefined
+              }
+            >
               <div className="grid gap-2">
-                <Label htmlFor="ollamaUrl">Base URL</Label>
+                <Label>Base URL</Label>
                 <Input
-                  id="ollamaUrl"
-                  value={formData.ollama_config.base_url}
+                  value={formData.ollama_config?.base_url || ""}
                   onChange={(e) =>
                     handleInputChange(
                       "ollama_config",
@@ -290,40 +456,126 @@ export default function Settings() {
                   placeholder="http://localhost:11434"
                 />
               </div>
-
               <div className="grid gap-2">
-                <Label htmlFor="ollamaModel">Embedding Model</Label>
+                <Label>Model</Label>
                 <Input
-                  id="ollamaModel"
-                  value={formData.ollama_config.model}
+                  value={formData.ollama_config?.model || ""}
                   onChange={(e) =>
                     handleInputChange("ollama_config", "model", e.target.value)
                   }
                   placeholder="nomic-embed-text"
                 />
               </div>
-            </div>
+            </AccordionItem>
+
+            <AccordionItem
+              title="OpenAI (Cloud)"
+              isOpen={formData.active_embedding_provider === "openai"}
+              onToggle={() =>
+                setFormData((p) => ({
+                  ...p,
+                  active_embedding_provider: "openai",
+                }))
+              }
+              status={
+                formData.active_embedding_provider === "openai"
+                  ? testResult?.ollamaStatus
+                  : undefined
+              }
+            >
+              <div className="grid gap-2">
+                <Label>API Key</Label>
+                <Input
+                  type="password"
+                  value={formData.openai_config?.api_key || ""}
+                  onChange={(e) =>
+                    handleInputChange(
+                      "openai_config",
+                      "api_key",
+                      e.target.value
+                    )
+                  }
+                  placeholder="sk-..."
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Model</Label>
+                <Input
+                  value={formData.openai_config?.model || ""}
+                  onChange={(e) =>
+                    handleInputChange("openai_config", "model", e.target.value)
+                  }
+                  placeholder="text-embedding-3-small"
+                />
+              </div>
+            </AccordionItem>
+
+            <AccordionItem
+              title="Google Gemini (Cloud)"
+              isOpen={formData.active_embedding_provider === "gemini"}
+              onToggle={() =>
+                setFormData((p) => ({
+                  ...p,
+                  active_embedding_provider: "gemini",
+                }))
+              }
+              status={
+                formData.active_embedding_provider === "gemini"
+                  ? testResult?.ollamaStatus
+                  : undefined
+              }
+            >
+              <div className="grid gap-2">
+                <Label>API Key</Label>
+                <Input
+                  type="password"
+                  value={formData.gemini_config?.api_key || ""}
+                  onChange={(e) =>
+                    handleInputChange(
+                      "gemini_config",
+                      "api_key",
+                      e.target.value
+                    )
+                  }
+                  placeholder="AIza..."
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>Model</Label>
+                <Input
+                  value={formData.gemini_config?.model || ""}
+                  onChange={(e) =>
+                    handleInputChange("gemini_config", "model", e.target.value)
+                  }
+                  placeholder="text-embedding-004"
+                />
+              </div>
+            </AccordionItem>
           </section>
 
           <Separator />
 
           {/* Storage Preference Section */}
           <section className="flex items-center justify-between p-3 border rounded-md bg-muted/20">
-              <div className="space-y-0.5">
-                  <div className="flex items-center gap-2">
-                      {useGlobalStorage ? <Globe className="w-4 h-4"/> : <HardDrive className="w-4 h-4"/>}
-                      <h4 className="text-sm font-medium">Configuration Storage</h4>
-                  </div>
-                  <p className="text-xs text-muted-foreground">
-                      {useGlobalStorage
-                          ? "Settings saved to User Profile (Shared across workspaces)"
-                          : "Settings saved to .qdrant/ in this workspace"}
-                  </p>
+            <div className="space-y-0.5">
+              <div className="flex items-center gap-2">
+                {useGlobalStorage ? (
+                  <Globe className="w-4 h-4" />
+                ) : (
+                  <HardDrive className="w-4 h-4" />
+                )}
+                <h4 className="text-sm font-medium">Configuration Storage</h4>
               </div>
-              <Switch
-                  checked={useGlobalStorage}
-                  onCheckedChange={setUseGlobalStorage}
-              />
+              <p className="text-xs text-muted-foreground">
+                {useGlobalStorage
+                  ? "Settings saved to User Profile (Shared across workspaces)"
+                  : "Settings saved to .qdrant/ in this workspace"}
+              </p>
+            </div>
+            <Switch
+              checked={useGlobalStorage}
+              onCheckedChange={setUseGlobalStorage}
+            />
           </section>
 
           <Separator />
@@ -377,7 +629,8 @@ export default function Settings() {
                 >
                   {indexStatus === "indexing" ? (
                     <>
-                      <Loader2 className="mr-2 h-3 w-3 animate-spin" /> Indexing...
+                      <Loader2 className="mr-2 h-3 w-3 animate-spin" />{" "}
+                      Indexing...
                     </>
                   ) : (
                     "Re-Index"

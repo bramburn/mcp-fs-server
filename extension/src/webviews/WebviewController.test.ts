@@ -32,6 +32,8 @@ describe("WebviewController", () => {
   const mockExtensionUri = vscode.Uri.file("/test/extension");
 
   const mockConfig: QdrantOllamaConfig = {
+    active_vector_db: "qdrant",
+    active_embedding_provider: "ollama",
     index_info: { name: "test-index" },
     qdrant_config: { url: "http://localhost:6333" },
     ollama_config: {

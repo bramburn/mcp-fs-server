@@ -7,7 +7,6 @@ import { ConfigService } from "./ConfigService.js";
 import { IndexingService } from "./IndexingService.js";
 import { ILogger } from "./LoggerService.js";
 
-
 // Mock Qdrant client
 vi.mock("@qdrant/js-client-rest");
 
@@ -185,6 +184,8 @@ describe("IndexingService", () => {
   describe("stopIndexing", () => {
     test("should cancel indexing when stopIndexing is called", async () => {
       const mockConfig: QdrantOllamaConfig = {
+        active_vector_db: "qdrant",
+        active_embedding_provider: "ollama",
         index_info: { name: "test-index" },
         qdrant_config: { url: "http://localhost:6333" },
         ollama_config: {
@@ -248,6 +249,8 @@ describe("IndexingService", () => {
   describe("Indexing stops gracefully when cancelled (edge case)", () => {
     test("should handle cancellation during file processing", async () => {
       const mockConfig: QdrantOllamaConfig = {
+        active_vector_db: "qdrant",
+        active_embedding_provider: "ollama",
         index_info: { name: "test-index" },
         qdrant_config: { url: "http://localhost:6333" },
         ollama_config: {
@@ -350,6 +353,8 @@ describe("IndexingService", () => {
   describe("dispose", () => {
     test("should clean up resources on dispose", async () => {
       const mockConfig: QdrantOllamaConfig = {
+        active_vector_db: "qdrant",
+        active_embedding_provider: "ollama",
         index_info: { name: "test-index" },
         qdrant_config: { url: "http://localhost:6333" },
         ollama_config: {

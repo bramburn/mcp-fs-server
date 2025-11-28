@@ -182,13 +182,17 @@ export class ConfigService implements vscode.Disposable {
     useGlobal: boolean = false
   ): Promise<void> {
     try {
-      // Cleanup URLs
-      config.qdrant_config.url = ensureAbsoluteUrl(
-        config.qdrant_config.url
-      ).replace(/\/$/, "");
-      config.ollama_config.base_url = ensureAbsoluteUrl(
-        config.ollama_config.base_url
-      ).replace(/\/$/, "");
+      // Cleanup URLs for active providers
+      if (config.qdrant_config?.url) {
+        config.qdrant_config.url = ensureAbsoluteUrl(
+          config.qdrant_config.url
+        ).replace(/\/$/, "");
+      }
+      if (config.ollama_config?.base_url) {
+        config.ollama_config.base_url = ensureAbsoluteUrl(
+          config.ollama_config.base_url
+        ).replace(/\/$/, "");
+      }
 
       const content = new TextEncoder().encode(JSON.stringify(config, null, 2));
 
@@ -231,44 +235,100 @@ export class ConfigService implements vscode.Disposable {
   public async validateConnectionDetailed(
     config: QdrantOllamaConfig
   ): Promise<TestConfigResponse> {
-    let qdrantStatus: "connected" | "failed" = "failed";
-    let ollamaStatus: "connected" | "failed" = "failed";
+    let dbStatus: "connected" | "failed" = "failed";
+    let embedStatus: "connected" | "failed" = "failed";
     const errors: string[] = [];
 
-    // Test Ollama
+    // 1. Test Active Embedding Provider
     try {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), 3000);
-      const res = await fetch(`${config.ollama_config.base_url}/api/tags`, {
-        signal: controller.signal,
-      });
-      if (res.ok) ollamaStatus = "connected";
-      else errors.push(`Ollama: ${res.statusText}`);
+      if (
+        config.active_embedding_provider === "ollama" &&
+        config.ollama_config
+      ) {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${config.ollama_config.base_url}/api/tags`, {
+          signal: controller.signal,
+        });
+        if (res.ok) embedStatus = "connected";
+        else errors.push(`Ollama: ${res.statusText}`);
+      } else if (
+        config.active_embedding_provider === "openai" &&
+        config.openai_config
+      ) {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 3000);
+        const res = await fetch("https://api.openai.com/v1/models", {
+          headers: {
+            Authorization: `Bearer ${config.openai_config.api_key}`,
+          },
+          signal: controller.signal,
+        });
+        if (res.ok) embedStatus = "connected";
+        else errors.push(`OpenAI: ${res.statusText}`);
+      } else if (
+        config.active_embedding_provider === "gemini" &&
+        config.gemini_config
+      ) {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 3000);
+        // Simple validity check using models list endpoint
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models?key=${config.gemini_config.api_key}`,
+          {
+            signal: controller.signal,
+          }
+        );
+        if (res.ok) embedStatus = "connected";
+        else errors.push(`Gemini: ${res.statusText}`);
+      }
     } catch (e) {
-      errors.push(`Ollama: ${e instanceof Error ? e.message : String(e)}`);
+      errors.push(
+        `Embedding Provider Error: ${
+          e instanceof Error ? e.message : String(e)
+        }`
+      );
     }
 
-    // Test Qdrant
+    // 2. Test Active Vector DB
     try {
-      const controller = new AbortController();
-      setTimeout(() => controller.abort(), 3000);
-      const res = await fetch(`${config.qdrant_config.url}/collections`, {
-        signal: controller.signal,
-      });
-      if (res.ok || res.status === 401 || res.status === 403)
-        qdrantStatus = "connected"; // Auth error means reachable
-      else errors.push(`Qdrant: ${res.statusText}`);
+      if (config.active_vector_db === "qdrant" && config.qdrant_config) {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 3000);
+        const res = await fetch(`${config.qdrant_config.url}/collections`, {
+          signal: controller.signal,
+        });
+        if (res.ok || res.status === 401 || res.status === 403)
+          dbStatus = "connected"; // Auth error means reachable
+        else errors.push(`Qdrant: ${res.statusText}`);
+      } else if (
+        config.active_vector_db === "pinecone" &&
+        config.pinecone_config
+      ) {
+        // Pinecone requires a known controller endpoint.
+        // For a simple check, we can try to reach the general API if possible,
+        // or just assume config presence is enough if no SDK is active.
+        if (
+          config.pinecone_config.api_key &&
+          config.pinecone_config.environment
+        ) {
+          dbStatus = "connected"; // Weak check without SDK
+        } else {
+          errors.push("Pinecone: Missing configuration");
+        }
+      }
     } catch (e) {
-      errors.push(`Qdrant: ${e instanceof Error ? e.message : String(e)}`);
+      errors.push(
+        `Vector DB Error: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
 
-    const success =
-      qdrantStatus === "connected" && ollamaStatus === "connected";
+    const success = dbStatus === "connected" && embedStatus === "connected";
 
     return {
       success,
-      qdrantStatus,
-      ollamaStatus,
+      qdrantStatus: dbStatus, // Reuse existing field names for compatibility
+      ollamaStatus: embedStatus,
       message: success ? "All systems operational" : errors.join(" | "),
     };
   }
@@ -428,18 +488,77 @@ export class ConfigService implements vscode.Disposable {
     const str = new TextDecoder().decode(content);
     const config = JSON.parse(str) as QdrantOllamaConfig;
 
-    if (!config.qdrant_config?.url || !config.ollama_config?.base_url) {
-      this._logger.log(`Invalid config in ${source}`, "ERROR");
+    // Validate required fields based on active providers
+    if (!config.active_vector_db || !config.active_embedding_provider) {
+      this._logger.log(
+        `Invalid config in ${source}: missing active provider selections`,
+        "ERROR"
+      );
       return null;
     }
 
-    // Cleanup URLs
-    config.qdrant_config.url = ensureAbsoluteUrl(
-      config.qdrant_config.url
-    ).replace(/\/$/, "");
-    config.ollama_config.base_url = ensureAbsoluteUrl(
-      config.ollama_config.base_url
-    ).replace(/\/$/, "");
+    // Validate active vector DB config exists
+    if (config.active_vector_db === "qdrant" && !config.qdrant_config?.url) {
+      this._logger.log(
+        `Invalid config in ${source}: Qdrant selected but config missing`,
+        "ERROR"
+      );
+      return null;
+    }
+    if (
+      config.active_vector_db === "pinecone" &&
+      !config.pinecone_config?.index_name
+    ) {
+      this._logger.log(
+        `Invalid config in ${source}: Pinecone selected but config missing`,
+        "ERROR"
+      );
+      return null;
+    }
+
+    // Validate active embedding provider config exists
+    if (
+      config.active_embedding_provider === "ollama" &&
+      !config.ollama_config?.base_url
+    ) {
+      this._logger.log(
+        `Invalid config in ${source}: Ollama selected but config missing`,
+        "ERROR"
+      );
+      return null;
+    }
+    if (
+      config.active_embedding_provider === "openai" &&
+      !config.openai_config?.api_key
+    ) {
+      this._logger.log(
+        `Invalid config in ${source}: OpenAI selected but config missing`,
+        "ERROR"
+      );
+      return null;
+    }
+    if (
+      config.active_embedding_provider === "gemini" &&
+      !config.gemini_config?.api_key
+    ) {
+      this._logger.log(
+        `Invalid config in ${source}: Gemini selected but config missing`,
+        "ERROR"
+      );
+      return null;
+    }
+
+    // Cleanup URLs for providers that have them
+    if (config.qdrant_config?.url) {
+      config.qdrant_config.url = ensureAbsoluteUrl(
+        config.qdrant_config.url
+      ).replace(/\/$/, "");
+    }
+    if (config.ollama_config?.base_url) {
+      config.ollama_config.base_url = ensureAbsoluteUrl(
+        config.ollama_config.base_url
+      ).replace(/\/$/, "");
+    }
 
     this._qdrantConfig = config;
     return this._deepClone(config);

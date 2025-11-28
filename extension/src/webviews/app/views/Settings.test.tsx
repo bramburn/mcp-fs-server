@@ -1,17 +1,17 @@
 /** @vitest-environment jsdom */
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
-import Settings from "./Settings";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { IpcProvider, type HostIpc } from "../contexts/ipc";
 import { useAppStore } from "../store";
+import Settings from "./Settings";
 
 // Mock Protocol
 import {
   LOAD_CONFIG_METHOD,
   SAVE_CONFIG_METHOD,
-  TEST_CONFIG_METHOD,
   START_INDEX_METHOD,
+  TEST_CONFIG_METHOD,
   type QdrantOllamaConfig,
 } from "../../protocol";
 
@@ -51,6 +51,8 @@ function renderWithIpc(
 
 describe("Settings View (React)", () => {
   const mockConfig: QdrantOllamaConfig = {
+    active_vector_db: "qdrant",
+    active_embedding_provider: "ollama",
     index_info: { name: "test-index" },
     qdrant_config: { url: "http://localhost:6333", api_key: "old-key" },
     ollama_config: {
@@ -78,9 +80,7 @@ describe("Settings View (React)", () => {
     expect(
       screen.getByPlaceholderText("http://localhost:6333")
     ).toBeInTheDocument();
-    expect(
-      screen.getByPlaceholderText("nomic-embed-text")
-    ).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("nomic-embed-text")).toBeInTheDocument();
     expect(screen.getByText("Save & Create")).toBeInTheDocument();
   });
 
@@ -191,28 +191,29 @@ describe("Settings View (React)", () => {
     fireEvent.click(saveBtn);
 
     await waitFor(() => {
-        expect(ipc.sendRequest).toHaveBeenCalledWith(
-            SAVE_CONFIG_METHOD,
-            "webview-mgmt",
-            expect.objectContaining({
-                useGlobal: true, // Verify flag is sent
-                config: expect.anything()
-            })
-        );
+      expect(ipc.sendRequest).toHaveBeenCalledWith(
+        SAVE_CONFIG_METHOD,
+        "webview-mgmt",
+        expect.objectContaining({
+          useGlobal: true, // Verify flag is sent
+          config: expect.anything(),
+        })
+      );
     });
   });
 
   it("displays granular status on test failure", async () => {
     const ipc = createMockIpc();
     ipc.sendRequest.mockImplementation((method) => {
-        if (method === LOAD_CONFIG_METHOD) return Promise.resolve(mockConfig);
-        if (method === TEST_CONFIG_METHOD) return Promise.resolve({
-            success: false,
-            message: "Ollama down",
-            qdrantStatus: 'connected',
-            ollamaStatus: 'failed'
+      if (method === LOAD_CONFIG_METHOD) return Promise.resolve(mockConfig);
+      if (method === TEST_CONFIG_METHOD)
+        return Promise.resolve({
+          success: false,
+          message: "Ollama down",
+          qdrantStatus: "connected",
+          ollamaStatus: "failed",
         });
-        return Promise.resolve(null);
+      return Promise.resolve(null);
     });
 
     renderWithIpc(<Settings />, ipc);
@@ -222,10 +223,10 @@ describe("Settings View (React)", () => {
 
     // Wait for statuses to appear
     await waitFor(() => {
-        const connectedBadges = screen.getAllByText("Connected");
-        const failedBadges = screen.getAllByText("Failed");
-        expect(connectedBadges.length).toBeGreaterThan(0); // Qdrant
-        expect(failedBadges.length).toBeGreaterThan(0);    // Ollama
+      const connectedBadges = screen.getAllByText("Connected");
+      const failedBadges = screen.getAllByText("Failed");
+      expect(connectedBadges.length).toBeGreaterThan(0); // Qdrant
+      expect(failedBadges.length).toBeGreaterThan(0); // Ollama
     });
   });
 });
