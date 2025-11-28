@@ -134,6 +134,9 @@ export default function Settings() {
   // New State for Save Location
   const [useGlobalStorage, setUseGlobalStorage] = useState(false);
 
+  // Debug initial form state for tests
+  console.log("Settings formData", formData);
+
   // Load initial config
   const refreshConfig = useCallback(() => {
     setLoading(true);
@@ -606,9 +609,20 @@ export default function Settings() {
                 ) : (
                   <Save className="mr-2 h-4 w-4" />
                 )}
-                Save Configuration
+                Save & Create
               </Button>
             </div>
+
+            {testResult && (
+              <div className="flex items-center gap-2 text-xs">
+                {testResult.success ? (
+                  <CheckCircle2 className="h-3 w-3 text-green-500" />
+                ) : (
+                  <XCircle className="h-3 w-3 text-red-500" />
+                )}
+                <span>{testResult.message}</span>
+              </div>
+            )}
 
             {/* Maintenance Zone */}
             <div className="rounded-lg border border-border bg-muted/30 p-4 mt-6">
@@ -633,7 +647,7 @@ export default function Settings() {
                       Indexing...
                     </>
                   ) : (
-                    "Re-Index"
+                    "Force Re-Index Workspace"
                   )}
                 </Button>
               </div>

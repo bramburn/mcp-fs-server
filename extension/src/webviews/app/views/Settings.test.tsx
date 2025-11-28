@@ -103,7 +103,12 @@ describe("Settings View (React)", () => {
     ipc.sendRequest.mockImplementation((method) => {
       if (method === LOAD_CONFIG_METHOD) return Promise.resolve(mockConfig);
       if (method === TEST_CONFIG_METHOD)
-        return Promise.resolve({ success: true, message: "OK" });
+        return Promise.resolve({
+          success: true,
+          message: "OK",
+          qdrantStatus: "connected",
+          ollamaStatus: "connected",
+        });
       return Promise.resolve(null);
     });
 
@@ -187,7 +192,7 @@ describe("Settings View (React)", () => {
     fireEvent.click(storageSwitch);
 
     // Save
-    const saveBtn = screen.getByText("Save Configuration");
+    const saveBtn = screen.getByText("Save & Create");
     fireEvent.click(saveBtn);
 
     await waitFor(() => {

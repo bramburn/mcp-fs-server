@@ -354,6 +354,8 @@ describe("ConfigService", () => {
     const result = await configService.loadQdrantConfig(mockFolder);
 
     expect(result).toEqual({
+      active_vector_db: "qdrant",
+      active_embedding_provider: "ollama",
       index_info: { name: "test-index" },
       qdrant_config: { url: "http://localhost:6333" }, // Trailing slash removed
       ollama_config: {
@@ -549,6 +551,8 @@ describe("ConfigService", () => {
     );
 
     await configService.loadQdrantConfig(mockFolder);
+
+    expect(configService.qdrantConfig).not.toBeNull();
 
     const qdrantConfig1 = configService.qdrantConfig;
     const qdrantConfig2 = configService.qdrantConfig;
