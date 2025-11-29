@@ -2,6 +2,8 @@ import { makeStyles, shorthands, tokens, Button } from "@fluentui/react-componen
 import { DocumentRegular, CodeRegular, ArrowRightRegular } from "@fluentui/react-icons";
 import { FileSnippetResult } from "../../protocol";
 import { memo } from "react";
+import { OPEN_FILE_METHOD } from "../../protocol";
+import { useIpc } from "../contexts/ipc";
 
 const useStyles = makeStyles({
   list: {
@@ -62,16 +64,30 @@ interface SnippetListProps {
 
 function SnippetList({ results, onResultClick }: SnippetListProps) {
   const styles = useStyles();
+  const ipc = useIpc();
 
   if (results.length === 0) {
     return null;
   }
 
+  const handleViewClick = (e: React.MouseEvent, result: FileSnippetResult) => {
+    e.stopPropagation();
+    
+    // Send IPC command to open the file at the specific line
+    ipc.sendCommand(OPEN_FILE_METHOD, 'qdrantIndex', {
+      uri: result.uri,
+      line: result.lineStart
+    });
+    
+    // Also trigger the onResultClick callback if provided
+    onResultClick?.(result);
+  };
+
   return (
     <div className={styles.list}>
       {results.map((result, index) => (
-        <div 
-          key={index} 
+        <div
+          key={index}
           className={styles.resultItem}
           onClick={() => onResultClick?.(result)}
           role="button"
@@ -92,15 +108,11 @@ function SnippetList({ results, onResultClick }: SnippetListProps) {
               icon={<ArrowRightRegular />}
               size="small"
               className={styles.viewButton}
-              onClick={(e) => {
-                e.stopPropagation();
-                onResultClick?.(result);
-              }}
+              onClick={(e) => handleViewClick(e, result)}
             >
               View
             </Button>
           </div>
-          
           <div className={styles.metadata}>
             <div className={styles.lineInfo}>
               <CodeRegular fontSize={12} />
