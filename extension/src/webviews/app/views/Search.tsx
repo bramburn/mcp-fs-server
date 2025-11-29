@@ -5,6 +5,7 @@ import {
   ProgressBar,
   shorthands,
   Text,
+  Textarea,
   ToggleButton,
   tokens,
   Tooltip,
@@ -16,7 +17,6 @@ import {
   DocumentCopyRegular,
   FilterRegular,
   FolderOpenRegular,
-  SearchRegular,
   SettingsRegular,
 } from "@fluentui/react-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -52,25 +52,42 @@ const useStyles = makeStyles({
     backgroundColor: tokens.colorNeutralBackground1,
     ...shorthands.padding("12px"),
     ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke1),
-    display: "flex",
-    flexDirection: "column",
-    ...shorthands.gap("10px"),
   },
   titleRow: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  searchRow: {
+  upperSection: {
+    flex: "1 0 15vh",
     display: "flex",
     flexDirection: "column",
-    ...shorthands.gap("8px"),
+    justifyContent: "center",
+    alignItems: "center",
+    textAlign: "center",
+    ...shorthands.padding("0", "24px"),
+  },
+  searchSection: {
+    ...shorthands.padding("0", "24px", "12px"),
+  },
+  searchArea: {
+    width: "100%",
+    ...shorthands.margin("0", "0", "12px"),
+  },
+  searchInput: {
+    minHeight: "96px", // 3-4 rows
+    maxHeight: "160px", // limit max height
+    width: "100%",
+    resize: "vertical",
   },
   controlsRow: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    ...shorthands.padding("4px", "0"),
+    ...shorthands.padding("12px", "24px"),
+    backgroundColor: tokens.colorNeutralBackground2,
+    ...shorthands.borderTop("1px", "solid", tokens.colorNeutralStroke1),
+    ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke1),
   },
   toggleGroup: {
     display: "flex",
@@ -83,7 +100,9 @@ const useStyles = makeStyles({
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: "4px",
+    ...shorthands.padding("10px", "24px"),
+    backgroundColor: tokens.colorNeutralBackground2,
+    ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke1),
   },
   statusText: {
     display: "flex",
@@ -100,7 +119,7 @@ const useStyles = makeStyles({
   scrollArea: {
     flexGrow: 1,
     overflowY: "auto",
-    ...shorthands.padding("12px"),
+    ...shorthands.padding("0", "24px", "24px"),
   },
   emptyState: {
     display: "flex",
@@ -112,6 +131,12 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground3,
     textAlign: "center",
     padding: "20px",
+  },
+  prominentButton: {
+    height: "36px",
+    padding: "0 20px",
+    fontWeight: tokens.fontWeightSemibold,
+    fontSize: tokens.fontSizeBase300,
   },
 });
 
@@ -160,7 +185,7 @@ export default function Search() {
         }
       })
       .catch((error) => {
-        console.error("Failed to load search settings:", error);
+        console.error("Failed to load search settings: ", error);
       });
   }, [ipc]);
 
@@ -207,12 +232,20 @@ export default function Search() {
           globFilter: globFilter || undefined,
         });
 
-        const allResults = response.results ?? [];
+        const allResults = response?.results ?? [];
         const threshold = options?.threshold ?? scoreThreshold;
-        const filteredResults = allResults.filter((r) => r.score >= threshold);
+
+        // Filter by threshold, but if no results pass, show all results anyway
+        let filteredResults = allResults.filter((r) => r.score >= threshold);
+
+        // If no results pass the threshold, show all results
+        if (filteredResults.length === 0 && allResults.length > 0) {
+          filteredResults = allResults;
+        }
+
         setResults(filteredResults);
       } catch (error) {
-        console.error("Search request failed:", error);
+        console.error("Search request failed: ", error);
         setResults([]);
       } finally {
         setIsLoading(false);
@@ -292,23 +325,38 @@ export default function Search() {
             Settings
           </Button>
         </div>
+      </div>
 
-        <div className={styles.searchRow}>
-          <Input
-            placeholder="Search codebase..."
-            contentAfter={<SearchRegular />}
+      {/* Upper empty space and instructions */}
+      <div className={styles.upperSection}>
+        <Text weight="semibold" size={500}>
+          SEMANTIC CODE SEARCH
+        </Text>
+        <Text size={300} style={{ color: tokens.colorNeutralForeground3, marginTop: "8px" }}>
+          Find relevant code using natural language queries
+        </Text>
+      </div>
+
+      {/* Search Section */}
+      <div className={styles.searchSection}>
+        <div className={styles.searchArea}>
+          <Textarea
+            className={styles.searchInput}
+            placeholder="Search your codebase with natural language queries..."
             value={searchInput}
             onChange={(_e, data) => handleSearchValueChange(data.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && searchInput.trim().length > 2) {
+              if (e.key === "Enter" && !e.shiftKey && searchInput.trim().length > 2) {
                 executeSearch(searchInput, {
                   limit: maxResults,
                   threshold: scoreThreshold,
                 });
               }
             }}
+            appearance="outline"
+            resize="vertical"
           />
-
+          
           <Input
             placeholder="File filter (e.g. **/*.ts,*.py)"
             contentAfter={<FilterRegular />}
@@ -317,77 +365,78 @@ export default function Search() {
             size="small"
           />
         </div>
+      </div>
 
-        {/* Results Toolbar */}
-        <div className={styles.controlsRow}>
-          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-            {results.length} result{results.length !== 1 ? "s" : ""}
-          </Text>
+      {/* Results Toolbar */}
+      <div className={styles.controlsRow}>
+        <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+          {results.length} result{results.length !== 1 ? "s" : ""}
+        </Text>
 
-          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-            <div className={styles.toggleGroup}>
-              <Tooltip content="Copy file paths" relationship="label">
-                <ToggleButton
-                  size="small"
-                  appearance="subtle"
-                  checked={copyMode === "files"}
-                  onClick={() => setCopyMode("files")}
-                  icon={<DocumentCopyRegular fontSize={16} />}
-                />
-              </Tooltip>
-              <Tooltip content="Copy snippets" relationship="label">
-                <ToggleButton
-                  size="small"
-                  appearance="subtle"
-                  checked={copyMode === "snippets"}
-                  onClick={() => setCopyMode("snippets")}
-                  icon={<CutRegular fontSize={16} />}
-                />
-              </Tooltip>
-            </div>
-
-            <Button
-              size="small"
-              appearance="primary"
-              disabled={results.length === 0}
-              onClick={handleCopyContext}
-              icon={<CopyRegular />}
-            >
-              Copy
-            </Button>
-          </div>
-        </div>
-
-        {/* Status Footer */}
-        <div className={styles.statusRow}>
-          <div className={styles.statusText}>
-            <div
-              className={styles.dot}
-              style={{ backgroundColor: getStatusColor() }}
-            />
-            <Text>
-              {indexStatus === "indexing" ? "Indexing..." : "Index Ready"}
-            </Text>
-            {indexStats?.vectorCount !== undefined && (
-              <Text size={100} style={{ opacity: 0.7 }}>
-                ({indexStats.vectorCount} vectors)
-              </Text>
-            )}
+        <div style={{ display: "flex", gap: "12px", alignItems: "center" }}>
+          <div className={styles.toggleGroup}>
+            <Tooltip content="Copy file paths" relationship="label">
+              <ToggleButton
+                size="small"
+                appearance="subtle"
+                checked={copyMode === "files"}
+                onClick={() => setCopyMode("files")}
+                icon={<DocumentCopyRegular fontSize={16} />}
+              />
+            </Tooltip>
+            <Tooltip content="Copy snippets" relationship="label">
+              <ToggleButton
+                size="small"
+                appearance="subtle"
+                checked={copyMode === "snippets"}
+                onClick={() => setCopyMode("snippets")}
+                icon={<CutRegular fontSize={16} />}
+              />
+            </Tooltip>
           </div>
 
           <Button
-            size="small"
-            appearance="subtle"
-            icon={<ArrowRepeatAllRegular />}
-            disabled={indexStatus === "indexing"}
-            onClick={handleIndex}
+            size="large"
+            appearance="primary"
+            disabled={results.length === 0}
+            onClick={handleCopyContext}
+            icon={<CopyRegular />}
+            className={styles.prominentButton}
           >
-            Re-Index
+            COPY CONTEXT
           </Button>
         </div>
-
-        {isLoading && <ProgressBar />}
       </div>
+
+      {/* Status Footer */}
+      <div className={styles.statusRow}>
+        <div className={styles.statusText}>
+          <div
+            className={styles.dot}
+            style={{ backgroundColor: getStatusColor() }}
+          />
+          <Text>
+            {indexStatus === "indexing" ? "Indexing..." : "Index Ready"}
+          </Text>
+          {indexStats?.vectorCount !== undefined && (
+            <Text size={100} style={{ opacity: 0.7 }}>
+              ({indexStats.vectorCount} vectors)
+            </Text>
+          )}
+        </div>
+
+        <Button
+          size="small"
+          appearance="subtle"
+          icon={<ArrowRepeatAllRegular />}
+          disabled={indexStatus === "indexing"}
+          onClick={handleIndex}
+        >
+          Re-Index
+        </Button>
+      </div>
+
+      {isLoading && <ProgressBar />}
 
       {/* Results List */}
       <div className={styles.scrollArea}>

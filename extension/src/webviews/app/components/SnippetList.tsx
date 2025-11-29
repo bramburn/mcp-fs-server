@@ -1,128 +1,119 @@
-import {
-  Card,
-  CardHeader,
-  makeStyles,
-  shorthands,
-  Text,
-  tokens,
-} from "@fluentui/react-components";
-import { 
-  DocumentRegular, 
-  ArrowEnterLeftRegular 
-} from "@fluentui/react-icons";
-import type { FileSnippetResult } from "../../protocol";
-import { OPEN_FILE_METHOD } from "../../protocol";
-import { useIpc } from "../contexts/ipc";
+import { makeStyles, shorthands, tokens, Button } from "@fluentui/react-components";
+import { DocumentRegular, CodeRegular, ArrowRightRegular } from "@fluentui/react-icons";
+import { FileSnippetResult } from "../../protocol";
+import { memo } from "react";
 
 const useStyles = makeStyles({
-  container: {
+  list: {
     display: "flex",
     flexDirection: "column",
     ...shorthands.gap("8px"),
-    width: "100%",
-    marginTop: "8px",
   },
-  card: {
-    width: "100%",
+  resultItem: {
     backgroundColor: tokens.colorNeutralBackground2,
-    ...shorthands.border("1px", "solid", "transparent"),
-    cursor: "pointer",
+    ...shorthands.borderRadius(tokens.borderRadiusMedium),
+    ...shorthands.padding("12px"),
     ":hover": {
-      backgroundColor: tokens.colorNeutralBackground2Hover,
-      ...shorthands.border("1px", "solid", tokens.colorNeutralStroke1Hover),
+      backgroundColor: tokens.colorNeutralBackground3,
+      cursor: "pointer",
     },
-    ":active": {
-      backgroundColor: tokens.colorNeutralBackground2Pressed,
-    }
+    transition: "background-color 0.2s ease",
   },
-  cardHeader: {
-    ...shorthands.padding("0px"), // Reset default padding
-    marginBottom: "8px",
-  },
-  headerContent: {
+  header: {
     display: "flex",
+    justifyContent: "space-between",
     alignItems: "center",
-    width: "100%",
-    ...shorthands.gap("8px"),
-    overflow: "hidden",
+    marginBottom: "4px",
   },
   filePath: {
-    whiteSpace: "nowrap",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    flexGrow: 1,
-    fontFamily: tokens.fontFamilyMonospace,
-    fontSize: "12px",
+    display: "flex",
+    alignItems: "center",
+    ...shorthands.gap("6px"),
+    fontWeight: tokens.fontWeightSemibold,
+    fontSize: tokens.fontSizeBase300,
   },
-  lineNumber: {
+  metadata: {
+    display: "flex",
+    ...shorthands.gap("12px"),
+    color: tokens.colorNeutralForeground3,
+    fontSize: tokens.fontSizeBase200,
+  },
+  scoreBadge: {
+    backgroundColor: tokens.colorNeutralBackground3,
+    ...shorthands.borderRadius(tokens.borderRadiusSmall),
+    ...shorthands.padding("2px", "6px"),
+    fontSize: tokens.fontSizeBase200,
+  },
+  lineInfo: {
     display: "flex",
     alignItems: "center",
     ...shorthands.gap("4px"),
-    color: tokens.colorNeutralForeground3,
-    fontSize: "11px",
-    flexShrink: 0,
   },
-  codeBlock: {
-    backgroundColor: tokens.colorNeutralBackground3, // Slightly darker/lighter depending on theme
-    ...shorthands.padding("8px"),
-    ...shorthands.borderRadius(tokens.borderRadiusMedium),
-    ...shorthands.border("1px", "solid", tokens.colorNeutralStroke2),
-    fontFamily: "var(--vscode-editor-font-family, monospace)",
-    fontSize: "12px",
-    overflowX: "auto",
-    color: tokens.colorNeutralForeground2,
-    margin: 0,
-    maxHeight: "200px",
-    whiteSpace: "pre",
+  viewButton: {
+    height: "24px",
+    ...shorthands.padding("0", "8px"),
   },
 });
 
 interface SnippetListProps {
   results: FileSnippetResult[];
+  onResultClick?: (result: FileSnippetResult) => void;
 }
 
-export default function SnippetList({ results }: SnippetListProps) {
+function SnippetList({ results, onResultClick }: SnippetListProps) {
   const styles = useStyles();
-  const ipc = useIpc();
 
-  const openFile = (uri: string, line: number) => {
-    ipc.sendCommand(OPEN_FILE_METHOD, "qdrantIndex", { uri, line });
-  };
-
-  if (!results || results.length === 0) {
+  if (results.length === 0) {
     return null;
   }
 
   return (
-    <div className={styles.container}>
-      {results.map((result, i) => (
-        <Card
-          key={`${result.uri}-${result.lineStart}-${i}`}
-          className={styles.card}
-          size="small"
-          onClick={() => openFile(result.uri, result.lineStart)}
-        >
-          <CardHeader
-            className={styles.cardHeader}
-            header={
-              <div className={styles.headerContent}>
-                <DocumentRegular fontSize={14} color={tokens.colorBrandForeground1} />
-                <Text className={styles.filePath} weight="medium">
-                  {result.filePath ?? "Unknown File"}
-                </Text>
-                <div className={styles.lineNumber}>
-                  <ArrowEnterLeftRegular fontSize={12} />
-                  <Text>{result.lineStart}</Text>
-                </div>
-              </div>
+    <div className={styles.list}>
+      {results.map((result, index) => (
+        <div 
+          key={index} 
+          className={styles.resultItem}
+          onClick={() => onResultClick?.(result)}
+          role="button"
+          tabIndex={0}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              onResultClick?.(result);
             }
-          />
-
-          <pre className={styles.codeBlock}>
-            <code>{result.snippet ?? ""}</code>
-          </pre>
-        </Card>
+          }}
+        >
+          <div className={styles.header}>
+            <div className={styles.filePath}>
+              <DocumentRegular fontSize={16} />
+              <span>{result.filePath}</span>
+            </div>
+            <Button
+              appearance="subtle"
+              icon={<ArrowRightRegular />}
+              size="small"
+              className={styles.viewButton}
+              onClick={(e) => {
+                e.stopPropagation();
+                onResultClick?.(result);
+              }}
+            >
+              View
+            </Button>
+          </div>
+          
+          <div className={styles.metadata}>
+            <div className={styles.lineInfo}>
+              <CodeRegular fontSize={12} />
+              <span>Lines {result.lineStart}-{result.lineEnd}</span>
+            </div>
+            <div className={styles.scoreBadge}>
+              Score: {(result.score * 100).toFixed(0)}%
+            </div>
+          </div>
+        </div>
       ))}
     </div>
   );
 }
+
+export default memo(SnippetList);
