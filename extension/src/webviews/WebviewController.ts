@@ -1,3 +1,4 @@
+import { minimatch } from "minimatch";
 import * as vscode from "vscode";
 import { AnalyticsService } from "../services/AnalyticsService.js";
 import { ClipboardService } from "../services/ClipboardService.js";
@@ -632,7 +633,7 @@ export class WebviewController
   }
 
   private async handleCopyResults(params: CopyResultsParams): Promise<void> {
-    const { mode, results } = params;
+    const { mode, results, query, includeQuery } = params;
 
     // Group snippets by URI to avoid duplicates
     const byUri = new Map<string, FileSnippetResult[]>();
@@ -672,6 +673,13 @@ export class WebviewController
     } else {
       // Snippet mode: copy as text
       let buffer = "";
+
+      // Prepend query if includeQuery is enabled
+      if (includeQuery && query && query.trim().length > 0) {
+        // Escape special characters in the query for safe inclusion
+        const escapedQuery = query.replace(/\\/g, "\\\\").replace(/`/g, "\\`");
+        buffer += `Instruction: ${escapedQuery}\n\n`;
+      }
 
       for (const [uriString, snippets] of byUri) {
         try {
@@ -772,8 +780,12 @@ export class WebviewController
 
       const query = request.params.query.trim();
       const limit = request.params.limit;
+      const globFilter = request.params.globFilter;
+
       this.log(
-        `[IPC Host] Executing search for query: "${query}" with limit: ${limit}`,
+        `[IPC Host] Executing search for query: "${query}" with limit: ${limit}${
+          globFilter ? `, glob filter: "${globFilter}"` : ""
+        }`,
         "SEARCH"
       );
       this.log(`[IPC Host] Calling indexingService.search()...`, "WEBVIEW");
@@ -783,7 +795,7 @@ export class WebviewController
       this.log(`[IPC Host] indexingService.search() completed`, "WEBVIEW");
 
       // Transform SearchResultItem[] to FileSnippetResult[]
-      const transformedResults: FileSnippetResult[] = searchResults.map(
+      let transformedResults: FileSnippetResult[] = searchResults.map(
         (item) => {
           const workspaceFolder =
             this._workspaceManager.getActiveWorkspaceFolder();
@@ -806,6 +818,27 @@ export class WebviewController
           };
         }
       );
+
+      // Apply glob filter if provided
+      if (globFilter && globFilter.trim().length > 0) {
+        const patterns = globFilter
+          .split(",")
+          .map((p) => p.trim())
+          .filter((p) => p.length > 0);
+
+        transformedResults = transformedResults.filter((result) => {
+          return patterns.some((pattern) =>
+            minimatch(result.filePath, pattern)
+          );
+        });
+
+        this.log(
+          `[IPC Host] Applied glob filter: ${patterns.join(", ")} - ${
+            transformedResults.length
+          } results after filtering`,
+          "SEARCH"
+        );
+      }
 
       this._analyticsService.trackSearch({
         queryLength: query.length,
@@ -908,7 +941,7 @@ export class WebviewController
     request: IpcRequest<UpdateSearchSettingsParams>
   ): Promise<IpcResponse<{ success: boolean }>> {
     try {
-      const { limit, threshold } = request.params;
+      const { limit, threshold, includeQueryInCopy } = request.params;
 
       // Update settings in VS Code configuration (global settings)
       if (limit !== undefined) {
@@ -925,11 +958,24 @@ export class WebviewController
           true
         );
       }
+      if (includeQueryInCopy !== undefined) {
+        await this._configService.updateVSCodeSetting(
+          "search.includeQueryInCopy",
+          includeQueryInCopy,
+          true
+        );
+      }
 
       this.log(
-        `Updated search settings: limit=${limit}, threshold=${threshold}`,
+        `Updated search settings: limit=${limit}, threshold=${threshold}, includeQueryInCopy=${includeQueryInCopy}`,
         "CONFIG"
       );
+
+      // Send notification to all webviews about the settings change
+      this.sendNotification(DID_CHANGE_CONFIG_NOTIFICATION, {
+        section: "search",
+        value: { limit, threshold, includeQueryInCopy },
+      });
 
       return {
         kind: "response",
@@ -960,6 +1006,7 @@ export class WebviewController
       const searchSettings = {
         limit: config.search.limit,
         threshold: config.search.threshold,
+        includeQueryInCopy: config.search.includeQueryInCopy ?? false,
       };
 
       this.log(

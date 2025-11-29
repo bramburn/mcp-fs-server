@@ -27,6 +27,7 @@ export interface Configuration {
   search: {
     limit: number;
     threshold: number;
+    includeQueryInCopy?: boolean;
   };
   qdrantConfig?: QdrantOllamaConfig;
 }
@@ -63,6 +64,7 @@ export const DefaultConfiguration: Configuration = {
   search: {
     limit: 10,
     threshold: 0.7,
+    includeQueryInCopy: false,
   },
 };
 
@@ -109,6 +111,10 @@ export class ConfigurationFactory {
         threshold: vscodeConfig.get(
           ConfigPath.SEARCH + ".threshold",
           DefaultConfiguration.search.threshold
+        ),
+        includeQueryInCopy: vscodeConfig.get(
+          ConfigPath.SEARCH + ".includeQueryInCopy",
+          DefaultConfiguration.search.includeQueryInCopy
         ),
       },
       qdrantConfig: undefined, // Will be loaded separately from file

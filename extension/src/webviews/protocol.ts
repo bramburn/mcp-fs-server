@@ -102,6 +102,7 @@ export interface QdrantOllamaConfig {
 export interface SearchRequestParams {
   query: string;
   limit?: number; // Maximum number of results to return
+  globFilter?: string; // NEW: File pattern filter (e.g., "**/*.ts,*.py")
 }
 export interface SearchResponseParams {
   results: FileSnippetResult[];
@@ -141,6 +142,8 @@ export const OPEN_FILE_METHOD = "file/open";
 export interface CopyResultsParams {
   mode: "files" | "snippets";
   results: FileSnippetResult[];
+  query?: string; // NEW: Original search query for context
+  includeQuery?: boolean; // NEW: Whether to prepend query to copied content
 }
 export const COPY_RESULTS_METHOD = "results/copy";
 
@@ -201,6 +204,7 @@ export const TEST_CONFIG_METHOD = "config/test";
 export interface UpdateSearchSettingsParams {
   limit?: number;
   threshold?: number;
+  includeQueryInCopy?: boolean; // NEW: Query preservation setting
 }
 export const UPDATE_SEARCH_SETTINGS_METHOD = "config/update-search-settings";
 
@@ -208,5 +212,6 @@ export const UPDATE_SEARCH_SETTINGS_METHOD = "config/update-search-settings";
 export interface GetSearchSettingsResponse {
   limit: number;
   threshold: number;
+  includeQueryInCopy?: boolean; // NEW: Query preservation setting
 }
 export const GET_SEARCH_SETTINGS_METHOD = "config/get-search-settings";

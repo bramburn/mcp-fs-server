@@ -137,6 +137,7 @@ export default function Settings() {
   // Search settings state
   const [searchLimit, setSearchLimit] = useState(10);
   const [searchThreshold, setSearchThreshold] = useState(0.7);
+  const [includeQueryInCopy, setIncludeQueryInCopy] = useState(false);
   const [searchSettingsDirty, setSearchSettingsDirty] = useState(false);
 
   // Load initial config
@@ -172,6 +173,9 @@ export default function Settings() {
         if (settings) {
           setSearchLimit(settings.limit);
           setSearchThreshold(settings.threshold);
+          if (settings.includeQueryInCopy !== undefined) {
+            setIncludeQueryInCopy(settings.includeQueryInCopy);
+          }
           setSearchSettingsDirty(false);
         }
       });
@@ -190,13 +194,14 @@ export default function Settings() {
         {
           limit: searchLimit,
           threshold: searchThreshold,
+          includeQueryInCopy,
         }
       );
       setSearchSettingsDirty(false);
     } catch (error) {
       console.error("Failed to save search settings:", error);
     }
-  }, [ipc, searchLimit, searchThreshold]);
+  }, [ipc, searchLimit, searchThreshold, includeQueryInCopy]);
 
   // AUTO-POPULATE: Watch for provider/model changes and update dimension
   useEffect(() => {
@@ -421,6 +426,24 @@ export default function Settings() {
                 <p className="text-xs text-muted-foreground">
                   Minimum similarity score for results (0.0-1.0)
                 </p>
+              </div>
+
+              <div className="flex items-center justify-between p-3 border rounded-md bg-muted/20">
+                <div className="space-y-0.5">
+                  <h4 className="text-sm font-medium">
+                    Include Search Query in Copies
+                  </h4>
+                  <p className="text-xs text-muted-foreground">
+                    Prepends "Instruction: [your query]" to copied content
+                  </p>
+                </div>
+                <Switch
+                  checked={includeQueryInCopy}
+                  onCheckedChange={(checked) => {
+                    setIncludeQueryInCopy(checked);
+                    setSearchSettingsDirty(true);
+                  }}
+                />
               </div>
 
               {searchSettingsDirty && (

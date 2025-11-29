@@ -70,6 +70,11 @@
           "minimum": 0,
           "maximum": 1,
           "description": "Minimum similarity score threshold for search results (0-1)"
+        },
+        "qdrant.search.includeQueryInCopy": {
+          "type": "boolean",
+          "default": false,
+          "description": "Include search query as 'Instruction:' prefix when copying snippets"
         }
       }
     }
@@ -102,6 +107,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^0.2.1",
     "lucide-react": "^0.462.0",
+    "minimatch": "^10.1.1",
     "posthog-node": "^5.14.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

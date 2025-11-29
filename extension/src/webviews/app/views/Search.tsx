@@ -7,6 +7,7 @@ import type {
 } from "../../protocol";
 import {
   COPY_RESULTS_METHOD,
+  DID_CHANGE_CONFIG_NOTIFICATION,
   GET_SEARCH_SETTINGS_METHOD,
   type GetSearchSettingsResponse,
   SEARCH_METHOD,
@@ -32,6 +33,7 @@ export default function Search() {
   const setView = useAppStore((state) => state.setView);
 
   const [searchInput, setSearchInput] = useState("");
+  const [globFilter, setGlobFilter] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<FileSnippetResult[]>([]);
   const [copyMode, setCopyMode] = useState<"files" | "snippets">("files");
@@ -39,6 +41,7 @@ export default function Search() {
   // Load search settings from VS Code configuration
   const [maxResults, setMaxResults] = useState(10);
   const [scoreThreshold, setScoreThreshold] = useState(0.7);
+  const [includeQueryInCopy, setIncludeQueryInCopy] = useState(false);
 
   // Use a ref to track the latest search input value
   const searchInputRef = useRef(searchInput);
@@ -48,8 +51,8 @@ export default function Search() {
     searchInputRef.current = searchInput;
   }, [searchInput]);
 
-  // Load search settings on mount
-  useEffect(() => {
+  // Load search settings on mount and when they change
+  const loadSearchSettings = useCallback(() => {
     ipc
       .sendRequest<Record<string, never>, GetSearchSettingsResponse>(
         GET_SEARCH_SETTINGS_METHOD,
@@ -60,6 +63,9 @@ export default function Search() {
         if (settings) {
           setMaxResults(settings.limit);
           setScoreThreshold(settings.threshold);
+          if (settings.includeQueryInCopy !== undefined) {
+            setIncludeQueryInCopy(settings.includeQueryInCopy);
+          }
         }
       })
       .catch((error) => {
@@ -67,13 +73,30 @@ export default function Search() {
       });
   }, [ipc]);
 
+  useEffect(() => {
+    loadSearchSettings();
+  }, [loadSearchSettings]);
+
+  // Listen for configuration changes from other views
+  useEffect(() => {
+    const handleConfigChange = (params: any) => {
+      if (params?.section === "search") {
+        loadSearchSettings();
+      }
+    };
+
+    ipc.onNotification(DID_CHANGE_CONFIG_NOTIFICATION, handleConfigChange);
+  }, [ipc, loadSearchSettings]);
+
   const handleCopyContext = useCallback(() => {
     if (!results.length) return;
     ipc.sendCommand(COPY_RESULTS_METHOD, "qdrantIndex", {
       mode: copyMode,
       results,
+      query: searchInput,
+      includeQuery: includeQueryInCopy,
     });
-  }, [ipc, results, copyMode]);
+  }, [ipc, results, copyMode, searchInput, includeQueryInCopy]);
 
   // MODIFIED: Accept options parameter
   const executeSearch = useCallback(
@@ -113,6 +136,7 @@ export default function Search() {
         >(SEARCH_METHOD, "qdrantIndex", {
           query: trimmed,
           limit: options?.limit ?? maxResults,
+          globFilter: globFilter || undefined,
         });
 
         try {
@@ -239,6 +263,15 @@ export default function Search() {
                   }
                 }
               }}
+            />
+
+            {/* Glob Filter Input */}
+            <input
+              type="text"
+              placeholder="File filter (e.g., **/*.ts,*.py)"
+              value={globFilter}
+              onChange={(e) => setGlobFilter(e.target.value)}
+              className="text-xs h-9 mt-2 px-3 py-2 bg-muted/50 text-foreground placeholder-muted-foreground focus:outline-none focus:bg-muted w-full rounded-sm transition-colors"
             />
 
             {/* Results Toolbar - Responsive Flex */}

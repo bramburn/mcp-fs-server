@@ -2,7 +2,7 @@
 node_modules
 dist
 build
-
+.qdrant
 # test
 coverage
 test-results
