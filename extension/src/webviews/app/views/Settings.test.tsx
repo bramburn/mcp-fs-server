@@ -6,9 +6,7 @@ import {
   LOAD_CONFIG_METHOD,
   SAVE_CONFIG_METHOD,
   START_INDEX_METHOD,
-  TEST_CONFIG_METHOD,
   type QdrantOllamaConfig,
-  type TestConfigResponse,
 } from "../../protocol";
 import { IpcProvider, type HostIpc } from "../contexts/ipc";
 import { FluentWrapper } from "../providers/FluentWrapper";
@@ -166,7 +164,12 @@ describe("Settings View", () => {
       });
 
       const ipc = createMockIpc({
-        sendRequest: vi.fn().mockResolvedValue(mockConfig),
+        sendRequest: vi.fn().mockImplementation((method) => {
+          if (method === LOAD_CONFIG_METHOD) {
+            return Promise.resolve(mockConfig);
+          }
+          return Promise.resolve(null);
+        }),
       });
 
       setupMockStore({ config: undefined });
