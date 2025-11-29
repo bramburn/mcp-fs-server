@@ -1,4 +1,24 @@
-import { Copy, FileText, FolderOpen, Scissors } from "lucide-react";
+import {
+  Button,
+  Input,
+  makeStyles,
+  ProgressBar,
+  shorthands,
+  Text,
+  ToggleButton,
+  tokens,
+  Tooltip,
+} from "@fluentui/react-components";
+import {
+  ArrowRepeatAllRegular,
+  CopyRegular,
+  CutRegular,
+  DocumentCopyRegular,
+  FilterRegular,
+  FolderOpenRegular,
+  SearchRegular,
+  SettingsRegular,
+} from "@fluentui/react-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   FileSnippetResult,
@@ -14,18 +34,89 @@ import {
   START_INDEX_METHOD,
 } from "../../protocol";
 import SnippetList from "../components/SnippetList";
-import { Button } from "../components/ui/button";
-import {
-  Command,
-  CommandEmpty,
-  CommandInput,
-  CommandList,
-  CommandLoading,
-} from "../components/ui/command";
 import { useIpc } from "../contexts/ipc";
 import { useAppStore } from "../store";
 
+const useStyles = makeStyles({
+  root: {
+    display: "flex",
+    flexDirection: "column",
+    height: "100vh",
+    backgroundColor: tokens.colorNeutralBackground1,
+    color: tokens.colorNeutralForeground1,
+  },
+  header: {
+    position: "sticky",
+    top: 0,
+    zIndex: 10,
+    backgroundColor: tokens.colorNeutralBackground1,
+    ...shorthands.padding("12px"),
+    ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke1),
+    display: "flex",
+    flexDirection: "column",
+    ...shorthands.gap("10px"),
+  },
+  titleRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  searchRow: {
+    display: "flex",
+    flexDirection: "column",
+    ...shorthands.gap("8px"),
+  },
+  controlsRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "center",
+    ...shorthands.padding("4px", "0"),
+  },
+  toggleGroup: {
+    display: "flex",
+    backgroundColor: tokens.colorNeutralBackground2,
+    ...shorthands.borderRadius(tokens.borderRadiusMedium),
+    ...shorthands.padding("2px"),
+    ...shorthands.gap("2px"),
+  },
+  statusRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: "4px",
+  },
+  statusText: {
+    display: "flex",
+    alignItems: "center",
+    ...shorthands.gap("6px"),
+    fontSize: "11px",
+    color: tokens.colorNeutralForeground3,
+  },
+  dot: {
+    width: "8px",
+    height: "8px",
+    borderRadius: tokens.borderRadiusCircular,
+  },
+  scrollArea: {
+    flexGrow: 1,
+    overflowY: "auto",
+    ...shorthands.padding("12px"),
+  },
+  emptyState: {
+    display: "flex",
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    height: "100%",
+    ...shorthands.gap("16px"),
+    color: tokens.colorNeutralForeground3,
+    textAlign: "center",
+    padding: "20px",
+  },
+});
+
 export default function Search() {
+  const styles = useStyles();
   const ipc = useIpc();
 
   const indexStatus = useAppStore((state) => state.indexStatus);
@@ -98,37 +189,14 @@ export default function Search() {
     });
   }, [ipc, results, copyMode, searchInput, includeQueryInCopy]);
 
-  // MODIFIED: Accept options parameter
   const executeSearch = useCallback(
     async (query: string, options?: { limit?: number; threshold?: number }) => {
-      console.log("[Webview] executeSearch called with query:", query);
-      console.log(
-        "[Webview] Query length:",
-        query?.length,
-        "Trimmed length:",
-        query?.trim().length
-      );
-
       const trimmed = query?.trim() ?? "";
 
-      // Ignore empty or very short queries (<= 2 chars)
-      if (trimmed.length === 0) {
-        console.log("[Webview] Query is empty, returning early");
-        return;
-      }
+      if (trimmed.length <= 2) return;
 
-      if (trimmed.length <= 2) {
-        console.log(
-          "[Webview] Query too short, minimum length is 3 characters"
-        );
-        return;
-      }
-
-      console.log("[Webview] Executing search for:", query);
-      console.log("[Webview] IPC object available:", !!ipc);
       setIsLoading(true);
 
-      console.log("[Webview] Calling ipc.sendRequest...");
       try {
         const response = await ipc.sendRequest<
           SearchRequestParams,
@@ -139,45 +207,18 @@ export default function Search() {
           globFilter: globFilter || undefined,
         });
 
-        try {
-          console.log("[Webview] Received response:", response);
-          console.log("[Webview] Response type:", typeof response);
-          console.log("[Webview] Response keys:", Object.keys(response || {}));
-
-          if (!response) {
-            console.warn("[Webview] Response is null or undefined");
-            setResults([]);
-          } else {
-            const allResults = response.results ?? [];
-            // Apply threshold filter
-            const threshold = options?.threshold ?? scoreThreshold;
-            const filteredResults = allResults.filter(
-              (r) => r.score >= threshold
-            );
-            console.log(
-              "[Webview] Received results:",
-              allResults.length,
-              "Filtered:",
-              filteredResults.length
-            );
-            setResults(filteredResults);
-          }
-          setIsLoading(false);
-        } catch (error) {
-          console.error("[Webview] Error processing search response:", error);
-          setResults([]);
-          setIsLoading(false);
-        }
+        const allResults = response.results ?? [];
+        const threshold = options?.threshold ?? scoreThreshold;
+        const filteredResults = allResults.filter((r) => r.score >= threshold);
+        setResults(filteredResults);
       } catch (error) {
-        console.error("[Webview] Search request failed:", error);
-        console.error(
-          "[Webview] Error details:",
-          JSON.stringify(error, null, 2)
-        );
+        console.error("Search request failed:", error);
+        setResults([]);
+      } finally {
         setIsLoading(false);
       }
     },
-    [ipc, maxResults, scoreThreshold]
+    [ipc, maxResults, scoreThreshold, globFilter]
   );
 
   // Clear results when input is cleared
@@ -187,7 +228,6 @@ export default function Search() {
     }
   }, [searchInput]);
 
-  // MODIFIED: Remove auto-search, just update input
   const handleSearchValueChange = useCallback((value: string) => {
     setSearchInput(value);
     searchInputRef.current = value;
@@ -203,175 +243,179 @@ export default function Search() {
     ipc.sendCommand(START_INDEX_METHOD, "qdrantIndex", {});
   }, [ipc]);
 
-  const openSettings = useCallback(() => {
-    setView("settings");
-  }, [setView]);
+  const getStatusColor = () => {
+    if (indexStatus === "ready") return tokens.colorPaletteGreenBackground3;
+    if (indexStatus === "indexing") return tokens.colorPaletteYellowBackground3;
+    return tokens.colorPaletteRedBackground3;
+  };
 
   // 1. Handle No Workspace State
   if (indexStatus === "no_workspace") {
     return (
-      <div className="flex h-full flex-col items-center justify-center p-6 text-center space-y-4">
-        <div className="bg-muted p-4 rounded-full">
-          <FolderOpen
-            className="w-8 h-8 text-muted-foreground"
-            data-testid="icon-folder-open"
+      <div className={styles.emptyState}>
+        <div
+          style={{
+            padding: "16px",
+            backgroundColor: tokens.colorNeutralBackground2,
+            borderRadius: "50%",
+          }}
+        >
+          <FolderOpenRegular
+            fontSize={32}
+            color={tokens.colorNeutralForeground3}
           />
         </div>
         <div>
-          <h3 className="font-semibold text-base">No Workspace Open</h3>
-          <p className="text-xs text-muted-foreground mt-1">
-            Open a folder or workspace to start searching your codebase.
-          </p>
+          <Text weight="semibold" size={400} block>
+            No Workspace Open
+          </Text>
+          <Text size={200}>Open a folder or workspace to start searching.</Text>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="flex h-full w-full flex-col overflow-hidden bg-background">
+    <div className={styles.root}>
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-border/40 bg-background/95 backdrop-blur">
-        <div className="flex flex-col gap-2 p-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold tracking-tight text-foreground/80">
-              Semantic Search
-            </h2>
-            <Button
-              variant="link"
-              size="sm"
-              onClick={openSettings}
-              className="text-xs px-0 h-auto"
-            >
-              Settings
-            </Button>
-          </div>
+      <div className={styles.header}>
+        <div className={styles.titleRow}>
+          <Text weight="semibold" size={400}>
+            Semantic Search
+          </Text>
+          <Button
+            appearance="subtle"
+            size="small"
+            icon={<SettingsRegular />}
+            onClick={() => setView("settings")}
+          >
+            Settings
+          </Button>
+        </div>
 
-          <Command filter={() => 1}>
-            <CommandInput
-              placeholder="Search codebase..."
-              className="text-xs h-9"
-              value={searchInput}
-              onValueChange={handleSearchValueChange}
-              onKeyDown={(e: React.KeyboardEvent) => {
-                if (e.key === "Enter") {
-                  e.preventDefault();
-                  if (searchInput.trim().length > 2) {
-                    executeSearch(searchInput, {
-                      limit: maxResults,
-                      threshold: scoreThreshold,
-                    });
-                  }
-                }
-              }}
-            />
+        <div className={styles.searchRow}>
+          <Input
+            placeholder="Search codebase..."
+            contentAfter={<SearchRegular />}
+            value={searchInput}
+            onChange={(_e, data) => handleSearchValueChange(data.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && searchInput.trim().length > 2) {
+                executeSearch(searchInput, {
+                  limit: maxResults,
+                  threshold: scoreThreshold,
+                });
+              }
+            }}
+          />
 
-            {/* Glob Filter Input */}
-            <input
-              type="text"
-              placeholder="File filter (e.g., **/*.ts,*.py)"
-              value={globFilter}
-              onChange={(e) => setGlobFilter(e.target.value)}
-              className="text-xs h-9 mt-2 px-3 py-2 bg-muted/50 text-foreground placeholder-muted-foreground focus:outline-none focus:bg-muted w-full rounded-sm transition-colors"
-            />
+          <Input
+            placeholder="File filter (e.g. **/*.ts,*.py)"
+            contentAfter={<FilterRegular />}
+            value={globFilter}
+            onChange={(_e, data) => setGlobFilter(data.value)}
+            size="small"
+          />
+        </div>
 
-            {/* Results Toolbar - Responsive Flex */}
-            <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 border-t border-border/40 bg-muted/20 text-xs">
-              <span className="text-muted-foreground whitespace-nowrap">
-                {results.length} result{results.length !== 1 ? "s" : ""}
-              </span>
+        {/* Results Toolbar */}
+        <div className={styles.controlsRow}>
+          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
+            {results.length} result{results.length !== 1 ? "s" : ""}
+          </Text>
 
-              <div className="flex items-center gap-1 ml-auto">
-                <div className="flex bg-muted rounded-md p-0.5 mr-2">
-                  <button
-                    onClick={() => setCopyMode("files")}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px] font-medium transition-all ${
-                      copyMode === "files"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                    title="Copy full file content"
-                  >
-                    <FileText className="w-3 h-3" />
-                    Files
-                  </button>
-                  <button
-                    onClick={() => setCopyMode("snippets")}
-                    className={`flex items-center gap-1 px-2 py-0.5 rounded-sm text-[10px] font-medium transition-all ${
-                      copyMode === "snippets"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
-                    title="Copy only snippets"
-                  >
-                    <Scissors className="w-3 h-3" />
-                    Snippets
-                  </button>
-                </div>
-
-                <Button
-                  size="sm"
-                  variant="default"
-                  disabled={results.length === 0}
-                  onClick={handleCopyContext}
-                  className="h-6 px-2 text-[10px] gap-1.5"
-                >
-                  <Copy className="w-3 h-3" />
-                  Copy Context
-                </Button>
-              </div>
-            </div>
-
-            <CommandList>
-              {isLoading && <CommandLoading />}
-              {!isLoading &&
-                results.length === 0 &&
-                searchInput.length === 0 && (
-                  <CommandEmpty>Start typing to search...</CommandEmpty>
-                )}
-              {!isLoading && results.length === 0 && searchInput.length > 2 && (
-                <CommandEmpty>
-                  No results found for "{searchInput}".
-                </CommandEmpty>
-              )}
-              {!isLoading && results.length > 0 && (
-                <SnippetList results={results} />
-              )}
-            </CommandList>
-          </Command>
-
-          {/* Footer Status - Stack on very small screens */}
-          <div className="flex flex-wrap items-center justify-between gap-2 mt-2 text-xs text-muted-foreground">
-            <div className="flex items-center gap-2 min-w-0">
-              <span
-                className={`w-2 h-2 rounded-full shrink-0 ${
-                  indexStatus === "ready"
-                    ? "bg-green-500"
-                    : indexStatus === "indexing"
-                    ? "bg-yellow-500 animate-pulse"
-                    : "bg-red-500"
-                }`}
-              />
-              <span className="truncate">
-                {indexStatus === "indexing" ? "Indexing..." : "Index Ready"}
-                {indexStats?.vectorCount !== undefined && (
-                  <span className="ml-2 text-[10px] opacity-70">
-                    ({indexStats.vectorCount} vectors)
-                  </span>
-                )}
-              </span>
+          <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+            <div className={styles.toggleGroup}>
+              <Tooltip content="Copy file paths" relationship="label">
+                <ToggleButton
+                  size="small"
+                  appearance="subtle"
+                  checked={copyMode === "files"}
+                  onClick={() => setCopyMode("files")}
+                  icon={<DocumentCopyRegular fontSize={16} />}
+                />
+              </Tooltip>
+              <Tooltip content="Copy snippets" relationship="label">
+                <ToggleButton
+                  size="small"
+                  appearance="subtle"
+                  checked={copyMode === "snippets"}
+                  onClick={() => setCopyMode("snippets")}
+                  icon={<CutRegular fontSize={16} />}
+                />
+              </Tooltip>
             </div>
 
             <Button
-              onClick={handleIndex}
-              disabled={indexStatus === "indexing"}
-              size="sm"
-              variant="outline"
-              className="h-6 text-[10px] px-2"
+              size="small"
+              appearance="primary"
+              disabled={results.length === 0}
+              onClick={handleCopyContext}
+              icon={<CopyRegular />}
             >
-              Re-Index
+              Copy
             </Button>
           </div>
         </div>
+
+        {/* Status Footer */}
+        <div className={styles.statusRow}>
+          <div className={styles.statusText}>
+            <div
+              className={styles.dot}
+              style={{ backgroundColor: getStatusColor() }}
+            />
+            <Text>
+              {indexStatus === "indexing" ? "Indexing..." : "Index Ready"}
+            </Text>
+            {indexStats?.vectorCount !== undefined && (
+              <Text size={100} style={{ opacity: 0.7 }}>
+                ({indexStats.vectorCount} vectors)
+              </Text>
+            )}
+          </div>
+
+          <Button
+            size="small"
+            appearance="subtle"
+            icon={<ArrowRepeatAllRegular />}
+            disabled={indexStatus === "indexing"}
+            onClick={handleIndex}
+          >
+            Re-Index
+          </Button>
+        </div>
+
+        {isLoading && <ProgressBar />}
+      </div>
+
+      {/* Results List */}
+      <div className={styles.scrollArea}>
+        {!isLoading && results.length === 0 && searchInput.length > 0 && (
+          <div
+            className={styles.emptyState}
+            style={{ height: "auto", marginTop: "40px" }}
+          >
+            <Text>
+              {searchInput.length > 2
+                ? "No results found."
+                : "Type at least 3 characters..."}
+            </Text>
+          </div>
+        )}
+
+        {!isLoading && results.length === 0 && searchInput.length === 0 && (
+          <div
+            className={styles.emptyState}
+            style={{ height: "auto", marginTop: "40px" }}
+          >
+            <Text style={{ color: tokens.colorNeutralForeground4 }}>
+              Start typing to search...
+            </Text>
+          </div>
+        )}
+
+        <SnippetList results={results} />
       </div>
     </div>
   );

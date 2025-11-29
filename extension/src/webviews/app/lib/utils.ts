@@ -1,13 +1,16 @@
-import { type ClassValue, clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { mergeClasses } from "@fluentui/react-components";
 
 /**
  * React-era webview utilities.
  *
- * React-specific transition helpers have been removed to keep the webview build free of Svelte runtime types.
+ * Updated to use Fluent UI's mergeClasses.
+ * This removes dependencies on clsx and tailwind-merge while keeping the API compatible
+ * for class name concatenation (e.g. conditional classes).
  */
-export function cn(...inputs: ClassValue[]) {
-	return twMerge(clsx(inputs));
+export function cn(...inputs: (string | undefined | null | false)[]) {
+  // mergeClasses does not accept 'null', so we convert nulls to undefined
+  const validInputs = inputs.map((i) => (i === null ? undefined : i));
+  return mergeClasses(...validInputs);
 }
 
 /**

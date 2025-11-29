@@ -4,7 +4,8 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import SnippetList from './SnippetList';
 import { IpcProvider, type HostIpc } from '../contexts/ipc';
 import { OPEN_FILE_METHOD, type FileSnippetResult } from '../../protocol';
-import { Command } from '../components/ui/command';
+
+// Removed unused Command import
 
 function renderWithIpc(
   ui: React.ReactElement,
@@ -21,7 +22,8 @@ function renderWithIpc(
     ipc,
     ...render(
       <IpcProvider value={ipc}>
-        <Command>{ui}</Command>
+        {/* Removed <Command> wrapper */}
+        {ui}
       </IpcProvider>
     ),
   };
@@ -49,7 +51,6 @@ const mockResults: FileSnippetResult[] = [
 describe('SnippetList', () => {
   it('renders nothing when results are empty', () => {
     renderWithIpc(<SnippetList results={[]} />);
-    // No file name text should be present
     expect(screen.queryByText('one.ts')).not.toBeInTheDocument();
     expect(screen.queryByText('two.ts')).not.toBeInTheDocument();
   });

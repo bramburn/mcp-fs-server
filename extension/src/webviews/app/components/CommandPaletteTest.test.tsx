@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import CommandPaletteTest from './CommandPaletteTest';
 import { IpcProvider, type HostIpc } from '../contexts/ipc';
+import { FluentWrapper } from '../providers/FluentWrapper';
 
 type MockHostIpc = HostIpc & {
   sendCommand: ReturnType<typeof vi.fn>;
@@ -14,7 +15,7 @@ type MockHostIpc = HostIpc & {
 function createMockIpc(): MockHostIpc {
   return {
     sendCommand: vi.fn(),
-    sendRequest: vi.fn(),
+    sendRequest: vi.fn().mockResolvedValue(undefined),
     onNotification: vi.fn(),
   } as unknown as MockHostIpc;
 }
@@ -23,9 +24,11 @@ function renderWithIpc(ipc: MockHostIpc = createMockIpc()) {
   return {
     ipc,
     ...render(
-      <IpcProvider value={ipc}>
-        <CommandPaletteTest />
-      </IpcProvider>
+      <FluentWrapper>
+        <IpcProvider value={ipc}>
+          <CommandPaletteTest />
+        </IpcProvider>
+      </FluentWrapper>
     ),
   };
 }
@@ -39,10 +42,10 @@ describe('CommandPaletteTest (React)', () => {
     renderWithIpc();
 
     expect(
-      screen.getByText('Command Palette Component Test')
+      screen.getByText('Command Palette Test')
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/IPC Context:/)
+      screen.getByText(/IPC:/)
     ).toBeInTheDocument();
   });
 
@@ -50,20 +53,22 @@ describe('CommandPaletteTest (React)', () => {
     renderWithIpc();
 
     const toggleButton = screen.getByRole('button', {
-      name: /Hide Command Palette/i,
+      name: /Hide Palette/i,
     });
 
     // Initially visible (button says "Hide")
     expect(toggleButton).toBeInTheDocument();
+    
+    // Check for a specific command to ensure list is visible
     expect(
-      screen.getByText('File Operations')
+      screen.getByText('New File')
     ).toBeInTheDocument();
 
     fireEvent.click(toggleButton);
 
     // After click, palette should be hidden (button text changes)
     expect(
-      screen.getByRole('button', { name: /Show Command Palette/i })
+      screen.getByRole('button', { name: /Show Palette/i })
     ).toBeInTheDocument();
   });
 

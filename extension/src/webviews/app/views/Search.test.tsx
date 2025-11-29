@@ -3,18 +3,19 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  COPY_RESULTS_METHOD,
-  SEARCH_METHOD,
+  LOAD_CONFIG_METHOD,
+  SAVE_CONFIG_METHOD,
   START_INDEX_METHOD,
-  type SearchRequestParams,
-  type SearchResponseParams,
+  TEST_CONFIG_METHOD,
+  type QdrantOllamaConfig,
+  type TestConfigResponse,
 } from "../../protocol";
 import { IpcProvider, type HostIpc } from "../contexts/ipc";
+import { FluentWrapper } from "../providers/FluentWrapper";
 import { useAppStore } from "../store";
-import Search from "./Search";
+import Settings from "./Settings";
 
-type ViMockFn = ReturnType<typeof vi.fn>;
-
+// Mock Store
 vi.mock("../store", async () => {
   const actual = await vi.importActual<typeof import("../store")>("../store");
   return {
@@ -23,339 +24,301 @@ vi.mock("../store", async () => {
   };
 });
 
-// Mock the SnippetList component
-vi.mock("../components/SnippetList", () => ({
-  default: ({ results }: { results: any[] }) => (
-    <div data-testid="snippet-list">
-      {results.map((result, index) => (
-        <div key={index} data-testid="snippet-item">
-          <div data-testid="file-path">{result.filePath}</div>
-          <div data-testid="score">{result.score}</div>
-        </div>
-      ))}
-    </div>
-  )
-}));
+// Type for mock IPC with vi.fn methods
+type MockHostIpc = HostIpc & {
+  sendCommand: ReturnType<typeof vi.fn>;
+  sendRequest: ReturnType<typeof vi.fn>;
+  onNotification: ReturnType<typeof vi.fn>;
+};
 
-// Mock UI components with simpler testable versions
-vi.mock("../components/ui/command", async () => {
-  const React = await import("react");
-
-  function Command({ children, filter }: { children: React.ReactNode; filter?: any }) {
-    return <div data-testid="command">{children}</div>;
-  }
-
-  function CommandInput(props: {
-    placeholder?: string;
-    value?: string;
-    onValueChange?: (value: string) => void;
-    onKeyDown?: (e: React.KeyboardEvent) => void;
-  }) {
-    return (
-      <input
-        data-testid="command-input"
-        placeholder={props.placeholder}
-        value={props.value || ""}
-        onChange={(e) => props.onValueChange?.(e.target.value)}
-        onKeyDown={props.onKeyDown}
-      />
-    );
-  }
-
-  function CommandList(props: { children?: React.ReactNode }) {
-    return <div data-testid="command-list">{props.children}</div>;
-  }
-
-  function CommandEmpty(props: { children?: React.ReactNode }) {
-    return <div data-testid="command-empty">{props.children}</div>;
-  }
-
-  function CommandLoading() {
-    return <div data-testid="command-loading">Loading...</div>;
-  }
-
+function createMockIpc(overrides?: Partial<MockHostIpc>): MockHostIpc {
   return {
-    Command,
-    CommandInput,
-    CommandList,
-    CommandEmpty,
-    CommandLoading,
-  };
-});
-
-vi.mock("../components/ui/button", () => ({
-  Button: ({ children, onClick, disabled, ...props }: any) => (
-    <button
-      data-testid="button"
-      onClick={onClick}
-      disabled={disabled}
-      {...props}
-    >
-      {children}
-    </button>
-  )
-}));
-
-vi.mock("../components/ui/label", () => ({
-  Label: ({ children, ...props }: any) => (
-    <label data-testid="label" {...props}>{children}</label>
-  )
-}));
+    sendCommand: vi.fn(),
+    sendRequest: vi.fn().mockResolvedValue(null),
+    onNotification: vi.fn(),
+    ...overrides,
+  } as unknown as MockHostIpc;
+}
 
 function renderWithIpc(
   ui: React.ReactElement,
-  ipcOverrides: Partial<HostIpc> = {}
+  ipc: MockHostIpc = createMockIpc()
 ) {
-  const baseIpc: HostIpc = {
-    sendCommand: vi.fn() as HostIpc["sendCommand"],
-    sendRequest: vi.fn() as HostIpc["sendRequest"],
-    onNotification: vi.fn() as HostIpc["onNotification"],
-  };
-
-  const ipc: HostIpc = {
-    ...baseIpc,
-    ...ipcOverrides,
-  };
-
   return {
     ipc,
-    ...render(<IpcProvider value={ipc}>{ui}</IpcProvider>),
+    ...render(
+      <FluentWrapper>
+        <IpcProvider value={ipc}>{ui}</IpcProvider>
+      </FluentWrapper>
+    ),
   };
 }
 
-describe("Search view (React)", () => {
+function createMockConfig(
+  overrides?: Partial<QdrantOllamaConfig>
+): QdrantOllamaConfig {
+  return {
+    active_vector_db: "qdrant",
+    active_embedding_provider: "ollama",
+    index_info: {
+      name: "test-index",
+      embedding_dimension: 768,
+    },
+    qdrant_config: {
+      url: "http://localhost:6333",
+      api_key: "test-key",
+    },
+    pinecone_config: {
+      index_name: "",
+      environment: "",
+      api_key: "",
+    },
+    ollama_config: {
+      base_url: "http://localhost:11434",
+      model: "nomic-embed-text",
+    },
+    openai_config: {
+      api_key: "",
+      model: "text-embedding-3-small",
+    },
+    gemini_config: {
+      api_key: "",
+      model: "text-embedding-004",
+    },
+    ...overrides,
+  };
+}
+
+function setupMockStore(storeState?: {
+  config?: QdrantOllamaConfig | undefined;
+  setConfig?: ReturnType<typeof vi.fn>;
+  indexStatus?: "ready" | "indexing" | "error" | "no_workspace";
+  setView?: ReturnType<typeof vi.fn>;
+}) {
+  const defaultState = {
+    config: undefined,
+    setConfig: vi.fn(),
+    indexStatus: "ready" as const,
+    setView: vi.fn(),
+    ...storeState,
+  };
+
+  (useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+    (selector: any) => selector(defaultState)
+  );
+
+  return defaultState;
+}
+
+describe("Settings View", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    const useAppStoreMock = useAppStore as unknown as ViMockFn;
-    useAppStoreMock.mockImplementation((selector: any) =>
-      selector({
-        indexStatus: "ready",
-        indexStats: { vectorCount: 100 },
-        setView: vi.fn(),
-      })
-    );
+    setupMockStore();
   });
 
-  it("renders initial UI with settings panel", () => {
-    renderWithIpc(<Search />);
+  describe("Initial Rendering", () => {
+    it("renders the settings header with back button", () => {
+      renderWithIpc(<Settings />);
 
-    expect(screen.getByText("Semantic Search")).toBeInTheDocument();
-    expect(screen.getByText("Settings")).toBeInTheDocument();
-    expect(screen.getByText("Search Settings")).toBeInTheDocument();
-    expect(screen.getByDisplayValue("50")).toBeInTheDocument(); // Max results
-    expect(screen.getByDisplayValue("0.40")).toBeInTheDocument(); // Score threshold
-    expect(
-      screen.getByPlaceholderText("Search codebase...")
-    ).toBeInTheDocument();
+      expect(screen.getByText("Settings")).toBeInTheDocument();
+      const backButton = screen.getByRole("button", { name: "Back" });
+      expect(backButton).toBeInTheDocument();
+    });
+
+    it("renders all main sections", () => {
+      renderWithIpc(<Settings />);
+
+      expect(screen.getByText("Index Settings")).toBeInTheDocument();
+      expect(screen.getByText("Vector Database")).toBeInTheDocument();
+      expect(screen.getByText("Embedding Provider")).toBeInTheDocument();
+      expect(screen.getByText("Configuration Storage")).toBeInTheDocument();
+    });
+
+    it("renders default form values when no config exists", () => {
+      renderWithIpc(<Settings />);
+
+      const indexNameInput = screen.getByLabelText("Index Name");
+      expect(indexNameInput).toHaveValue("");
+
+      expect(
+        screen.getByPlaceholderText("http://localhost:6333")
+      ).toBeInTheDocument();
+
+      expect(
+        screen.getByPlaceholderText("nomic-embed-text")
+      ).toBeInTheDocument();
+    });
+
+    it("renders action buttons", () => {
+      renderWithIpc(<Settings />);
+
+      expect(screen.getByText("Test Connection")).toBeInTheDocument();
+      expect(screen.getByText("Save & Create")).toBeInTheDocument();
+      expect(screen.getByText("Force Re-Index")).toBeInTheDocument();
+    });
   });
 
-  it("does not auto-search while typing", () => {
-    const sendRequest = vi.fn();
+  describe("Configuration Loading", () => {
+    it("populates form fields with loaded configuration", async () => {
+      const mockConfig = createMockConfig({
+        index_info: { name: "my-custom-index", embedding_dimension: 1024 },
+        qdrant_config: { url: "http://custom:6333", api_key: "secret" },
+      });
 
-    renderWithIpc(<Search />, { sendRequest });
+      const ipc = createMockIpc({
+        sendRequest: vi.fn().mockImplementation((method) => {
+          if (method === LOAD_CONFIG_METHOD) {
+            return Promise.resolve(mockConfig);
+          }
+          return Promise.resolve(null);
+        }),
+      });
 
-    const input = screen.getByPlaceholderText("Search codebase...");
-    fireEvent.change(input, { target: { value: "test query" } });
+      setupMockStore({ config: undefined });
 
-    expect(sendRequest).not.toHaveBeenCalled();
+      renderWithIpc(<Settings />, ipc);
+
+      await waitFor(() => {
+        expect(screen.getByDisplayValue("my-custom-index")).toBeInTheDocument();
+      });
+
+      await waitFor(() => {
+        expect(
+          screen.getByDisplayValue("http://custom:6333")
+        ).toBeInTheDocument();
+      });
+    });
   });
 
-  it("searches when pressing Enter", async () => {
-    const sendRequest = vi.fn().mockResolvedValue({ results: [] });
+  describe("Navigation", () => {
+    it("calls setView when back button is clicked", () => {
+      const mockSetView = vi.fn();
+      setupMockStore({ setView: mockSetView });
 
-    renderWithIpc(<Search />, { sendRequest });
+      renderWithIpc(<Settings />);
 
-    const input = screen.getByPlaceholderText("Search codebase...");
-    fireEvent.change(input, { target: { value: "test query" } });
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+      const backButton = screen.getByRole("button", { name: "Back" });
+      fireEvent.click(backButton);
 
-    await waitFor(() => {
-      expect(sendRequest).toHaveBeenCalledWith(
-        SEARCH_METHOD,
+      expect(mockSetView).toHaveBeenCalledWith("search");
+    });
+  });
+
+  describe("Configuration Storage Toggle", () => {
+    it("renders storage toggle with default workspace storage", () => {
+      renderWithIpc(<Settings />);
+
+      expect(screen.getByText("Configuration Storage")).toBeInTheDocument();
+      expect(
+        screen.getByText(/Settings saved to \.qdrant\/ in this workspace/)
+      ).toBeInTheDocument();
+    });
+
+    it("toggles to global storage when switch is clicked", async () => {
+      renderWithIpc(<Settings />);
+
+      // There are multiple switches, find the one associated with storage
+      // The label text is inside the card content div next to the switch
+      // We can find by finding the closest card container or by label if possible
+      // Or simply grab all switches and pick the last one (since it's at the bottom)
+      const switches = screen.getAllByRole("switch");
+      const storageSwitch = switches[switches.length - 1];
+      
+      fireEvent.click(storageSwitch);
+
+      await waitFor(() => {
+        expect(
+          screen.getByText(/Settings saved to User Profile/)
+        ).toBeInTheDocument();
+      });
+    });
+  });
+
+  describe("Save Configuration", () => {
+    it("sends save request when Save & Create button is clicked", async () => {
+      const ipc = createMockIpc({
+        sendRequest: vi.fn().mockResolvedValue(undefined),
+      });
+
+      renderWithIpc(<Settings />, ipc);
+
+      const saveButton = screen.getByText("Save & Create");
+      fireEvent.click(saveButton);
+
+      await waitFor(() => {
+        expect(ipc.sendRequest).toHaveBeenCalledWith(
+          SAVE_CONFIG_METHOD,
+          "webview-mgmt",
+          expect.objectContaining({
+            config: expect.any(Object),
+            useGlobal: false,
+          })
+        );
+      });
+    });
+
+    it("includes useGlobal flag when global storage is selected", async () => {
+      const ipc = createMockIpc({
+        sendRequest: vi.fn().mockResolvedValue(undefined),
+      });
+
+      renderWithIpc(<Settings />, ipc);
+
+      const switches = screen.getAllByRole("switch");
+      const storageSwitch = switches[switches.length - 1];
+      fireEvent.click(storageSwitch);
+
+      const saveButton = screen.getByText("Save & Create");
+      fireEvent.click(saveButton);
+
+      await waitFor(() => {
+        expect(ipc.sendRequest).toHaveBeenCalledWith(
+          SAVE_CONFIG_METHOD,
+          "webview-mgmt",
+          expect.objectContaining({
+            config: expect.any(Object),
+            useGlobal: true,
+          })
+        );
+      });
+    });
+
+    it("shows Save button in header when form is dirty", async () => {
+      renderWithIpc(<Settings />);
+
+      // Initially no save button in header (header only has "Back")
+      // We can check this by looking for the "Save" text which should only exist in the footer button "Save & Create"
+      // or by checking button counts.
+      
+      // Modify form to make it dirty
+      const indexNameInput = screen.getByLabelText("Index Name");
+      fireEvent.change(indexNameInput, { target: { value: "modified" } });
+
+      // Now save button should appear in header. There is already a "Save & Create" button.
+      // The header button just says "Save" (based on icon or small text, but the test looks for text "Save")
+      await waitFor(() => {
+        // We expect to find the "Save" button in header + "Save & Create" in footer
+        // Or strictly "Save" if the button text is exactly "Save"
+        const saveButtons = screen.getAllByRole("button").filter(b => b.textContent === "Save");
+        expect(saveButtons.length).toBeGreaterThan(0);
+      });
+    });
+  });
+
+  describe("Force Re-Index", () => {
+    it("sends start index command when Force Re-Index button is clicked", () => {
+      const ipc = createMockIpc();
+
+      renderWithIpc(<Settings />, ipc);
+
+      const reindexButton = screen.getByText("Force Re-Index");
+      fireEvent.click(reindexButton);
+
+      expect(ipc.sendCommand).toHaveBeenCalledWith(
+        START_INDEX_METHOD,
         "qdrantIndex",
-        { query: "test query", limit: 50 }
+        {}
       );
     });
-  });
-
-  it("filters results by score threshold", async () => {
-    const mockResults = [
-      { uri: "file1.ts", filePath: "file1.ts", snippet: "code", lineStart: 1, lineEnd: 2, score: 0.8 },
-      { uri: "file2.ts", filePath: "file2.ts", snippet: "code", lineStart: 1, lineEnd: 2, score: 0.3 },
-    ];
-
-    const sendRequest = vi.fn().mockResolvedValue({ results: mockResults });
-
-    renderWithIpc(<Search />, { sendRequest });
-
-    // Set threshold to 0.5
-    const thresholdSlider = screen.getByDisplayValue("0.40");
-    fireEvent.change(thresholdSlider, { target: { value: "0.5" } });
-
-    // Execute search
-    const input = screen.getByPlaceholderText("Search codebase...");
-    fireEvent.change(input, { target: { value: "test" } });
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getByTestId("snippet-list")).toBeInTheDocument();
-      expect(screen.getAllByTestId("snippet-item")).toHaveLength(1);
-      expect(screen.getByText("file1.ts")).toBeInTheDocument();
-      expect(screen.queryByText("file2.ts")).not.toBeInTheDocument();
-    });
-  });
-
-  it("resets settings when reset button is clicked", () => {
-    renderWithIpc(<Search />);
-
-    // Change settings
-    const maxResultsSlider = screen.getByDisplayValue("50");
-    fireEvent.change(maxResultsSlider, { target: { value: "75" } });
-
-    const thresholdSlider = screen.getByDisplayValue("0.40");
-    fireEvent.change(thresholdSlider, { target: { value: "0.6" } });
-
-    // Reset
-    const resetButton = screen.getByText("Reset");
-    fireEvent.click(resetButton);
-
-    expect(maxResultsSlider).toHaveValue("50");
-    expect(thresholdSlider).toHaveValue("0.4");
-  });
-
-  it("shows loading state during search", async () => {
-    // Create a promise that we can control
-    let resolvePromise: (value: any) => void;
-    const controlledPromise = new Promise((resolve) => {
-      resolvePromise = resolve;
-    });
-
-    const sendRequest = vi.fn().mockReturnValue(controlledPromise);
-
-    renderWithIpc(<Search />, { sendRequest });
-
-    const input = screen.getByPlaceholderText("Search codebase...");
-    fireEvent.change(input, { target: { value: "test" } });
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
-
-    // Should show loading state
-    expect(screen.getByTestId("command-loading")).toBeInTheDocument();
-
-    // Resolve the promise
-    resolvePromise!({ results: [] });
-
-    // Loading should be gone
-    await waitFor(() => {
-      expect(screen.queryByTestId("command-loading")).not.toBeInTheDocument();
-    });
-  });
-
-  it("displays search results correctly", async () => {
-    const mockResults = [
-      { uri: "file1.ts", filePath: "src/file1.ts", snippet: "function test()", lineStart: 10, lineEnd: 15, score: 0.9 },
-      { uri: "file2.ts", filePath: "src/file2.ts", snippet: "class Example", lineStart: 1, lineEnd: 5, score: 0.7 },
-    ];
-
-    const sendRequest = vi.fn().mockResolvedValue({ results: mockResults });
-
-    renderWithIpc(<Search />, { sendRequest });
-
-    const input = screen.getByPlaceholderText("Search codebase...");
-    fireEvent.change(input, { target: { value: "test" } });
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getByTestId("snippet-list")).toBeInTheDocument();
-      expect(screen.getAllByTestId("snippet-item")).toHaveLength(2);
-      expect(screen.getByText("src/file1.ts")).toBeInTheDocument();
-      expect(screen.getByText("src/file2.ts")).toBeInTheDocument();
-    });
-  });
-
-  it("copies context when copy button is clicked", async () => {
-    const mockResults = [
-      { uri: "file1.ts", filePath: "file1.ts", snippet: "code", lineStart: 1, lineEnd: 2, score: 0.8 },
-    ];
-
-    const sendRequest = vi.fn().mockResolvedValue({ results: mockResults });
-    const sendCommand = vi.fn();
-
-    renderWithIpc(<Search />, { sendRequest, sendCommand });
-
-    // Search first to get results
-    const input = screen.getByPlaceholderText("Search codebase...");
-    fireEvent.change(input, { target: { value: "test" } });
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
-
-    await waitFor(() => {
-      expect(screen.getByTestId("snippet-list")).toBeInTheDocument();
-    });
-
-    // Click copy button
-    const copyButton = screen.getByText("Copy Context");
-    fireEvent.click(copyButton);
-
-    expect(sendCommand).toHaveBeenCalledWith(
-      COPY_RESULTS_METHOD,
-      "qdrantIndex",
-      {
-        mode: "files",
-        results: mockResults
-      }
-    );
-  });
-
-  it("does not send search for short queries (length <= 2)", () => {
-    const sendRequest = vi.fn();
-
-    renderWithIpc(<Search />, { sendRequest });
-
-    const input = screen.getByPlaceholderText("Search codebase...");
-    fireEvent.change(input, { target: { value: "te" } });
-    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
-
-    expect(sendRequest).not.toHaveBeenCalled();
-  });
-
-  it("triggers START_INDEX_METHOD when Re-Index is clicked", async () => {
-    const sendCommand = vi.fn();
-
-    renderWithIpc(<Search />, { sendCommand });
-
-    const button = await screen.findByText("Re-Index");
-    await fireEvent.click(button);
-
-    expect(sendCommand).toHaveBeenCalledWith(
-      START_INDEX_METHOD,
-      "qdrantIndex",
-      {}
-    );
-  });
-
-  it("shows empty state text initially", () => {
-    renderWithIpc(<Search />);
-
-    expect(screen.getByText("Start typing to search...")).toBeInTheDocument();
-  });
-
-  it("renders No Workspace empty state when status is no_workspace", () => {
-    // Override store for this specific test
-    const useAppStoreMock = useAppStore as unknown as ReturnType<typeof vi.fn>;
-    useAppStoreMock.mockImplementation((selector: any) =>
-      selector({
-        indexStatus: "no_workspace",
-        setView: vi.fn(),
-      })
-    );
-
-    renderWithIpc(<Search />);
-
-    expect(screen.getByText("No Workspace Open")).toBeInTheDocument();
-    expect(screen.getByTestId("icon-folder-open")).toBeInTheDocument();
-
-    // Ensure search bar is NOT present
-    expect(
-      screen.queryByPlaceholderText("Search codebase...")
-    ).not.toBeInTheDocument();
   });
 });

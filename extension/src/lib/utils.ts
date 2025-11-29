@@ -1,11 +1,11 @@
-import { type ClassValue, clsx } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { mergeClasses } from "@fluentui/react-components";
 
 /**
- * Tailwind-aware class name merger used across the extension backend.
- * React-specific transition helpers have been removed from this shared // !AI: Architectural clarity issue - Comment suggests historical conflict between React and Svelte runtimes in this shared utility. Needs cleanup to reflect current single framework dependency.
- * module to avoid pulling Svelte runtime types into the extension build.
+ * Compatibility shim for class name merging.
+ * In Fluent UI v9, styles are defined using `makeStyles` and combined using `mergeClasses`.
+ *
+ * Usage:
+ * const styles = useStyles();
+ * <div className={cn(styles.root, isSelected && styles.selected)} />
  */
-export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
-}
+export const cn = mergeClasses;

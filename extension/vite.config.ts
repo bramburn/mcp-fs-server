@@ -7,23 +7,14 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   plugins: [
-    react({
-      // Rely on default React plugin behavior; explicit fastRefresh flag has
-      // been removed to satisfy the current @vitejs/plugin-react Options type.
-      babel: {
-        plugins: [],
-      },
-    }),
+    react(), // Simplified plugin usage
   ],
   resolve: {
     alias: {
-      // Legacy Svelte-era aliases (kept temporarily for gradual migration)
-      $app: path.resolve(__dirname, "./src/webviews/app"),
-      $lib: path.resolve(__dirname, "./src/lib"),
-      shared: path.resolve(__dirname, "../packages/shared"),
-      // New React-era aliases
+      // Cleaned up: Removed legacy Svelte aliases ($app, $lib)
+      // Kept only React-era aliases to match your tsconfig.json
       "@app": path.resolve(__dirname, "./src/webviews/app"),
-      "@lib": path.resolve(__dirname, "./src/lib"),
+      "@lib": path.resolve(__dirname, "./src/webviews/app/lib"),
       "@shared": path.resolve(__dirname, "../packages/shared"),
     },
   },
@@ -37,7 +28,9 @@ export default defineConfig({
       output: {
         entryFileNames: "assets/[name].js",
         chunkFileNames: "assets/[name].js",
-        // Ensure CSS is named index.css to match WebviewController expectation
+        // Keep this naming convention! 
+        // Even though Fluent UI is CSS-in-JS, if you ever add global styles, 
+        // this ensures the WebviewController can find the expected 'index.css'.
         assetFileNames: (assetInfo) => {
           if (assetInfo.name && assetInfo.name.endsWith(".css")) {
             return "assets/index.css";
@@ -50,8 +43,7 @@ export default defineConfig({
     sourcemap: true,
   },
   server: {
-    // Disable HMR client for VS Code webview
-    hmr: false,
+    hmr: false, // HMR is disabled as it often conflicts with VS Code webview context
   },
   define: {
     "process.env.NODE_ENV": JSON.stringify(
