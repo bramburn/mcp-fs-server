@@ -9,6 +9,8 @@ import { DID_CHANGE_CONFIG_NOTIFICATION, IpcMessage } from "./protocol.js";
 
 // IPC Infrastructure
 import { ConfigHandler } from "./handlers/ConfigHandler.js";
+import { DebugHandler } from "./handlers/DebugHandler.js";
+import { DebugMonitor } from "./handlers/DebugMonitor.js"; // Import new monitor
 import { FileHandler } from "./handlers/FileHandler.js";
 import { IndexHandler } from "./handlers/IndexHandler.js";
 import { SearchHandler } from "./handlers/SearchHandler.js";
@@ -25,6 +27,7 @@ export class WebviewController
   private _view?: vscode.WebviewView;
   private _disposables: vscode.Disposable[] = [];
   private _ipcRouter: IpcRouter;
+  private _debugMonitor: DebugMonitor | undefined; // Instance of the monitor
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -66,6 +69,11 @@ export class WebviewController
     this._ipcRouter.registerHandler(
       new IndexHandler(this._indexingService, this._workspaceManager)
     );
+
+    // 5. Debug Handler (Active file debugging)
+    this._ipcRouter.registerHandler(
+      new DebugHandler(this._logger, this._clipboardService)
+    );
   }
 
   public resolveWebviewView(
@@ -96,6 +104,12 @@ export class WebviewController
     // Listen for messages
     const listener = webviewView.webview.onDidReceiveMessage(
       async (data: IpcMessage) => {
+        // Notify the monitor that the webview is loaded
+        if (data.kind === 'command' && data.method === 'webview/ready-request') {
+            if (this._debugMonitor) {
+                this._debugMonitor.setWebviewReady();
+            }
+        }
         await this._ipcRouter.routeMessage(data, context);
       },
       undefined,
@@ -104,6 +118,13 @@ export class WebviewController
 
     this._disposables.push(listener);
     this.setupConfigListeners(context);
+
+    // Instantiate and manage the monitor lifecycle
+    if (this._debugMonitor) {
+        this._debugMonitor.dispose();
+    }
+    this._debugMonitor = new DebugMonitor(this._logger, context);
+    this._disposables.push(this._debugMonitor);
   }
 
   private setupConfigListeners(context: IpcContext) {
@@ -128,6 +149,9 @@ export class WebviewController
   }
 
   public dispose() {
+    if (this._debugMonitor) {
+        this._debugMonitor.dispose();
+    }
     while (this._disposables.length) {
       const disposable = this._disposables.pop();
       if (disposable) disposable.dispose();

@@ -45,7 +45,8 @@ export class IpcRouter {
     context: IpcContext
   ): Promise<void> {
     // 1. Validate Scope (Centralized validation)
-    const validScopes = ["qdrantIndex", "webview-mgmt"];
+    // FIX: Added 'debugger' to validScopes to allow debug messages to pass through
+    const validScopes = ["qdrantIndex", "webview-mgmt", "debugger"];
     if (!validScopes.includes(message.scope)) {
       context.log(
         `Received message with unknown scope: ${message.scope}`,
