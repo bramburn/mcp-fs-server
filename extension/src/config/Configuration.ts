@@ -3,12 +3,15 @@ import { QdrantOllamaConfig } from "../webviews/protocol.js";
 
 /**
  * Configuration paths for VS Code settings
+ * Updated to use the new 'semanticSearch' namespace
  */
 export const ConfigPath = {
-  GENERAL: "qdrant",
-  INDEXING: "qdrant.indexing",
-  SEARCH: "qdrant.search",
-  TRACE: "qdrant.search.trace",
+  GENERAL: "semanticSearch", // Root section
+  // Note: We are now using flat keys within the 'semanticSearch' section
+  // These constants are kept for compatibility with ConfigService's change detection
+  // but specific key retrieval is handled in the Factory below using camelCase.
+  INDEXING: "semanticSearch", 
+  SEARCH: "semanticSearch",
 } as const;
 
 /**
@@ -59,6 +62,12 @@ export const DefaultConfiguration: Configuration = {
       "txt",
       "html",
       "css",
+      // Added backend/other languages commonly supported by Tree-sitter
+      "python", 
+      "java",
+      "rust",
+      "go",
+      "kotlin",
     ],
   },
   search: {
@@ -78,46 +87,47 @@ export class ConfigurationFactory {
   public static from(
     vscodeConfig: vscode.WorkspaceConfiguration
   ): Configuration {
+    // vscodeConfig is already scoped to "semanticSearch" when calling getConfiguration("semanticSearch")
+    // or scoped to root if getConfiguration() is called without args.
+    // ConfigService.ts calls getConfiguration(ConfigPath.GENERAL) -> "semanticSearch"
+    
     return {
       general: {
-        trace: vscodeConfig.get(
-          ConfigPath.TRACE,
-          DefaultConfiguration.general.trace
-        ),
+        trace: vscodeConfig.get("trace", DefaultConfiguration.general.trace),
       },
       indexing: {
         enabled: vscodeConfig.get(
-          ConfigPath.INDEXING + ".enabled",
+          "indexingEnabled",
           DefaultConfiguration.indexing.enabled
         ),
         maxFiles: vscodeConfig.get(
-          ConfigPath.INDEXING + ".maxFiles",
+          "indexingMaxFiles",
           DefaultConfiguration.indexing.maxFiles
         ),
         excludePatterns: vscodeConfig.get(
-          ConfigPath.INDEXING + ".excludePatterns",
+          "indexingExcludePatterns",
           DefaultConfiguration.indexing.excludePatterns
         ),
         includeExtensions: vscodeConfig.get(
-          ConfigPath.INDEXING + ".includeExtensions",
+          "indexingIncludeExtensions",
           DefaultConfiguration.indexing.includeExtensions
         ),
       },
       search: {
         limit: vscodeConfig.get(
-          ConfigPath.SEARCH + ".limit",
+          "searchLimit",
           DefaultConfiguration.search.limit
         ),
         threshold: vscodeConfig.get(
-          ConfigPath.SEARCH + ".threshold",
+          "searchThreshold",
           DefaultConfiguration.search.threshold
         ),
         includeQueryInCopy: vscodeConfig.get(
-          ConfigPath.SEARCH + ".includeQueryInCopy",
+          "includeQueryInCopy",
           DefaultConfiguration.search.includeQueryInCopy
         ),
       },
-      qdrantConfig: undefined, // Will be loaded separately from file
+      qdrantConfig: undefined, // Will be loaded separately from file (legacy/migration)
     };
   }
 
@@ -151,12 +161,6 @@ export class ConfigurationFactory {
       typeof config.search.limit !== "number" ||
       typeof config.search.threshold !== "number"
     ) {
-      return false;
-    }
-
-    // Validate qdrantConfig presence if indexing is enabled
-    if (config.indexing.enabled && !config.qdrantConfig) {
-      // !AI: Validation is incomplete; should also check structure of qdrantConfig against QdrantOllamaConfig interface.
       return false;
     }
 

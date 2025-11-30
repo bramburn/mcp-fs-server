@@ -52,6 +52,53 @@
     "configuration": {
       "title": "Semantic Search",
       "properties": {
+        "semanticSearch.trace": {
+          "type": "boolean",
+          "default": false,
+          "description": "Enable debug tracing for the extension."
+        },
+        "semanticSearch.indexingEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Enable or disable background indexing."
+        },
+        "semanticSearch.indexingMaxFiles": {
+          "type": "number",
+          "default": 500,
+          "description": "Maximum number of files to index."
+        },
+        "semanticSearch.indexingExcludePatterns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "**/node_modules/**",
+            "**/.git/**",
+            "**/out/**",
+            "**/dist/**",
+            "**/build/**"
+          ],
+          "description": "Glob patterns to exclude from indexing."
+        },
+        "semanticSearch.indexingIncludeExtensions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "ts",
+            "js",
+            "tsx",
+            "jsx",
+            "json",
+            "md",
+            "txt",
+            "html",
+            "css"
+          ],
+          "description": "File extensions to include in indexing."
+        },
         "semanticSearch.activeVectorDb": {
           "type": "string",
           "enum": [
