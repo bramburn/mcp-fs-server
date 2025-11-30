@@ -34,3 +34,5 @@ bin/**
 !bin/clipboard-files*
 resources/
 !resources/*.wasm
+rust/
+node_modules/

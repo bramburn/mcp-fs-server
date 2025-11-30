@@ -20,6 +20,35 @@
   ],
   "main": "./out/extension/src/extension.js",
   "contributes": {
+     "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "qdrant-sidebar",
+          "title": "Qdrant Search",
+          "icon": "$(search)"
+        }
+      ]
+    },
+    "views": {
+      "qdrant-sidebar": [
+        {
+          "type": "webview",
+          "id": "qdrant.search.view",
+          "name": "Search",
+          "icon": "$(search-view)"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "qdrant.index.start",
+        "title": "Qdrant: Index Workspace"
+      },
+      {
+        "command": "qdrant.openSettings",
+        "title": "Qdrant: Open Settings"
+      }
+    ],
     "configuration": {
       "title": "Semantic Search",
       "properties": {
