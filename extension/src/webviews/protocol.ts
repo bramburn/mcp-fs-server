@@ -59,6 +59,10 @@ export interface FileSnippetResult {
   score: number;
 }
 
+/**
+ * LEGACY: Represents the structure of the old .qdrant/configuration.json file.
+ * Used only for the migration feature.
+ */
 export interface QdrantOllamaConfig {
   // Provider selections
   active_vector_db: "qdrant" | "pinecone";
@@ -96,7 +100,7 @@ export interface QdrantOllamaConfig {
   };
 }
 
-// VS Code Settings interface for SettingsManager
+// VS Code Settings interface for SettingsManager (The new source of truth)
 export interface VSCodeSettings {
   // Vector DB settings
   activeVectorDb: string;
@@ -155,6 +159,7 @@ export const INDEX_STATUS_METHOD = "index/status";
 export const START_INDEX_METHOD = "index/start";
 
 // 4. Load Configuration Request (Guest -> Host)
+// Now only used for loading the LEGACY file for migration
 export const LOAD_CONFIG_METHOD = "config/load";
 
 // 5. Config Data Notification (Host -> Guest)
@@ -205,10 +210,7 @@ export const DID_CHANGE_CONFIG_NOTIFICATION =
 // 10. Save Configuration Request (Guest -> Host)
 /**
  * Parameters for SAVE_CONFIG_METHOD.
- *
- * This message is sent as an IpcRequest from the webview to the host.
- * The host MUST reply with an IpcResponse so that the Promise returned
- * by sendRequest in the webview can resolve and tests do not stall.
+ * This is deprecated in the new flow, as all saving goes through UPDATE_VSCODE_SETTINGS_METHOD.
  */
 export interface SaveConfigParams {
   config: QdrantOllamaConfig;

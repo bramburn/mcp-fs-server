@@ -34,7 +34,7 @@ function ensureAbsoluteUrl(url: string): string {
  */
 export interface ConfigurationChangeEvent {
   section: string;
-  value?: any;
+  value?: unknown; // Changed from 'any'
 }
 
 export type ConfigurationChangeListener = (
@@ -84,6 +84,9 @@ export class ConfigService implements vscode.Disposable {
       );
       this._config = this._deepClone(DefaultConfiguration);
     }
+    
+    // NOTE: qdrantConfig (_qdrantConfig) is now only loaded/set via the explicit migration action,
+    // not automatically from the file system during startup.
   }
 
   private onConfigurationChanged(e: vscode.ConfigurationChangeEvent): void {
@@ -107,7 +110,7 @@ export class ConfigService implements vscode.Disposable {
     }
 
     if (shouldReload) {
-      const oldConfig = this._deepClone(this._config);
+      // const oldConfig = this._deepClone(this._config); // Removed unused variable
       this.loadConfiguration();
 
       // Notify listeners of the configuration change
@@ -136,12 +139,13 @@ export class ConfigService implements vscode.Disposable {
   }
 
   /**
-   * Attempts to load the Qdrant configuration from a specific workspace folder.
+   * Attempts to load the **LEGACY** Qdrant configuration from a specific workspace folder.
+   * This is now only used for the migration feature.
    */
   public async loadQdrantConfig(
     folder: vscode.WorkspaceFolder
   ): Promise<QdrantOllamaConfig | null> {
-    // 1. Try Local
+    // 1. Try Local (Legacy path)
     const localUri = vscode.Uri.joinPath(
       folder.uri,
       ".qdrant",
@@ -150,67 +154,12 @@ export class ConfigService implements vscode.Disposable {
     try {
       await vscode.workspace.fs.stat(localUri);
       const content = await vscode.workspace.fs.readFile(localUri);
-      return this.parseAndValidate(content, localUri.toString());
+      this._logger.log(`Found and read legacy config file at: ${localUri.fsPath}`, "CONFIG");
+      // Use parseAndValidate, but DO NOT set _qdrantConfig, just return the data
+      return this.parseAndValidate(content, localUri.toString(), false); 
     } catch {
-      // Local not found, ignore
-    }
-
-    // 2. Try Global
-    try {
-      const globalUri = this.getGlobalConfigUri(folder);
-      await vscode.workspace.fs.stat(globalUri);
-      const content = await vscode.workspace.fs.readFile(globalUri);
-      this._logger.log(
-        `Loaded config from global storage for ${folder.name}`,
-        "CONFIG"
-      );
-      return this.parseAndValidate(content, globalUri.toString());
-    } catch {
-      // Global not found
-    }
-
-    // 3. Try VS Code Settings for Pinecone configuration
-    try {
-      const vscodeConfig =
-        vscode.workspace.getConfiguration("qdrant-codesearch");
-      const pineconeApiKey = vscodeConfig.get<string>("pineconeApiKey");
-      const pineconeIndex = vscodeConfig.get<string>("pineconeIndex");
-      const pineconeEnvironment = vscodeConfig.get<string>(
-        "pineconeEnvironment"
-      );
-
-      if (pineconeApiKey && pineconeIndex) {
-        this._logger.log(
-          `Loaded Pinecone config from VS Code settings for ${folder.name}`,
-          "CONFIG"
-        );
-
-        // Create a minimal config with just the Pinecone settings
-        const config: QdrantOllamaConfig = {
-          active_vector_db: "pinecone",
-          active_embedding_provider: "ollama", // Default, will be overridden if needed
-          index_info: { name: "", embedding_dimension: 768 },
-          qdrant_config: { url: "", api_key: "" },
-          pinecone_config: {
-            index_name: pineconeIndex,
-            environment: pineconeEnvironment || "",
-            api_key: pineconeApiKey,
-          },
-          ollama_config: {
-            base_url: "http://localhost:11434",
-            model: "nomic-embed-text",
-          },
-          openai_config: { api_key: "", model: "text-embedding-3-small" },
-          gemini_config: { api_key: "", model: "text-embedding-004" },
-        };
-
-        return config;
-      }
-    } catch (error) {
-      this._logger.log(
-        `Failed to load Pinecone config from VS Code settings: ${error}`,
-        "ERROR"
-      );
+      this._logger.log(`Legacy config not found at: ${localUri.fsPath}`, "CONFIG");
+      // Local not found, continue (no longer falling back to global/settings on startup)
     }
 
     return null;
@@ -218,52 +167,52 @@ export class ConfigService implements vscode.Disposable {
 
   /**
    * Saves the Qdrant configuration to the active workspace folder.
-   * Creates the .qdrant directory if it doesn't exist.
+   * This is now only called by the WebviewController's `handleSaveConfigRequest` 
+   * which is **deprecated** and used only during the migration flow (which we are removing).
+   * * We retain the body for now but will delete this in Phase 2.
    */
   public async saveQdrantConfig(
     folder: vscode.WorkspaceFolder,
     config: QdrantOllamaConfig,
     useGlobal: boolean = false
   ): Promise<void> {
-    try {
-      // Cleanup URLs for active providers
-      if (config.qdrant_config?.url) {
-        config.qdrant_config.url = ensureAbsoluteUrl(
-          config.qdrant_config.url
-        ).replace(/\/$/, "");
-      }
-      if (config.ollama_config?.base_url) {
-        config.ollama_config.base_url = ensureAbsoluteUrl(
-          config.ollama_config.base_url
-        ).replace(/\/$/, "");
-      }
+    this._logger.log(`[DEPRECATED] saveQdrantConfig called. Use updateVSCodeSetting instead.`, "WARN");
 
-      const content = new TextEncoder().encode(JSON.stringify(config, null, 2));
-
-      if (useGlobal) {
-        const globalUri = this.getGlobalConfigUri(folder);
-        await vscode.workspace.fs.createDirectory(
-          vscode.Uri.joinPath(this._context.globalStorageUri, "configs")
-        );
-        await vscode.workspace.fs.writeFile(globalUri, content);
-        this._logger.log(`Saved config globally for ${folder.name}`, "CONFIG");
-      } else {
-        const dirUri = vscode.Uri.joinPath(folder.uri, ".qdrant");
-        const fileUri = vscode.Uri.joinPath(dirUri, "configuration.json");
-        try {
-          await vscode.workspace.fs.stat(dirUri);
-        } catch {
-          await vscode.workspace.fs.createDirectory(dirUri);
-        }
-        await vscode.workspace.fs.writeFile(fileUri, content);
-        this._logger.log(`Saved config locally to ${fileUri.fsPath}`, "CONFIG");
-      }
-
-      this._qdrantConfig = config;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to save configuration: ${message}`);
+    // Cleanup URLs for active providers
+    if (config.qdrant_config?.url) {
+      config.qdrant_config.url = ensureAbsoluteUrl(
+        config.qdrant_config.url
+      ).replace(/\/$/, "");
     }
+    if (config.ollama_config?.base_url) {
+      config.ollama_config.base_url = ensureAbsoluteUrl(
+        config.ollama_config.base_url
+      ).replace(/\/$/, "");
+    }
+
+    const content = new TextEncoder().encode(JSON.stringify(config, null, 2));
+
+    // The rest of this is file system logic which is removed in Phase 2.
+    if (useGlobal) {
+      const globalUri = this.getGlobalConfigUri(folder);
+      await vscode.workspace.fs.createDirectory(
+        vscode.Uri.joinPath(this._context.globalStorageUri, "configs")
+      );
+      await vscode.workspace.fs.writeFile(globalUri, content);
+      this._logger.log(`Saved config globally for ${folder.name}`, "CONFIG");
+    } else {
+      const dirUri = vscode.Uri.joinPath(folder.uri, ".qdrant");
+      const fileUri = vscode.Uri.joinPath(dirUri, "configuration.json");
+      try {
+        await vscode.workspace.fs.stat(dirUri);
+      } catch {
+        await vscode.workspace.fs.createDirectory(dirUri);
+      }
+      await vscode.workspace.fs.writeFile(fileUri, content);
+      this._logger.log(`Saved config locally to ${fileUri.fsPath}`, "CONFIG");
+    }
+
+    this._qdrantConfig = config; // Keep internal state for immediate reuse (though this is deprecated)
   }
 
   /**
@@ -470,11 +419,11 @@ export class ConfigService implements vscode.Disposable {
    */
   public get<T>(key: string): T {
     const keys = key.split(".");
-    let value: any = this._deepClone(this._config);
+    let value: unknown = this._deepClone(this._config); // Changed from 'any'
 
     for (const k of keys) {
       if (value && typeof value === "object" && k in value) {
-        value = value[k];
+        value = (value as Record<string, unknown>)[k]; // Type assertion to access property
       } else {
         throw new Error(
           `Configuration key "${key}" not found. Path traversal failed at "${k}".`
@@ -488,19 +437,26 @@ export class ConfigService implements vscode.Disposable {
   /**
    * Update a configuration value (this updates the in-memory config only)
    */
-  public update(key: string, value: any): void {
+  public update(key: string, value: unknown): void { // Changed from 'any'
     const keys = key.split(".");
-    let target: any = this._config;
+    
+    // FIX: Assigning Configuration to Record<string, unknown> causes a type error.
+    // Since this is the internal configuration object, we must maintain its Configuration type
+    // but use a utility type for indexing/traversal during the loop.
+    let target: Configuration | Record<string, unknown> = this._config; 
 
     for (let i = 0; i < keys.length - 1; i++) {
       const k = keys[i];
-      if (!(k in target) || typeof target[k] !== "object") {
-        target[k] = {};
+      if (!(k in target) || typeof target[k as keyof typeof target] !== "object" || target[k as keyof typeof target] === null) {
+        // We know target[k] must be an object here if we are traversing. 
+        // We initialize it as a generic object if it doesn't exist or is primitive.
+        (target as Record<string, unknown>)[k] = {};
       }
-      target = target[k];
+      // Move target down one level, casting to Record<string, unknown> for flexible indexing
+      target = (target as Record<string, unknown>)[k] as Record<string, unknown>;
     }
 
-    target[keys[keys.length - 1]] = value;
+    (target as Record<string, unknown>)[keys[keys.length - 1]] = value;
 
     // Notify listeners of change
     this._listeners.forEach((listener) => {
@@ -523,13 +479,17 @@ export class ConfigService implements vscode.Disposable {
    */
   public async updateVSCodeSetting(
     key: string,
-    value: any,
+    value: unknown, // Changed from 'any'
     global: boolean = false
   ): Promise<void> {
     try {
+      // NOTE: We rely on the `SettingsManager` in settings.ts to handle the updates
+      // via the unified configuration section "semanticSearch".
+      // This helper updates the legacy path.
+      
       const fullKey = `${ConfigPath.GENERAL}.${key}`;
       const config = vscode.workspace.getConfiguration();
-      await config.update(fullKey, value, global);
+      await config.update(fullKey, value, global ? vscode.ConfigurationTarget.Global : vscode.ConfigurationTarget.Workspace);
 
       // Also update in-memory config
       this.update(key, value);
@@ -560,10 +520,18 @@ export class ConfigService implements vscode.Disposable {
 
   private parseAndValidate(
     content: Uint8Array,
-    source: string
+    source: string,
+    setInternalConfig: boolean = false
   ): QdrantOllamaConfig | null {
     const str = new TextDecoder().decode(content);
-    const config = JSON.parse(str) as QdrantOllamaConfig;
+    let config: QdrantOllamaConfig;
+
+    try {
+      config = JSON.parse(str) as QdrantOllamaConfig;
+    } catch (error) {
+      this._logger.log(`Invalid JSON in ${source}: ${error}`, "ERROR");
+      return null;
+    }
 
     // Validate required fields based on active providers
     if (!config.active_vector_db || !config.active_embedding_provider) {
@@ -637,7 +605,10 @@ export class ConfigService implements vscode.Disposable {
       ).replace(/\/$/, "");
     }
 
-    this._qdrantConfig = config;
+    if (setInternalConfig) {
+      this._qdrantConfig = config;
+    }
+    
     return this._deepClone(config);
   }
 

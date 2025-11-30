@@ -1,13 +1,50 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { ILogger } from "../services/LoggerService.js";
+import { SettingsManager } from "../settings.js"; // Import real SettingsManager to mock it
 import vscode from "../test/mocks/vscode-api.js";
 import {
+  DID_CHANGE_CONFIG_NOTIFICATION, // <-- FIX: Added missing import
+  GET_VSCODE_SETTINGS_METHOD,
+  IpcRequest,
+  LOAD_CONFIG_METHOD,
   SAVE_CONFIG_METHOD,
   TEST_CONFIG_METHOD,
-  type IpcRequest,
+  UPDATE_VSCODE_SETTINGS_METHOD,
   type QdrantOllamaConfig,
+  type SaveConfigParams, // <-- FIX: Added missing import type
+  type TestConfigParams, // <-- FIX: Added missing import type
+  type VSCodeSettings,
 } from "./protocol.js";
 import { WebviewController } from "./WebviewController.js";
+
+// Mock SettingsManager and define mock settings structure
+const mockSettings: VSCodeSettings = {
+  activeVectorDb: "qdrant",
+  qdrantUrl: "http://localhost:6333",
+  qdrantApiKey: "test-key",
+  pineconeIndexName: "",
+  pineconeEnvironment: "",
+  pineconeApiKey: "",
+  activeEmbeddingProvider: "ollama",
+  ollamaBaseUrl: "http://localhost:11434",
+  ollamaModel: "nomic-embed-text",
+  openaiApiKey: "",
+  openaiModel: "text-embedding-3-small",
+  geminiApiKey: "",
+  geminiModel: "text-embedding-004",
+  indexName: "test-index",
+  embeddingDimension: 768,
+  searchLimit: 10,
+  searchThreshold: 0.7,
+  includeQueryInCopy: false,
+};
+
+vi.mock("../settings.js", () => ({
+  SettingsManager: {
+    getSettings: vi.fn(() => mockSettings),
+    updateSettings: vi.fn().mockResolvedValue(undefined),
+  },
+}));
 
 // Mock vscode module to ensure window.showErrorMessage is available
 vi.mock("vscode", async () => {
@@ -32,7 +69,7 @@ describe("WebviewController", () => {
 
   const mockExtensionUri = vscode.Uri.file("/test/extension");
 
-  const mockConfig: QdrantOllamaConfig = {
+  const mockLegacyConfig: QdrantOllamaConfig = {
     active_vector_db: "qdrant",
     active_embedding_provider: "ollama",
     index_info: { name: "test-index" },
@@ -50,6 +87,8 @@ describe("WebviewController", () => {
       startIndexing: vi.fn(),
       search: vi.fn(),
       isIndexing: false,
+      initializeForSearch: vi.fn().mockResolvedValue(true),
+      getCollectionStats: vi.fn().mockResolvedValue({ vectorCount: 100 }),
     };
 
     mockWorkspaceManager = {
@@ -61,7 +100,8 @@ describe("WebviewController", () => {
     };
 
     mockConfigService = {
-      loadQdrantConfig: vi.fn(),
+      // Retain loadQdrantConfig/validateConnectionDetailed for migration/testing features
+      loadQdrantConfig: vi.fn().mockResolvedValue(mockLegacyConfig),
       saveQdrantConfig: vi.fn().mockResolvedValue(undefined),
       validateConnection: vi.fn().mockResolvedValue(true),
       validateConnectionDetailed: vi.fn().mockResolvedValue({
@@ -127,31 +167,102 @@ describe("WebviewController", () => {
     return handler;
   }
 
-  it("handles SAVE_CONFIG_METHOD request", async () => {
+  // --- New VS Code Settings Handlers ---
+
+  it("handles GET_VSCODE_SETTINGS_METHOD request by calling SettingsManager.getSettings", async () => {
     const messageHandler = setupWebview();
 
-    const request: IpcRequest<{ config: QdrantOllamaConfig }> = {
-      id: "req-1",
+    const request: IpcRequest<Record<string, never>> = {
+      id: "req-get-settings",
       kind: "request",
       scope: "webview-mgmt",
-      method: SAVE_CONFIG_METHOD,
-      params: { config: mockConfig },
+      method: GET_VSCODE_SETTINGS_METHOD,
+      params: {},
       timestamp: Date.now(),
     };
 
     await messageHandler(request);
 
-    expect(mockConfigService.saveQdrantConfig).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "ws" }),
-      mockConfig,
-      false // useGlobal defaults to false
-    );
+    // Should call the mocked SettingsManager.getSettings
+    expect(SettingsManager.getSettings).toHaveBeenCalledTimes(1);
 
+    // Should respond with the data from the mock SettingsManager
     expect(mockWebview.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: "response",
-        responseId: "req-1",
+        responseId: "req-get-settings",
+        data: mockSettings,
+      })
+    );
+  });
+
+  it("handles UPDATE_VSCODE_SETTINGS_METHOD request by calling SettingsManager.updateSettings", async () => {
+    const messageHandler = setupWebview();
+
+    const updatedSettings: Partial<VSCodeSettings> = {
+      indexName: "new-codebase-index",
+      searchLimit: 25,
+    };
+
+    const request: IpcRequest<Partial<VSCodeSettings>> = {
+      id: "req-update-settings",
+      kind: "request",
+      scope: "webview-mgmt",
+      method: UPDATE_VSCODE_SETTINGS_METHOD,
+      params: updatedSettings,
+      timestamp: Date.now(),
+    };
+
+    await messageHandler(request);
+
+    // Should call the mocked SettingsManager.updateSettings with the partial settings
+    expect(SettingsManager.updateSettings).toHaveBeenCalledWith(
+      updatedSettings
+    );
+
+    // Should respond with success
+    expect(mockWebview.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "response",
+        responseId: "req-update-settings",
         data: { success: true },
+      })
+    );
+    
+    // Should send a configuration change notification
+    expect(mockWebview.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "notification",
+        method: DID_CHANGE_CONFIG_NOTIFICATION,
+      })
+    );
+  });
+
+  // --- Legacy Config Tests (Still used for Migration/Test features) ---
+
+  it("handles LOAD_CONFIG_METHOD request using ConfigService.loadQdrantConfig (for migration)", async () => {
+    const messageHandler = setupWebview();
+
+    const request: IpcRequest<Record<string, never>> = {
+      id: "req-load-config",
+      kind: "request",
+      scope: "webview-mgmt",
+      method: LOAD_CONFIG_METHOD,
+      params: {},
+      timestamp: Date.now(),
+    };
+
+    await messageHandler(request);
+
+    // Should call ConfigService.loadQdrantConfig to get the legacy file config
+    expect(mockConfigService.loadQdrantConfig).toHaveBeenCalled();
+
+    // Should respond with the legacy mock config data
+    expect(mockWebview.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "response",
+        responseId: "req-load-config",
+        data: mockLegacyConfig,
       })
     );
   });
@@ -159,29 +270,60 @@ describe("WebviewController", () => {
   it("handles TEST_CONFIG_METHOD request", async () => {
     const messageHandler = setupWebview();
 
-    const request: IpcRequest<{ config: QdrantOllamaConfig }> = {
-      id: "req-2",
+    const request: IpcRequest<TestConfigParams> = {
+      id: "req-test-config",
       kind: "request",
       scope: "webview-mgmt",
       method: TEST_CONFIG_METHOD,
-      params: { config: mockConfig },
+      params: { config: mockLegacyConfig },
       timestamp: Date.now(),
     };
 
     await messageHandler(request);
 
     expect(mockConfigService.validateConnectionDetailed).toHaveBeenCalledWith(
-      mockConfig
+      mockLegacyConfig
     );
 
     expect(mockWebview.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: "response",
-        responseId: "req-2",
+        responseId: "req-test-config",
         data: expect.objectContaining({
           success: true,
           message: expect.stringContaining("successful"),
         }),
+      })
+    );
+  });
+
+  // NOTE: SAVE_CONFIG_METHOD is deprecated but retained in the controller for the migration phase (P1)
+  it("handles SAVE_CONFIG_METHOD request for legacy file saving", async () => {
+    const messageHandler = setupWebview();
+
+    const request: IpcRequest<SaveConfigParams> = {
+      id: "req-save-legacy",
+      kind: "request",
+      scope: "webview-mgmt",
+      method: SAVE_CONFIG_METHOD,
+      params: { config: mockLegacyConfig, useGlobal: false },
+      timestamp: Date.now(),
+    };
+
+    await messageHandler(request);
+
+    expect(mockConfigService.saveQdrantConfig).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "ws" }),
+      mockLegacyConfig,
+      false
+    );
+    
+    // Check for successful response
+    expect(mockWebview.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "response",
+        responseId: "req-save-legacy",
+        data: { success: true },
       })
     );
   });

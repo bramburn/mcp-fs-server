@@ -6,7 +6,7 @@
  * to make this explicit and avoid confusion about missing runtime exports.
  */
 
-export { GeminiEmbeddingProvider } from "./GeminiEmbeddingProvider.js";
 export type { IEmbeddingProvider } from "./IEmbeddingProvider.js";
 export { OllamaEmbeddingProvider } from "./OllamaEmbeddingProvider.js";
 export { OpenAIEmbeddingProvider } from "./OpenAIEmbeddingProvider.js";
+export { GeminiEmbeddingProvider } from "./GeminiEmbeddingProvider.js";

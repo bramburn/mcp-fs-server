@@ -16,7 +16,6 @@ import {
   Switch,
   Text,
   tokens,
-  Tooltip,
 } from "@fluentui/react-components";
 import {
   ArrowClockwiseRegular,
@@ -124,9 +123,10 @@ const useStyles = makeStyles({
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-  }
+  },
 });
 
+// Helper to get default dimension for common models
 const getModelDefaults = (provider: string, model: string): number => {
   if (provider === "openai") {
     if (model.includes("3-large")) return 3072;
@@ -145,41 +145,60 @@ export default function Settings() {
   const styles = useStyles();
   const ipc = useIpc();
   const setView = useAppStore((state) => state.setView);
-  const indexStatus = useAppStore((state) => state.indexStatus);
+  // Unused 'indexStatus' removed
 
   // State maps directly to VSCodeSettings interface
   const [settings, setSettings] = useState<VSCodeSettings>({
     activeVectorDb: "qdrant",
-    qdrantUrl: "",
+    qdrantUrl: "http://localhost:6333",
     qdrantApiKey: "",
     pineconeIndexName: "",
     pineconeEnvironment: "",
     pineconeApiKey: "",
     activeEmbeddingProvider: "ollama",
-    ollamaBaseUrl: "",
-    ollamaModel: "",
+    ollamaBaseUrl: "http://localhost:11434",
+    ollamaModel: "nomic-embed-text",
     openaiApiKey: "",
-    openaiModel: "",
+    openaiModel: "text-embedding-3-small",
     geminiApiKey: "",
-    geminiModel: "",
-    indexName: "",
+    geminiModel: "text-embedding-004",
+    indexName: "codebase-index",
     embeddingDimension: 768,
     searchLimit: 10,
     searchThreshold: 0.7,
     includeQueryInCopy: false,
   });
 
+  const [initialSettings, setInitialSettings] =
+    useState<VSCodeSettings>(settings);
   const [dimensionOverride, setDimensionOverride] = useState(false);
-  const [isDirty, setIsDirty] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isDirty, setIsDirty] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    message: string;
+    qdrantStatus?: string;
+    ollamaStatus?: string;
+  } | null>(null);
 
   const loadSettings = useCallback(async () => {
     try {
-      const loaded = await ipc.sendRequest<any, VSCodeSettings>(GET_VSCODE_SETTINGS_METHOD, "webview-mgmt", {});
+      const loaded = await ipc.sendRequest<
+        Record<string, never>,
+        VSCodeSettings
+      >(GET_VSCODE_SETTINGS_METHOD, "webview-mgmt", {});
       if (loaded) {
         setSettings(loaded);
+        setInitialSettings(loaded);
+
+        // Determine if dimension was manually set
+        const autoDim = getModelDefaults(
+          loaded.activeEmbeddingProvider,
+          loaded.ollamaModel || loaded.openaiModel || loaded.geminiModel
+        );
+        setDimensionOverride(loaded.embeddingDimension !== autoDim);
+
         setIsDirty(false);
       }
     } catch (e) {
@@ -191,13 +210,25 @@ export default function Settings() {
     loadSettings();
   }, [loadSettings]);
 
+  useEffect(() => {
+    // Efficient deep equality check for dirty state
+    const isNowDirty = Object.keys(settings).some((key) => {
+      const settingKey = key as keyof VSCodeSettings;
+      return settings[settingKey] !== initialSettings[settingKey];
+    });
+    setIsDirty(isNowDirty);
+    setTestResult(null); // Clear test result if settings change
+  }, [settings, initialSettings]);
+
   // Auto-update dimension unless overridden
   useEffect(() => {
     if (dimensionOverride) return;
-    
+
     let model = "";
-    if (settings.activeEmbeddingProvider === "openai") model = settings.openaiModel;
-    else if (settings.activeEmbeddingProvider === "gemini") model = settings.geminiModel;
+    if (settings.activeEmbeddingProvider === "openai")
+      model = settings.openaiModel;
+    else if (settings.activeEmbeddingProvider === "gemini")
+      model = settings.geminiModel;
     else model = settings.ollamaModel;
 
     const def = getModelDefaults(settings.activeEmbeddingProvider, model);
@@ -205,24 +236,30 @@ export default function Settings() {
       updateSetting("embeddingDimension", def);
     }
   }, [
-    settings.activeEmbeddingProvider, 
-    settings.openaiModel, 
-    settings.geminiModel, 
-    settings.ollamaModel, 
-    dimensionOverride
+    settings.activeEmbeddingProvider,
+    settings.openaiModel,
+    settings.geminiModel,
+    settings.ollamaModel,
+    dimensionOverride,
+    settings.embeddingDimension, // Added dependency
   ]);
 
   const updateSetting = (key: keyof VSCodeSettings, value: any) => {
-    setSettings(prev => ({ ...prev, [key]: value }));
-    setIsDirty(true);
-    setTestResult(null);
+    setSettings((prev) => ({ ...prev, [key]: value }));
   };
 
   const handleSave = async () => {
     setIsSaving(true);
     try {
-      await ipc.sendRequest(UPDATE_VSCODE_SETTINGS_METHOD, "webview-mgmt", settings);
+      await ipc.sendRequest(
+        UPDATE_VSCODE_SETTINGS_METHOD,
+        "webview-mgmt",
+        settings
+      );
+      setInitialSettings(settings); // Update initial state on successful save
       setIsDirty(false);
+    } catch (e) {
+      console.error("Save failed", e);
     } finally {
       setIsSaving(false);
     }
@@ -230,20 +267,50 @@ export default function Settings() {
 
   const handleTestConnection = async () => {
     setIsTesting(true);
-    // Convert flat settings back to nested config for the legacy test endpoint
-    // OR create a new test endpoint. For now, we map it locally.
+    // Map flat settings back to nested config for the existing test endpoint
     const configStub: QdrantOllamaConfig = {
-      active_vector_db: settings.activeVectorDb as any,
-      active_embedding_provider: settings.activeEmbeddingProvider as any,
-      qdrant_config: { url: settings.qdrantUrl, api_key: settings.qdrantApiKey },
-      pinecone_config: { index_name: settings.pineconeIndexName, environment: settings.pineconeEnvironment, api_key: settings.pineconeApiKey },
-      ollama_config: { base_url: settings.ollamaBaseUrl, model: settings.ollamaModel },
-      openai_config: { api_key: settings.openaiApiKey, model: settings.openaiModel },
-      gemini_config: { api_key: settings.geminiApiKey, model: settings.geminiModel }
+      active_vector_db: settings.activeVectorDb as "qdrant" | "pinecone",
+      active_embedding_provider: settings.activeEmbeddingProvider as
+        | "ollama"
+        | "openai"
+        | "gemini",
+      index_info: {
+        name: settings.indexName,
+        embedding_dimension: settings.embeddingDimension,
+      },
+      qdrant_config: {
+        url: settings.qdrantUrl,
+        api_key: settings.qdrantApiKey,
+      },
+      pinecone_config: {
+        index_name: settings.pineconeIndexName,
+        environment: settings.pineconeEnvironment,
+        api_key: settings.pineconeApiKey,
+      },
+      ollama_config: {
+        base_url: settings.ollamaBaseUrl,
+        model: settings.ollamaModel,
+      },
+      openai_config: {
+        api_key: settings.openaiApiKey,
+        model: settings.openaiModel,
+      },
+      gemini_config: {
+        api_key: settings.geminiApiKey,
+        model: settings.geminiModel,
+      },
     };
 
     try {
-      const res = await ipc.sendRequest<any, any>(TEST_CONFIG_METHOD, "webview-mgmt", { config: configStub });
+      const res = await ipc.sendRequest<
+        { config: QdrantOllamaConfig },
+        {
+          success: boolean;
+          message: string;
+          qdrantStatus?: string;
+          ollamaStatus?: string;
+        }
+      >(TEST_CONFIG_METHOD, "webview-mgmt", { config: configStub });
       setTestResult(res);
     } catch (e) {
       setTestResult({ success: false, message: String(e) });
@@ -254,58 +321,122 @@ export default function Settings() {
 
   const handleImportLegacy = async () => {
     try {
-      const legacy = await ipc.sendRequest<any, QdrantOllamaConfig | null>(LOAD_CONFIG_METHOD, "webview-mgmt", {});
+      const legacy = await ipc.sendRequest<any, QdrantOllamaConfig | null>(
+        LOAD_CONFIG_METHOD,
+        "webview-mgmt",
+        {}
+      );
       if (legacy) {
-        setSettings(prev => ({
+        setSettings((prev) => ({
           ...prev,
+          // Map properties from nested legacy object to flat VSCodeSettings
           activeVectorDb: legacy.active_vector_db,
-          qdrantUrl: legacy.qdrant_config?.url || "",
-          qdrantApiKey: legacy.qdrant_config?.api_key || "",
-          pineconeIndexName: legacy.pinecone_config?.index_name || "",
-          pineconeApiKey: legacy.pinecone_config?.api_key || "",
+          qdrantUrl: legacy.qdrant_config?.url || prev.qdrantUrl,
+          qdrantApiKey: legacy.qdrant_config?.api_key || prev.qdrantApiKey,
+          pineconeIndexName:
+            legacy.pinecone_config?.index_name || prev.pineconeIndexName,
+          pineconeEnvironment:
+            legacy.pinecone_config?.environment || prev.pineconeEnvironment,
+          pineconeApiKey:
+            legacy.pinecone_config?.api_key || prev.pineconeApiKey,
           activeEmbeddingProvider: legacy.active_embedding_provider,
-          ollamaBaseUrl: legacy.ollama_config?.base_url || "",
-          ollamaModel: legacy.ollama_config?.model || "",
-          // ... map rest
+          ollamaBaseUrl: legacy.ollama_config?.base_url || prev.ollamaBaseUrl,
+          ollamaModel: legacy.ollama_config?.model || prev.ollamaModel,
+          openaiApiKey: legacy.openai_config?.api_key || prev.openaiApiKey,
+          openaiModel: legacy.openai_config?.model || prev.openaiModel,
+          geminiApiKey: legacy.gemini_config?.api_key || prev.geminiApiKey,
+          geminiModel: legacy.gemini_config?.model || prev.geminiModel,
+          indexName: legacy.index_info?.name || prev.indexName,
+          embeddingDimension:
+            legacy.index_info?.embedding_dimension || prev.embeddingDimension,
+          // Search settings are assumed to be in VS Code settings already and not overridden by legacy file
         }));
-        setIsDirty(true);
+        // Note: isDirty becomes true automatically
+        // Use window.alert instead of vscode.window.showInformationMessage
+        window.alert(
+          "Legacy configuration loaded into form. Press 'Save All' to apply settings."
+        );
+      } else {
+        window.alert(
+          "No legacy .qdrant/configuration.json file found to import."
+        );
       }
     } catch (e) {
       console.error("Import failed", e);
+      window.alert(
+        `Import failed: ${e instanceof Error ? e.message : String(e)}`
+      );
     }
   };
+
+  const StatusIcon = ({ status }: { status?: string }) => {
+    if (!status) return null;
+    const isSuccess = status === "connected";
+    return (
+      <div
+        className={styles.statusBadge}
+        style={{
+          color: isSuccess
+            ? tokens.colorPaletteGreenForeground1
+            : tokens.colorPaletteRedForeground1,
+        }}
+      >
+        {isSuccess ? (
+          <CheckmarkCircleRegular fontSize={16} />
+        ) : (
+          <DismissCircleRegular fontSize={16} />
+        )}
+        <Text>{isSuccess ? "Connected" : "Failed"}</Text>
+      </div>
+    );
+  };
+
+  const currentAutoDimension = getModelDefaults(
+    settings.activeEmbeddingProvider,
+    settings.ollamaModel || settings.openaiModel || settings.geminiModel
+  );
+  const dimensionHelperText = dimensionOverride
+    ? "Manually set vector size."
+    : `Auto-managed by model: ${currentAutoDimension} dimensions.`;
 
   return (
     <div className={styles.root}>
       {/* Header */}
       <div className={styles.header}>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <Button appearance="subtle" icon={<ArrowLeftRegular />} onClick={() => setView("search")}>Back</Button>
+        <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+          <Button
+            appearance="subtle"
+            icon={<ArrowLeftRegular />}
+            onClick={() => setView("search")}
+          >
+            Back
+          </Button>
           <Text weight="semibold">Settings (VS Code)</Text>
         </div>
-        {isDirty && (
-          <Button 
-            appearance="primary" 
-            icon={<SaveRegular />} 
-            onClick={handleSave}
-            disabled={isSaving}
-          >
-            Save All
-          </Button>
-        )}
+        <Button
+          appearance="primary"
+          icon={<SaveRegular />}
+          onClick={handleSave}
+          disabled={!isDirty || isSaving}
+        >
+          {isSaving ? <Spinner size="tiny" /> : "Save All Settings"}
+        </Button>
       </div>
 
       <div className={styles.content}>
-        
         {/* 1. Vector Database */}
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <DatabaseRegular />
             <Text weight="semibold">Vector Database</Text>
           </div>
-          
-          <RadioGroup 
-            layout="horizontal" 
+
+          <Caption1 block>
+            Choose where your code embeddings will be stored.
+          </Caption1>
+
+          <RadioGroup
+            layout="horizontal"
             className={styles.radioGroup}
             value={settings.activeVectorDb}
             onChange={(_, data) => updateSetting("activeVectorDb", data.value)}
@@ -317,28 +448,75 @@ export default function Settings() {
           {settings.activeVectorDb === "qdrant" && (
             <div className={styles.configPanel}>
               <Field label="Server URL">
-                <Input value={settings.qdrantUrl} onChange={(_, d) => updateSetting("qdrantUrl", d.value)} />
+                <Input
+                  value={settings.qdrantUrl}
+                  onChange={(_, d) => updateSetting("qdrantUrl", d.value)}
+                  placeholder="http://localhost:6333"
+                />
               </Field>
               <Field label="API Key (Optional)">
-                <Input type="password" value={settings.qdrantApiKey} onChange={(_, d) => updateSetting("qdrantApiKey", d.value)} />
+                <Input
+                  type="password"
+                  value={settings.qdrantApiKey}
+                  onChange={(_, d) => updateSetting("qdrantApiKey", d.value)}
+                  placeholder="********"
+                />
               </Field>
+              {/* Status and Test Button here for immediate feedback */}
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginTop: "8px",
+                }}
+              >
+                <StatusIcon status={testResult?.qdrantStatus} />
+              </div>
             </div>
           )}
 
           {settings.activeVectorDb === "pinecone" && (
             <div className={styles.configPanel}>
               <Field label="Pinecone Index Name">
-                <Input value={settings.pineconeIndexName} onChange={(_, d) => updateSetting("pineconeIndexName", d.value)} />
+                <Input
+                  value={settings.pineconeIndexName}
+                  onChange={(_, d) =>
+                    updateSetting("pineconeIndexName", d.value)
+                  }
+                  placeholder="my-index"
+                />
               </Field>
               <Field label="Environment">
-                <Input value={settings.pineconeEnvironment} onChange={(_, d) => updateSetting("pineconeEnvironment", d.value)} />
+                <Input
+                  value={settings.pineconeEnvironment}
+                  onChange={(_, d) =>
+                    updateSetting("pineconeEnvironment", d.value)
+                  }
+                  placeholder="gcp-starter"
+                />
               </Field>
               <Field label="API Key">
-                <Input type="password" value={settings.pineconeApiKey} onChange={(_, d) => updateSetting("pineconeApiKey", d.value)} />
+                <Input
+                  type="password"
+                  value={settings.pineconeApiKey}
+                  onChange={(_, d) => updateSetting("pineconeApiKey", d.value)}
+                  placeholder="********"
+                />
               </Field>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginTop: "8px",
+                }}
+              >
+                <StatusIcon status={testResult?.qdrantStatus} />
+              </div>
             </div>
           )}
         </section>
+
+        <Divider />
 
         {/* 2. Embedding Provider */}
         <section className={styles.section}>
@@ -346,41 +524,106 @@ export default function Settings() {
             <Text weight="semibold">Embedding Provider</Text>
           </div>
 
-          <RadioGroup 
-            layout="horizontal" 
+          <Caption1 block>
+            The service used to convert code snippets into vector embeddings.
+          </Caption1>
+
+          <RadioGroup
+            layout="horizontal"
             className={styles.radioGroup}
             value={settings.activeEmbeddingProvider}
-            onChange={(_, data) => updateSetting("activeEmbeddingProvider", data.value)}
+            onChange={(_, data) =>
+              updateSetting("activeEmbeddingProvider", data.value)
+            }
           >
-            <Radio value="ollama" label="Ollama" />
-            <Radio value="openai" label="OpenAI" />
-            <Radio value="gemini" label="Gemini" />
+            <Radio value="ollama" label="Ollama (Local)" />
+            <Radio value="openai" label="OpenAI (Cloud)" />
+            <Radio value="gemini" label="Gemini (Cloud)" />
           </RadioGroup>
 
           {settings.activeEmbeddingProvider === "ollama" && (
             <div className={styles.configPanel}>
               <Field label="Base URL">
-                <Input value={settings.ollamaBaseUrl} onChange={(_, d) => updateSetting("ollamaBaseUrl", d.value)} />
+                <Input
+                  value={settings.ollamaBaseUrl}
+                  onChange={(_, d) => updateSetting("ollamaBaseUrl", d.value)}
+                  placeholder="http://localhost:11434"
+                />
               </Field>
               <Field label="Model">
-                <Input value={settings.ollamaModel} onChange={(_, d) => updateSetting("ollamaModel", d.value)} />
+                <Input
+                  value={settings.ollamaModel}
+                  onChange={(_, d) => updateSetting("ollamaModel", d.value)}
+                  placeholder="nomic-embed-text"
+                />
+              </Field>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginTop: "8px",
+                }}
+              >
+                <StatusIcon status={testResult?.ollamaStatus} />
+              </div>
+            </div>
+          )}
+
+          {settings.activeEmbeddingProvider === "openai" && (
+            <div className={styles.configPanel}>
+              <Field label="API Key">
+                <Input
+                  type="password"
+                  value={settings.openaiApiKey}
+                  onChange={(_, d) => updateSetting("openaiApiKey", d.value)}
+                  placeholder="sk-..."
+                />
+              </Field>
+              <Field label="Model">
+                <Input
+                  value={settings.openaiModel}
+                  onChange={(_, d) => updateSetting("openaiModel", d.value)}
+                  placeholder="text-embedding-3-small"
+                />
               </Field>
             </div>
           )}
-          {/* ... Add panels for OpenAI/Gemini similar to above ... */}
-          
-          <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '8px' }}>
-             <Button appearance="subtle" icon={<PlayRegular />} onClick={handleTestConnection} disabled={isTesting}>
-               {isTesting ? <Spinner size="tiny" /> : "Test Connection"}
-             </Button>
-             {testResult && (
-                <div className={styles.statusBadge} style={{ 
-                  color: testResult.success ? tokens.colorPaletteGreenForeground1 : tokens.colorPaletteRedForeground1 
-                }}>
-                  {testResult.success ? <CheckmarkCircleRegular /> : <DismissCircleRegular />}
-                  <Text>{testResult.success ? "Connected" : "Failed"}</Text>
-                </div>
-             )}
+
+          {settings.activeEmbeddingProvider === "gemini" && (
+            <div className={styles.configPanel}>
+              <Field label="API Key">
+                <Input
+                  type="password"
+                  value={settings.geminiApiKey}
+                  onChange={(_, d) => updateSetting("geminiApiKey", d.value)}
+                  placeholder="AI..."
+                />
+              </Field>
+              <Field label="Model">
+                <Input
+                  value={settings.geminiModel}
+                  onChange={(_, d) => updateSetting("geminiModel", d.value)}
+                  placeholder="text-embedding-004"
+                />
+              </Field>
+            </div>
+          )}
+
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              marginTop: "8px",
+            }}
+          >
+            <Button
+              appearance="subtle"
+              icon={<PlayRegular />}
+              onClick={handleTestConnection}
+              disabled={isTesting}
+            >
+              {isTesting ? <Spinner size="tiny" /> : "Test Connection"}
+            </Button>
           </div>
         </section>
 
@@ -390,67 +633,123 @@ export default function Settings() {
         <section className={styles.section}>
           <div className={styles.sectionHeader}>
             <SearchRegular />
-            <Text weight="semibold">Index & Search</Text>
+            <Text weight="semibold">Index & Search Parameters</Text>
           </div>
 
           <div className={styles.gridTwoCol}>
             <Field label="Index Name">
-              <Input value={settings.indexName} onChange={(_, d) => updateSetting("indexName", d.value)} />
+              <Input
+                value={settings.indexName}
+                onChange={(_, d) => updateSetting("indexName", d.value)}
+                placeholder="codebase-index"
+              />
             </Field>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <Checkbox 
-                label="Manual Dimension Override" 
-                checked={dimensionOverride} 
-                onChange={(_, d) => setDimensionOverride(d.checked as boolean)} 
+            <div
+              style={{ display: "flex", flexDirection: "column", gap: "4px" }}
+            >
+              <Checkbox
+                label="Manual Dimension Override"
+                checked={dimensionOverride}
+                onChange={(_, d) => setDimensionOverride(d.checked as boolean)}
+                title="Override the default vector size set by the embedding model."
               />
-              <Input 
-                type="number" 
-                value={settings.embeddingDimension.toString()} 
+              <Input
+                type="number"
+                value={settings.embeddingDimension.toString()}
                 disabled={!dimensionOverride}
-                onChange={(_, d) => updateSetting("embeddingDimension", parseInt(d.value))} 
+                onChange={(_, d) =>
+                  updateSetting("embeddingDimension", parseInt(d.value))
+                }
+                title={dimensionHelperText}
+                placeholder={currentAutoDimension.toString()}
               />
+              <Caption1>{dimensionHelperText}</Caption1>
             </div>
           </div>
 
-          <Field label={`Score Threshold (${(settings.searchThreshold * 100).toFixed(0)}%)`}>
-            <Slider 
-              min={0} max={100} step={5} 
+          <Field
+            label={`Score Threshold (${(settings.searchThreshold * 100).toFixed(
+              0
+            )}%)`}
+          >
+            <Slider
+              min={0}
+              max={100}
+              step={5}
               value={settings.searchThreshold * 100}
-              onChange={(_, d) => updateSetting("searchThreshold", d.value / 100)} 
+              onChange={(_, d) =>
+                updateSetting("searchThreshold", d.value / 100)
+              }
+              title="Minimum similarity score for a result to be considered relevant (0.0 to 1.0)."
             />
           </Field>
 
           <Field label="Max Results">
-             <Input type="number" min={1} max={100} value={settings.searchLimit.toString()} onChange={(_, d) => updateSetting("searchLimit", parseInt(d.value))} />
+            <Input
+              type="number"
+              min={1}
+              max={100}
+              value={settings.searchLimit.toString()}
+              onChange={(_, d) =>
+                updateSetting("searchLimit", parseInt(d.value))
+              }
+            />
           </Field>
 
           <Card>
-            <div style={{ display: 'flex', justifyContent: 'space-between', padding: '12px' }}>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                padding: "12px",
+              }}
+            >
               <Label>Include Search Query in Copy</Label>
-              <Switch checked={settings.includeQueryInCopy} onChange={(_, d) => updateSetting("includeQueryInCopy", d.checked)} />
+              <Switch
+                checked={settings.includeQueryInCopy}
+                onChange={(_, d) =>
+                  updateSetting("includeQueryInCopy", d.checked)
+                }
+              />
             </div>
           </Card>
         </section>
 
+        <Divider />
+
         {/* 4. Maintenance / Migration */}
         <section className={styles.maintenanceZone}>
-           <div className={styles.maintenanceRow}>
-              <div>
-                <Text weight="medium">Migration</Text>
-                <Caption1 block>Import settings from legacy .qdrant/configuration.json</Caption1>
-              </div>
-              <Button icon={<ArrowImportRegular />} onClick={handleImportLegacy}>Import from .qdrant/json</Button>
-           </div>
-           <Divider />
-           <div className={styles.maintenanceRow}>
-              <div>
-                 <Text weight="medium">Index Maintenance</Text>
-                 <Caption1 block>Force full re-indexing of the workspace.</Caption1>
-              </div>
-              <Button icon={<ArrowClockwiseRegular />} onClick={() => ipc.sendCommand(START_INDEX_METHOD, "qdrantIndex", {})}>Force Re-Index</Button>
-           </div>
+          <div className={styles.maintenanceRow}>
+            <div>
+              <Text weight="medium">Migration</Text>
+              <Caption1 block>
+                Import configuration from legacy `.qdrant/configuration.json`
+                file. This action will populate the form above.
+              </Caption1>
+            </div>
+            <Button icon={<ArrowImportRegular />} onClick={handleImportLegacy}>
+              Import from .qdrant/json
+            </Button>
+          </div>
+          <Divider />
+          <div className={styles.maintenanceRow}>
+            <div>
+              <Text weight="medium">Index Maintenance</Text>
+              <Caption1 block>
+                Force full re-indexing of the workspace. This should be done
+                after configuration changes or major file updates.
+              </Caption1>
+            </div>
+            <Button
+              icon={<ArrowClockwiseRegular />}
+              onClick={() =>
+                ipc.sendCommand(START_INDEX_METHOD, "qdrantIndex", {})
+              }
+            >
+              Force Re-Index
+            </Button>
+          </div>
         </section>
-
       </div>
     </div>
   );

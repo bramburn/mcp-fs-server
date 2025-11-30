@@ -7,5 +7,5 @@
  */
 
 export type { IVectorStore } from "./IVectorStore.js";
-export { PineconeVectorStore } from "./PineconeVectorStore.js";
 export { QdrantVectorStore } from "./QdrantVectorStore.js";
+export { PineconeVectorStore } from "./PineconeVectorStore.js";

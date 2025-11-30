@@ -5,14 +5,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   GET_VSCODE_SETTINGS_METHOD,
   LOAD_CONFIG_METHOD,
-  START_INDEX_METHOD,
-  TEST_CONFIG_METHOD,
   UPDATE_VSCODE_SETTINGS_METHOD,
+  type QdrantOllamaConfig,
   type VSCodeSettings,
-} from "../../protocol";
-import { IpcProvider, type HostIpc } from "../contexts/ipc";
+} from "../../protocol"; 
+import { IpcProvider, type HostIpc } from "../contexts/ipc"; 
 import { FluentWrapper } from "../providers/FluentWrapper";
-import { useAppStore } from "../store";
+import { useAppStore } from "../store"; 
 import Settings from "./Settings";
 
 // Mock Store
@@ -24,6 +23,10 @@ vi.mock("../store", async () => {
   };
 });
 
+// Mock window.alert since the main code uses it now (temporary due to no modal logic)
+const mockWindowAlert = vi.spyOn(window, 'alert').mockImplementation(() => {});
+
+// Type for mock IPC with vi.fn methods
 type MockHostIpc = HostIpc & {
   sendCommand: ReturnType<typeof vi.fn>;
   sendRequest: ReturnType<typeof vi.fn>;
@@ -84,6 +87,7 @@ describe("Settings View", () => {
           indexStatus: "ready",
         })
     );
+    mockWindowAlert.mockClear();
   });
 
   describe("Initial Rendering", () => {
@@ -108,6 +112,19 @@ describe("Settings View", () => {
         expect(qdrantRadio).toBeChecked();
       });
     });
+
+    it("renders Auto-Managed Dimension text when not overridden", async () => {
+      const ipc = createMockIpc({
+        sendRequest: vi.fn().mockResolvedValue(mockSettings),
+      });
+
+      renderWithIpc(<Settings />, ipc);
+
+      await waitFor(() => {
+        // Since mockSettings has dimension 768, and default for nomic-embed-text is 768, it should be auto-managed
+        expect(screen.getByText(/Auto-managed by model: 768 dimensions/)).toBeInTheDocument();
+      });
+    });
   });
 
   describe("Provider Selection", () => {
@@ -118,8 +135,12 @@ describe("Settings View", () => {
 
       renderWithIpc(<Settings />, ipc);
 
+      // Wait for load
+      await waitFor(() => screen.getByLabelText("Qdrant"));
+      const qdrantRadio = screen.getByLabelText("Qdrant");
+      
       // Verify Qdrant is active initially
-      expect(screen.getByLabelText("Qdrant")).toBeChecked();
+      expect(qdrantRadio).toBeChecked();
       expect(screen.getByDisplayValue("http://localhost:6333")).toBeVisible();
 
       // Click Pinecone
@@ -134,23 +155,8 @@ describe("Settings View", () => {
     });
   });
 
-  describe("Sliders and Numbers", () => {
-    it("renders Slider for Score Threshold", async () => {
-      const ipc = createMockIpc({
-        sendRequest: vi.fn().mockResolvedValue(mockSettings),
-      });
-      renderWithIpc(<Settings />, ipc);
-
-      await waitFor(() => {
-        const slider = screen.getByRole("slider");
-        expect(slider).toBeInTheDocument();
-        expect(slider).toHaveValue("60"); // 0.6 * 100 for slider display
-      });
-    });
-  });
-
   describe("Saving", () => {
-    it("sends UPDATE_VSCODE_SETTINGS_METHOD on save", async () => {
+    it("sends UPDATE_VSCODE_SETTINGS_METHOD on save with new values", async () => {
       const ipc = createMockIpc({
         sendRequest: vi.fn().mockResolvedValue(mockSettings),
       });
@@ -172,8 +178,8 @@ describe("Settings View", () => {
           UPDATE_VSCODE_SETTINGS_METHOD,
           "webview-mgmt",
           expect.objectContaining({
+            ...mockSettings,
             indexName: "new-index",
-            activeVectorDb: "qdrant"
           })
         );
       });
@@ -182,10 +188,15 @@ describe("Settings View", () => {
 
   describe("Migration", () => {
     it("loads legacy config and populates form when Import is clicked", async () => {
-      const legacyConfig = {
+      const legacyConfig: QdrantOllamaConfig = {
         active_vector_db: "pinecone",
-        pinecone_config: { index_name: "legacy-pinecone" },
-        // ... other fields
+        active_embedding_provider: "openai",
+        index_info: { name: "legacy-index", embedding_dimension: 3072 },
+        qdrant_config: { url: "http://legacy:6333", api_key: "" },
+        pinecone_config: { index_name: "legacy-pinecone", environment: "aws", api_key: "key" },
+        ollama_config: { base_url: "", model: "" },
+        openai_config: { api_key: "legacy-key", model: "text-embedding-3-large" },
+        gemini_config: { api_key: "", model: "" },
       };
 
       const ipc = createMockIpc({
@@ -203,9 +214,75 @@ describe("Settings View", () => {
 
       await waitFor(() => {
         expect(ipc.sendRequest).toHaveBeenCalledWith(LOAD_CONFIG_METHOD, "webview-mgmt", expect.any(Object));
+        
         // Verify UI updated to reflect legacy config
         expect(screen.getByLabelText("Pinecone")).toBeChecked();
+        expect(screen.getByLabelText("OpenAI (Cloud)")).toBeChecked();
+        expect(screen.getByDisplayValue("legacy-index")).toBeVisible();
         expect(screen.getByDisplayValue("legacy-pinecone")).toBeVisible();
+        
+        // Check if dimension override checkbox is checked, as 3072 != 768
+        expect(screen.getByLabelText("Manual Dimension Override")).toBeChecked(); 
+        
+        // Check alert was shown
+        expect(mockWindowAlert).toHaveBeenCalledWith(
+          "Legacy configuration loaded into form. Press 'Save All' to apply settings."
+        );
+      });
+    });
+    
+    it("shows alert if legacy file is not found", async () => {
+       const ipc = createMockIpc({
+        sendRequest: vi.fn().mockImplementation((method) => {
+          if (method === GET_VSCODE_SETTINGS_METHOD) return Promise.resolve(mockSettings);
+          if (method === LOAD_CONFIG_METHOD) return Promise.resolve(null); // Explicitly return null/undefined for file not found
+          return Promise.resolve(null);
+        })
+      });
+
+      renderWithIpc(<Settings />, ipc);
+
+      await waitFor(() => screen.getByLabelText("Qdrant"));
+      const importBtn = screen.getByText("Import from .qdrant/json");
+      fireEvent.click(importBtn);
+
+      await waitFor(() => {
+        expect(mockWindowAlert).toHaveBeenCalledWith(
+          "No legacy .qdrant/configuration.json file found to import."
+        );
+      });
+    });
+  });
+
+  describe("Manual Dimension Override", () => {
+    it("enables and uses manual input when checkbox is checked", async () => {
+      const ipc = createMockIpc({ sendRequest: vi.fn().mockResolvedValue(mockSettings) });
+      renderWithIpc(<Settings />, ipc);
+      
+      await waitFor(() => screen.getByLabelText("Index Name"));
+
+      const overrideCheckbox = screen.getByLabelText("Manual Dimension Override") as HTMLInputElement;
+      fireEvent.click(overrideCheckbox);
+
+      // Input has the current dimension as its value, check placeholder text instead (which is currently 768, the auto-managed value)
+      const dimensionInput = screen.getByPlaceholderText("768") as HTMLInputElement; 
+      expect(dimensionInput).toBeEnabled();
+      
+      fireEvent.change(dimensionInput, { target: { value: '512' } });
+
+      // Save and check if the overridden value is sent
+      fireEvent.click(screen.getByText("Save All Settings"));
+
+      await waitFor(() => {
+        expect(ipc.sendRequest).toHaveBeenCalledWith(
+          UPDATE_VSCODE_SETTINGS_METHOD,
+          "webview-mgmt",
+          expect.objectContaining({
+            embeddingDimension: 512,
+            // Check other values are preserved (e.g., activeVectorDb is qdrant)
+            activeVectorDb: 'qdrant'
+          })
+        );
       });
     });
   });
