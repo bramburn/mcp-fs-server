@@ -6,6 +6,7 @@ import { ConfigService } from "../services/ConfigService.js";
 import { IndexingService } from "../services/IndexingService.js";
 import { ILogger } from "../services/LoggerService.js";
 import { WorkspaceManager } from "../services/WorkspaceManager.js";
+import { SettingsManager } from "../settings.js";
 import {
   CONFIG_DATA_METHOD,
   COPY_RESULTS_METHOD,
@@ -17,6 +18,7 @@ import {
   // New imports for copy results
   FileSnippetResult,
   GET_SEARCH_SETTINGS_METHOD,
+  GET_VSCODE_SETTINGS_METHOD,
   GetSearchSettingsResponse,
   INDEX_STATUS_METHOD,
   IpcCommand,
@@ -38,7 +40,9 @@ import {
   TestConfigParams,
   TestConfigResponse,
   UPDATE_SEARCH_SETTINGS_METHOD,
+  UPDATE_VSCODE_SETTINGS_METHOD,
   UpdateSearchSettingsParams,
+  VSCodeSettings,
 } from "./protocol.js";
 
 /**
@@ -498,6 +502,12 @@ export class WebviewController
           break;
         case GET_SEARCH_SETTINGS_METHOD:
           response = await this.handleGetSearchSettingsRequest(request);
+          break;
+        case GET_VSCODE_SETTINGS_METHOD:
+          response = await this.handleGetVSCodeSettingsRequest(request);
+          break;
+        case UPDATE_VSCODE_SETTINGS_METHOD:
+          response = await this.handleUpdateVSCodeSettingsRequest(request);
           break;
         // FIX 3: Removed "ipc:ready-request" from here since it is a command, not a request
         default:
@@ -1024,6 +1034,76 @@ export class WebviewController
       };
     } catch (error) {
       this.log(`Failed to get search settings: ${error}`, "ERROR");
+      return {
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async handleGetVSCodeSettingsRequest(
+    request: IpcRequest<any>
+  ): Promise<IpcResponse<VSCodeSettings>> {
+    try {
+      const settings = SettingsManager.getSettings();
+
+      this.log(
+        `Retrieved VS Code settings: ${JSON.stringify(settings)}`,
+        "CONFIG"
+      );
+
+      return {
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        data: settings,
+      };
+    } catch (error) {
+      this.log(`Failed to get VS Code settings: ${error}`, "ERROR");
+      return {
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        error: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+
+  private async handleUpdateVSCodeSettingsRequest(
+    request: IpcRequest<Partial<VSCodeSettings>>
+  ): Promise<IpcResponse<{ success: boolean }>> {
+    try {
+      await SettingsManager.updateSettings(request.params);
+
+      this.log(
+        `Updated VS Code settings: ${JSON.stringify(request.params)}`,
+        "CONFIG"
+      );
+
+      // Send notification to all webviews about the settings change
+      this.sendNotification(DID_CHANGE_CONFIG_NOTIFICATION, {
+        section: "vscode-settings",
+        value: request.params,
+      });
+
+      return {
+        kind: "response",
+        scope: request.scope,
+        id: crypto.randomUUID(),
+        responseId: request.id,
+        timestamp: Date.now(),
+        data: { success: true },
+      };
+    } catch (error) {
+      this.log(`Failed to update VS Code settings: ${error}`, "ERROR");
       return {
         kind: "response",
         scope: request.scope,

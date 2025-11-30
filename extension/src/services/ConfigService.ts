@@ -171,16 +171,20 @@ export class ConfigService implements vscode.Disposable {
 
     // 3. Try VS Code Settings for Pinecone configuration
     try {
-      const vscodeConfig = vscode.workspace.getConfiguration('qdrant-codesearch');
-      const pineconeApiKey = vscodeConfig.get<string>('pineconeApiKey');
-      const pineconeIndex = vscodeConfig.get<string>('pineconeIndex');
-      
+      const vscodeConfig =
+        vscode.workspace.getConfiguration("qdrant-codesearch");
+      const pineconeApiKey = vscodeConfig.get<string>("pineconeApiKey");
+      const pineconeIndex = vscodeConfig.get<string>("pineconeIndex");
+      const pineconeEnvironment = vscodeConfig.get<string>(
+        "pineconeEnvironment"
+      );
+
       if (pineconeApiKey && pineconeIndex) {
         this._logger.log(
           `Loaded Pinecone config from VS Code settings for ${folder.name}`,
           "CONFIG"
         );
-        
+
         // Create a minimal config with just the Pinecone settings
         const config: QdrantOllamaConfig = {
           active_vector_db: "pinecone",
@@ -189,7 +193,8 @@ export class ConfigService implements vscode.Disposable {
           qdrant_config: { url: "", api_key: "" },
           pinecone_config: {
             index_name: pineconeIndex,
-            api_key: pineconeApiKey
+            environment: pineconeEnvironment || "",
+            api_key: pineconeApiKey,
           },
           ollama_config: {
             base_url: "http://localhost:11434",
@@ -198,7 +203,7 @@ export class ConfigService implements vscode.Disposable {
           openai_config: { api_key: "", model: "text-embedding-3-small" },
           gemini_config: { api_key: "", model: "text-embedding-004" },
         };
-        
+
         return config;
       }
     } catch (error) {

@@ -68,6 +68,7 @@ function createMockConfig(
     },
     pinecone_config: {
       index_name: "",
+      environment: "",
       api_key: "",
     },
     ollama_config: {
@@ -220,7 +221,7 @@ describe("Settings View", () => {
       // Or simply grab all switches and pick the last one (since it's at the bottom)
       const switches = screen.getAllByRole("switch");
       const storageSwitch = switches[switches.length - 1];
-      
+
       fireEvent.click(storageSwitch);
 
       await waitFor(() => {
@@ -286,7 +287,7 @@ describe("Settings View", () => {
       // Initially no save button in header (header only has "Back")
       // We can check this by looking for the "Save" text which should only exist in the footer button "Save & Create"
       // or by checking button counts.
-      
+
       // Modify form to make it dirty
       const indexNameInput = screen.getByLabelText("Index Name");
       fireEvent.change(indexNameInput, { target: { value: "modified" } });
@@ -296,7 +297,9 @@ describe("Settings View", () => {
       await waitFor(() => {
         // We expect to find the "Save" button in header + "Save & Create" in footer
         // Or strictly "Save" if the button text is exactly "Save"
-        const saveButtons = screen.getAllByRole("button").filter(b => b.textContent === "Save");
+        const saveButtons = screen
+          .getAllByRole("button")
+          .filter((b) => b.textContent === "Save");
         expect(saveButtons.length).toBeGreaterThan(0);
       });
     });

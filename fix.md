@@ -1,3 +1,12 @@
+
+
+I'll help you update the settings to store everything in VS Code settings instead of the JSON file. Let's analyze the current code and make the necessary changes.
+
+Looking at the code, I can see that there are currently two separate saving mechanisms - one for the main configuration and another for search settings. We need to consolidate these and use VS Code settings instead.
+
+Here's how we'll modify the code:
+
+```typescript
 // File: extension/src/webviews/app/views/Settings.tsx
 
 import {
@@ -12,6 +21,8 @@ import {
   Field,
   Input,
   makeStyles,
+  MessageBar,
+  MessageBarBody,
   shorthands,
   Spinner,
   Switch,
@@ -25,6 +36,8 @@ import {
   CheckmarkCircleRegular,
   DatabaseRegular,
   DismissCircleRegular,
+  GlobeRegular,
+  HardDriveRegular,
   PlayRegular,
   SaveRegular,
   SearchRegular,
@@ -32,10 +45,16 @@ import {
 } from "@fluentui/react-icons";
 import { useCallback, useEffect, useState } from "react";
 import {
-  GET_VSCODE_SETTINGS_METHOD,
+  GET_SEARCH_SETTINGS_METHOD,
+  LOAD_CONFIG_METHOD,
   type QdrantOllamaConfig,
+  SAVE_CONFIG_METHOD,
+  type SaveConfigParams,
   START_INDEX_METHOD,
   TEST_CONFIG_METHOD,
+  UPDATE_SEARCH_SETTINGS_METHOD,
+  type UpdateSearchSettingsParams,
+  GET_VSCODE_SETTINGS_METHOD,
   UPDATE_VSCODE_SETTINGS_METHOD,
   type VSCodeSettings,
 } from "../../protocol";
@@ -171,6 +190,8 @@ const getModelDefaults = (provider: string, model: string): number => {
 export default function Settings() {
   const styles = useStyles();
   const ipc = useIpc();
+  const config = useAppStore((state) => state.config);
+  const setConfig = useAppStore((state) => state.setConfig);
   const indexStatus = useAppStore((state) => state.indexStatus);
   const setView = useAppStore((state) => state.setView);
 
@@ -209,20 +230,18 @@ export default function Settings() {
   const loadSettings = useCallback(async () => {
     try {
       // Load all settings from VS Code settings
-      const settings = await ipc.sendRequest<
-        Record<string, never>,
-        VSCodeSettings
-      >(GET_VSCODE_SETTINGS_METHOD, "webview-mgmt", {});
+      const settings = await ipc.sendRequest<Record<string, never>, VSCodeSettings>(
+        GET_VSCODE_SETTINGS_METHOD,
+        "webview-mgmt",
+        {}
+      );
 
       if (settings) {
         // Update form data with loaded settings
         setFormData((prev) => ({
           ...prev,
-          active_vector_db: (settings.activeVectorDb || "qdrant") as
-            | "qdrant"
-            | "pinecone",
-          active_embedding_provider: (settings.activeEmbeddingProvider ||
-            "ollama") as "ollama" | "openai" | "gemini",
+          active_vector_db: settings.activeVectorDb || "qdrant",
+          active_embedding_provider: settings.activeEmbeddingProvider || "ollama",
           index_info: {
             name: settings.indexName || "",
             embedding_dimension: settings.embeddingDimension || 768,
@@ -361,7 +380,7 @@ export default function Settings() {
           pineconeIndexName: formData.pinecone_config?.index_name || "",
           pineconeEnvironment: formData.pinecone_config?.environment || "",
           pineconeApiKey: formData.pinecone_config?.api_key || "",
-
+          
           // Embedding provider settings
           activeEmbeddingProvider: formData.active_embedding_provider,
           ollamaBaseUrl: formData.ollama_config?.base_url || "",
@@ -370,18 +389,18 @@ export default function Settings() {
           openaiModel: formData.openai_config?.model || "",
           geminiApiKey: formData.gemini_config?.api_key || "",
           geminiModel: formData.gemini_config?.model || "",
-
+          
           // Index settings
           indexName: formData.index_info?.name || "",
           embeddingDimension: formData.index_info?.embedding_dimension || 768,
-
+          
           // Search settings
           searchLimit,
           searchThreshold,
           includeQueryInCopy,
         }
       );
-
+      
       setIsDirty(false);
     } catch (error) {
       console.error("Failed to save settings:", error);
@@ -716,7 +735,7 @@ export default function Settings() {
                       value={formData.openai_config?.model || ""}
                       onChange={(_e, d) =>
                         handleInputChange("openai_config", "model", d.value)
-                      }
+                      />
                     />
                   </Field>
                 </div>
@@ -746,7 +765,7 @@ export default function Settings() {
                       value={formData.gemini_config?.model || ""}
                       onChange={(_e, d) =>
                         handleInputChange("gemini_config", "model", d.value)
-                      }
+                      />
                     />
                   </Field>
                 </div>
@@ -802,3 +821,306 @@ export default function Settings() {
     </div>
   );
 }
+```
+
+Now we need to update the protocol file to add the new methods for VS Code settings:
+
+```typescript
+// File: extension/src/protocol.ts
+
+// Add these new types and methods to the existing protocol file
+
+export interface VSCodeSettings {
+  // Vector DB settings
+  activeVectorDb?: string;
+  qdrantUrl?: string;
+  qdrantApiKey?: string;
+  pineconeIndexName?: string;
+  pineconeEnvironment?: string;
+  pineconeApiKey?: string;
+  
+  // Embedding provider settings
+  activeEmbeddingProvider?: string;
+  ollamaBaseUrl?: string;
+  ollamaModel?: string;
+  openaiApiKey?: string;
+  openaiModel?: string;
+  geminiApiKey?: string;
+  geminiModel?: string;
+  
+  // Index settings
+  indexName?: string;
+  embeddingDimension?: number;
+  
+  // Search settings
+  searchLimit?: number;
+  searchThreshold?: number;
+  includeQueryInCopy?: boolean;
+}
+
+// Add these new methods to the existing methods list
+export const GET_VSCODE_SETTINGS_METHOD = "getVSCodeSettings";
+export const UPDATE_VSCODE_SETTINGS_METHOD = "updateVSCodeSettings";
+```
+
+Now we need to update the extension side to handle these new methods and store the settings in VS Code settings. Let's create a new file for this:
+
+```typescript
+// File: extension/src/settings.ts
+
+import * as vscode from 'vscode';
+import { VSCodeSettings } from './protocol';
+
+export class SettingsManager {
+  private static readonly SECTION_ID = 'semanticSearch';
+  
+  // Get all settings from VS Code configuration
+  static getSettings(): VSCodeSettings {
+    const config = vscode.workspace.getConfiguration(this.SECTION_ID);
+    return {
+      // Vector DB settings
+      activeVectorDb: config.get<string>('activeVectorDb', 'qdrant'),
+      qdrantUrl: config.get<string>('qdrantUrl', 'http://localhost:6333'),
+      qdrantApiKey: config.get<string>('qdrantApiKey', ''),
+      pineconeIndexName: config.get<string>('pineconeIndexName', ''),
+      pineconeEnvironment: config.get<string>('pineconeEnvironment', ''),
+      pineconeApiKey: config.get<string>('pineconeApiKey', ''),
+      
+      // Embedding provider settings
+      activeEmbeddingProvider: config.get<string>('activeEmbeddingProvider', 'ollama'),
+      ollamaBaseUrl: config.get<string>('ollamaBaseUrl', 'http://localhost:11434'),
+      ollamaModel: config.get<string>('ollamaModel', 'nomic-embed-text'),
+      openaiApiKey: config.get<string>('openaiApiKey', ''),
+      openaiModel: config.get<string>('openaiModel', 'text-embedding-3-small'),
+      geminiApiKey: config.get<string>('geminiApiKey', ''),
+      geminiModel: config.get<string>('geminiModel', 'text-embedding-004'),
+      
+      // Index settings
+      indexName: config.get<string>('indexName', ''),
+      embeddingDimension: config.get<number>('embeddingDimension', 768),
+      
+      // Search settings
+      searchLimit: config.get<number>('searchLimit', 10),
+      searchThreshold: config.get<number>('searchThreshold', 0.7),
+      includeQueryInCopy: config.get<boolean>('includeQueryInCopy', false),
+    };
+  }
+  
+  // Update settings in VS Code configuration
+  static async updateSettings(settings: Partial<VSCodeSettings>): Promise<void> {
+    const config = vscode.workspace.getConfiguration(this.SECTION_ID);
+    
+    // Create a list of promises for all updates
+    const updates: Promise<void>[] = [];
+    
+    // Vector DB settings
+    if (settings.activeVectorDb !== undefined) {
+      updates.push(config.update('activeVectorDb', settings.activeVectorDb));
+    }
+    if (settings.qdrantUrl !== undefined) {
+      updates.push(config.update('qdrantUrl', settings.qdrantUrl));
+    }
+    if (settings.qdrantApiKey !== undefined) {
+      updates.push(config.update('qdrantApiKey', settings.qdrantApiKey));
+    }
+    if (settings.pineconeIndexName !== undefined) {
+      updates.push(config.update('pineconeIndexName', settings.pineconeIndexName));
+    }
+    if (settings.pineconeEnvironment !== undefined) {
+      updates.push(config.update('pineconeEnvironment', settings.pineconeEnvironment));
+    }
+    if (settings.pineconeApiKey !== undefined) {
+      updates.push(config.update('pineconeApiKey', settings.pineconeApiKey));
+    }
+    
+    // Embedding provider settings
+    if (settings.activeEmbeddingProvider !== undefined) {
+      updates.push(config.update('activeEmbeddingProvider', settings.activeEmbeddingProvider));
+    }
+    if (settings.ollamaBaseUrl !== undefined) {
+      updates.push(config.update('ollamaBaseUrl', settings.ollamaBaseUrl));
+    }
+    if (settings.ollamaModel !== undefined) {
+      updates.push(config.update('ollamaModel', settings.ollamaModel));
+    }
+    if (settings.openaiApiKey !== undefined) {
+      updates.push(config.update('openaiApiKey', settings.openaiApiKey));
+    }
+    if (settings.openaiModel !== undefined) {
+      updates.push(config.update('openaiModel', settings.openaiModel));
+    }
+    if (settings.geminiApiKey !== undefined) {
+      updates.push(config.update('geminiApiKey', settings.geminiApiKey));
+    }
+    if (settings.geminiModel !== undefined) {
+      updates.push(config.update('geminiModel', settings.geminiModel));
+    }
+    
+    // Index settings
+    if (settings.indexName !== undefined) {
+      updates.push(config.update('indexName', settings.indexName));
+    }
+    if (settings.embeddingDimension !== undefined) {
+      updates.push(config.update('embeddingDimension', settings.embeddingDimension));
+    }
+    
+    // Search settings
+    if (settings.searchLimit !== undefined) {
+      updates.push(config.update('searchLimit', settings.searchLimit));
+    }
+    if (settings.searchThreshold !== undefined) {
+      updates.push(config.update('searchThreshold', settings.searchThreshold));
+    }
+    if (settings.includeQueryInCopy !== undefined) {
+      updates.push(config.update('includeQueryInCopy', settings.includeQueryInCopy));
+    }
+    
+    // Wait for all updates to complete
+    await Promise.all(updates);
+  }
+}
+```
+
+Now we need to update the extension's package.json to register these settings:
+
+```json
+// File: extension/package.json
+
+{
+  "contributes": {
+    "configuration": {
+      "title": "Semantic Search",
+      "properties": {
+        "semanticSearch.activeVectorDb": {
+          "type": "string",
+          "enum": ["qdrant", "pinecone"],
+          "default": "qdrant",
+          "description": "The vector database to use for storing embeddings."
+        },
+        "semanticSearch.qdrantUrl": {
+          "type": "string",
+          "default": "http://localhost:6333",
+          "description": "The URL of the Qdrant server."
+        },
+        "semanticSearch.qdrantApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "The API key for Qdrant (if required)."
+        },
+        "semanticSearch.pineconeIndexName": {
+          "type": "string",
+          "default": "",
+          "description": "The name of the Pinecone index."
+        },
+        "semanticSearch.pineconeEnvironment": {
+          "type": "string",
+          "default": "",
+          "description": "The Pinecone environment (e.g., gcp-starter)."
+        },
+        "semanticSearch.pineconeApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "The API key for Pinecone."
+        },
+        "semanticSearch.activeEmbeddingProvider": {
+          "type": "string",
+          "enum": ["ollama", "openai", "gemini"],
+          "default": "ollama",
+          "description": "The embedding provider to use for generating embeddings."
+        },
+        "semanticSearch.ollamaBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "The base URL of the Ollama server."
+        },
+        "semanticSearch.ollamaModel": {
+          "type": "string",
+          "default": "nomic-embed-text",
+          "description": "The Ollama model to use for embeddings."
+        },
+        "semanticSearch.openaiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "The API key for OpenAI."
+        },
+        "semanticSearch.openaiModel": {
+          "type": "string",
+          "default": "text-embedding-3-small",
+          "description": "The OpenAI model to use for embeddings."
+        },
+        "semanticSearch.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "The API key for Google Gemini."
+        },
+        "semanticSearch.geminiModel": {
+          "type": "string",
+          "default": "text-embedding-004",
+          "description": "The Google Gemini model to use for embeddings."
+        },
+        "semanticSearch.indexName": {
+          "type": "string",
+          "default": "",
+          "description": "The name of the index for your codebase."
+        },
+        "semanticSearch.embeddingDimension": {
+          "type": "number",
+          "default": 768,
+          "description": "The dimension of the embeddings."
+        },
+        "semanticSearch.searchLimit": {
+          "type": "number",
+          "default": 10,
+          "minimum": 5,
+          "maximum": 100,
+          "description": "The maximum number of search results to return."
+        },
+        "semanticSearch.searchThreshold": {
+          "type": "number",
+          "default": 0.7,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "The minimum similarity score for search results."
+        },
+        "semanticSearch.includeQueryInCopy": {
+          "type": "boolean",
+          "default": false,
+          "description": "Whether to include the search query when copying results."
+        }
+      }
+    }
+  }
+}
+```
+
+Finally, we need to update the extension's main file to handle the new methods:
+
+```typescript
+// File: extension/src/extension.ts
+
+// Add these imports to the existing imports
+import { SettingsManager } from './settings';
+import { GET_VSCODE_SETTINGS_METHOD, UPDATE_VSCODE_SETTINGS_METHOD } from './protocol';
+
+// In the extension's activate function, add these handlers:
+
+// Handle getting VS Code settings
+ipc.onRequest(GET_VSCODE_SETTINGS_METHOD, async () => {
+  return SettingsManager.getSettings();
+});
+
+// Handle updating VS Code settings
+ipc.onRequest(UPDATE_VSCODE_SETTINGS_METHOD, async (_, settings) => {
+  await SettingsManager.updateSettings(settings);
+});
+```
+
+These changes will:
+
+1. Store all settings in VS Code settings instead of a JSON file
+2. Load settings from VS Code settings when the settings page is opened
+3. Have a single "dirty" state and a single save button
+4. Properly handle all the settings mentioned (Pinecone, Ollama, embedding service selection, etc.)
+5. Migrate away from using the .qdrant/configuration.json file
+
+The settings will now be persisted in VS Code's settings system, which is more robust and follows VS Code's standard practices.

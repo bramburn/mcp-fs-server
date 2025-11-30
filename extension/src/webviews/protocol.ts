@@ -77,6 +77,7 @@ export interface QdrantOllamaConfig {
   };
   pinecone_config?: {
     index_name: string;
+    environment: string;
     api_key: string;
   };
 
@@ -93,6 +94,35 @@ export interface QdrantOllamaConfig {
     api_key: string;
     model: string;
   };
+}
+
+// VS Code Settings interface for SettingsManager
+export interface VSCodeSettings {
+  // Vector DB settings
+  activeVectorDb: string;
+  qdrantUrl: string;
+  qdrantApiKey: string;
+  pineconeIndexName: string;
+  pineconeEnvironment: string;
+  pineconeApiKey: string;
+
+  // Embedding provider settings
+  activeEmbeddingProvider: string;
+  ollamaBaseUrl: string;
+  ollamaModel: string;
+  openaiApiKey: string;
+  openaiModel: string;
+  geminiApiKey: string;
+  geminiModel: string;
+
+  // Index settings
+  indexName: string;
+  embeddingDimension: number;
+
+  // Search settings
+  searchLimit: number;
+  searchThreshold: number;
+  includeQueryInCopy: boolean;
 }
 
 // --- Specific Messages ---
@@ -214,3 +244,9 @@ export interface GetSearchSettingsResponse {
   includeQueryInCopy?: boolean; // NEW: Query preservation setting
 }
 export const GET_SEARCH_SETTINGS_METHOD = "config/get-search-settings";
+
+// 14. Get VS Code Settings Request (Guest -> Host)
+export const GET_VSCODE_SETTINGS_METHOD = "config/get-vscode-settings";
+
+// 15. Update VS Code Settings Request (Guest -> Host)
+export const UPDATE_VSCODE_SETTINGS_METHOD = "config/update-vscode-settings";

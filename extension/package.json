@@ -20,69 +20,111 @@
   ],
   "main": "./out/extension/src/extension.js",
   "contributes": {
-    "viewsContainers": {
-      "activitybar": [
-        {
-          "id": "qdrant-sidebar",
-          "title": "Qdrant Search",
-          "icon": "$(search)"
-        }
-      ]
-    },
-    "views": {
-      "qdrant-sidebar": [
-        {
-          "type": "webview",
-          "id": "qdrant.search.view",
-          "name": "Search",
-          "icon": "$(search-view)"
-        }
-      ]
-    },
-    "commands": [
-      {
-        "command": "qdrant.index.start",
-        "title": "Qdrant: Index Workspace"
-      },
-      {
-        "command": "qdrant.openSettings",
-        "title": "Qdrant: Open Settings"
-      }
-    ],
     "configuration": {
-      "title": "Qdrant Code Search",
+      "title": "Semantic Search",
       "properties": {
-        "qdrant.search.trace": {
-          "type": "boolean",
-          "default": false,
-          "description": "Enable debug tracing"
+        "semanticSearch.activeVectorDb": {
+          "type": "string",
+          "enum": [
+            "qdrant",
+            "pinecone"
+          ],
+          "default": "qdrant",
+          "description": "The vector database to use for storing embeddings."
         },
-        "qdrant.search.limit": {
+        "semanticSearch.qdrantUrl": {
+          "type": "string",
+          "default": "http://localhost:6333",
+          "description": "The URL of the Qdrant server."
+        },
+        "semanticSearch.qdrantApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "The API key for Qdrant (if required)."
+        },
+        "semanticSearch.pineconeIndexName": {
+          "type": "string",
+          "default": "",
+          "description": "The name of the Pinecone index."
+        },
+        "semanticSearch.pineconeEnvironment": {
+          "type": "string",
+          "default": "",
+          "description": "The Pinecone environment (e.g., gcp-starter)."
+        },
+        "semanticSearch.pineconeApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "The API key for Pinecone."
+        },
+        "semanticSearch.activeEmbeddingProvider": {
+          "type": "string",
+          "enum": [
+            "ollama",
+            "openai",
+            "gemini"
+          ],
+          "default": "ollama",
+          "description": "The embedding provider to use for generating embeddings."
+        },
+        "semanticSearch.ollamaBaseUrl": {
+          "type": "string",
+          "default": "http://localhost:11434",
+          "description": "The base URL of the Ollama server."
+        },
+        "semanticSearch.ollamaModel": {
+          "type": "string",
+          "default": "nomic-embed-text",
+          "description": "The Ollama model to use for embeddings."
+        },
+        "semanticSearch.openaiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "The API key for OpenAI."
+        },
+        "semanticSearch.openaiModel": {
+          "type": "string",
+          "default": "text-embedding-3-small",
+          "description": "The OpenAI model to use for embeddings."
+        },
+        "semanticSearch.geminiApiKey": {
+          "type": "string",
+          "default": "",
+          "description": "The API key for Google Gemini."
+        },
+        "semanticSearch.geminiModel": {
+          "type": "string",
+          "default": "text-embedding-004",
+          "description": "The Google Gemini model to use for embeddings."
+        },
+        "semanticSearch.indexName": {
+          "type": "string",
+          "default": "",
+          "description": "The name of the index for your codebase."
+        },
+        "semanticSearch.embeddingDimension": {
+          "type": "number",
+          "default": 768,
+          "description": "The dimension of the embeddings."
+        },
+        "semanticSearch.searchLimit": {
           "type": "number",
           "default": 10,
           "minimum": 5,
           "maximum": 100,
-          "description": "Maximum number of search results to return"
+          "description": "The maximum number of search results to return."
         },
-        "qdrant.search.threshold": {
+        "semanticSearch.searchThreshold": {
           "type": "number",
           "default": 0.7,
           "minimum": 0,
           "maximum": 1,
-          "description": "Minimum similarity score threshold for search results (0-1)"
+          "description": "The minimum similarity score for search results."
         },
-        "qdrant.search.includeQueryInCopy": {
+        "semanticSearch.includeQueryInCopy": {
           "type": "boolean",
           "default": false,
-          "description": "Include search query as 'Instruction:' prefix when copying snippets"
-        },
-        "qdrant.search.pinecone.apiKey": {
-          "type": "string",
-          "description": "Pinecone API key"
-        },
-        "qdrant.search.pinecone.indexName": {
-          "type": "string",
-          "description": "Name of the Pinecone index"
+          "description": "Whether to include the search query when copying results."
         }
       }
     }

@@ -121,9 +121,10 @@ export async function activate(
           }
         }
 
-      } catch (err: any) {
-        container.logger.log(`Error capturing file: ${err.message}`, "ERROR");
-        vscode.window.showErrorMessage(`Failed to capture file: ${err.message}`);
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        container.logger.log(`Error capturing file: ${message}`, "ERROR");
+        vscode.window.showErrorMessage(`Failed to capture file: ${message}`);
       }
     })
   );
