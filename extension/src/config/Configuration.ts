@@ -62,12 +62,13 @@ export const DefaultConfiguration: Configuration = {
       "txt",
       "html",
       "css",
-      // Added backend/other languages commonly supported by Tree-sitter
-      "python", 
+      // Added backend/other languages supported by downloaded WASM modules
+      "py", 
       "java",
-      "rust",
+      "rs",
       "go",
-      "kotlin",
+      "kt",
+      "kts",
     ],
   },
   search: {
@@ -127,7 +128,40 @@ export class ConfigurationFactory {
           DefaultConfiguration.search.includeQueryInCopy
         ),
       },
-      qdrantConfig: undefined, // Will be loaded separately from file (legacy/migration)
+      // BRIDGE: Map native VS Code settings to the internal legacy structure
+      // This allows existing services to function without rewriting them to read individual setting keys.
+      qdrantConfig: {
+        active_vector_db: vscodeConfig.get("activeVectorDb", "qdrant") as 'qdrant' | 'pinecone',
+        active_embedding_provider: vscodeConfig.get(
+          "activeEmbeddingProvider",
+          "ollama"
+        ) as 'ollama' | 'openai' | 'gemini',
+        index_info: {
+          name: vscodeConfig.get("indexName", ""),
+          embedding_dimension: vscodeConfig.get("embeddingDimension", 768),
+        },
+        qdrant_config: {
+          url: vscodeConfig.get("qdrantUrl", "http://localhost:6333"),
+          api_key: vscodeConfig.get("qdrantApiKey", ""),
+        },
+        pinecone_config: {
+          index_name: vscodeConfig.get("pineconeIndexName", ""),
+          environment: vscodeConfig.get("pineconeEnvironment", ""),
+          api_key: vscodeConfig.get("pineconeApiKey", ""),
+        },
+        ollama_config: {
+          base_url: vscodeConfig.get("ollamaBaseUrl", "http://localhost:11434"),
+          model: vscodeConfig.get("ollamaModel", "nomic-embed-text"),
+        },
+        openai_config: {
+          api_key: vscodeConfig.get("openaiApiKey", ""),
+          model: vscodeConfig.get("openaiModel", "text-embedding-3-small"),
+        },
+        gemini_config: {
+          api_key: vscodeConfig.get("geminiApiKey", ""),
+          model: vscodeConfig.get("geminiModel", "text-embedding-004"),
+        },
+      },
     };
   }
 

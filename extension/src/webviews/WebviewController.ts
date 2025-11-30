@@ -398,7 +398,8 @@ export class WebviewController
               "[IPC] Ensuring IndexingService is initialized on webview ready",
               "WEBVIEW"
             );
-            await this._indexingService.initializeForSearch(folder);
+            // NOTE: initializeForSearch now uses ConfigService.config.qdrantConfig instead of loadQdrantConfig
+            await this._indexingService.initializeForSearch(folder); 
           }
 
           // Check actual status instead of hardcoding 'ready'
@@ -478,9 +479,11 @@ export class WebviewController
           response = await this.handleLoadConfigRequest(request);
           break;
         case SAVE_CONFIG_METHOD:
-          await this.handleSaveConfigRequest(
-            request as IpcRequest<SaveConfigParams>
-          );
+          // NOTE: This handler is now effectively a no-op that just returns success, 
+          // as ConfigService.saveQdrantConfig was removed in Phase 3. 
+          // The UI should use UPDATE_VSCODE_SETTINGS_METHOD instead.
+          this.log(`[IPC Host] Received deprecated SAVE_CONFIG_METHOD. Responding success.`, "WARN");
+
           response = {
             kind: "response",
             scope: request.scope,
@@ -892,6 +895,7 @@ export class WebviewController
     const folder = this._workspaceManager.getActiveWorkspaceFolder();
     let config: QdrantOllamaConfig | null = null;
     if (folder) {
+      // NOTE: loadQdrantConfig is now only used here for migration, reading the old file.
       config = await this._configService.loadQdrantConfig(folder);
     }
 
@@ -908,25 +912,12 @@ export class WebviewController
   private async handleSaveConfigRequest(
     request: IpcRequest<SaveConfigParams>
   ): Promise<void> {
-    const folder = this._workspaceManager.getActiveWorkspaceFolder();
-    if (!folder) {
-      throw new Error(
-        "No active workspace folder found. Cannot save configuration."
-      );
-    }
+    // NOTE: This handler is now effectively a no-op since ConfigService.saveQdrantConfig 
+    // was removed in Phase 3. We return success to not break the old migration UI path
+    // in case it's still hit, but logging a warning.
+    this.log(`[IPC Host] Received deprecated SAVE_CONFIG_METHOD. Returning success, but use UPDATE_VSCODE_SETTINGS_METHOD instead.`, "WARN");
 
-    // Pass the useGlobal flag from the request to the service
-    await this._configService.saveQdrantConfig(
-      folder,
-      request.params.config,
-      request.params.useGlobal ?? false
-    );
-
-    vscode.window.showInformationMessage(
-      `Qdrant configuration saved ${
-        request.params.useGlobal ? "globally" : "locally"
-      }.`
-    );
+    // Return success response via the handleRequest wrapper's logic
   }
 
   private async handleTestConfigRequest(
@@ -956,21 +947,21 @@ export class WebviewController
       // Update settings in VS Code configuration (global settings)
       if (limit !== undefined) {
         await this._configService.updateVSCodeSetting(
-          "search.limit",
+          "searchLimit", // Use new flat key
           limit,
           true
         );
       }
       if (threshold !== undefined) {
         await this._configService.updateVSCodeSetting(
-          "search.threshold",
+          "searchThreshold", // Use new flat key
           threshold,
           true
         );
       }
       if (includeQueryInCopy !== undefined) {
         await this._configService.updateVSCodeSetting(
-          "search.includeQueryInCopy",
+          "includeQueryInCopy", // Use new flat key
           includeQueryInCopy,
           true
         );
@@ -1041,7 +1032,7 @@ export class WebviewController
         responseId: request.id,
         timestamp: Date.now(),
         error: error instanceof Error ? error.message : String(error),
-      };
+      } as IpcResponse<GetSearchSettingsResponse>; // Cast error response
     }
   }
 

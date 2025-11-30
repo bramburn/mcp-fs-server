@@ -99,7 +99,8 @@ export class IndexingService implements vscode.Disposable {
    * without performing a full re-index
    */
   public async initializeForSearch(
-    folder: vscode.WorkspaceFolder
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    _folder: vscode.WorkspaceFolder // Folder is now only used for context, config is global
   ): Promise<boolean> {
     // If already initialized, return success
     if (this._vectorStore && this._activeConfig) {
@@ -116,15 +117,18 @@ export class IndexingService implements vscode.Disposable {
         "INFO"
       );
 
-      // Load configuration
-      const config = await this._configService.loadQdrantConfig(folder);
+      // --- CRITICAL CHANGE: Load config directly from ConfigService ---
+      const config = this._configService.config.qdrantConfig;
       if (!config) {
-        this._logger.log("[INIT] Failed to load Qdrant configuration", "ERROR");
+        this._logger.log(
+          "[INIT] Failed to retrieve Qdrant configuration from settings",
+          "ERROR"
+        );
         return false;
       }
 
       this._logger.log(
-        `[INIT] Configuration loaded: ${config.active_vector_db}`,
+        `[INIT] Configuration loaded from VS Code settings: ${config.active_vector_db}`,
         "INFO"
       );
 
@@ -333,16 +337,15 @@ export class IndexingService implements vscode.Disposable {
         `[INDEXING] Workspace: ${workspaceFolder.name} (${workspaceFolder.uri.fsPath})`
       );
 
-      const config = await this._configService.loadQdrantConfig(
-        workspaceFolder
-      );
+      // --- CRITICAL CHANGE: Load config directly from ConfigService ---
+      const config = this._configService.config.qdrantConfig;
       if (!config) {
         throw new Error(
-          `No valid configuration found in ${workspaceFolder.name}. Please create .qdrant/configuration.json`
+          `No valid configuration found in VS Code settings. Please open settings and configure providers.`
         );
       }
 
-      this._logger.log(`[INDEXING] Configuration loaded successfully`);
+      this._logger.log(`[INDEXING] Configuration loaded successfully from VS Code settings`);
       this._logger.log(`[INDEXING] Vector DB: ${config.active_vector_db}`);
       this._logger.log(
         `[INDEXING] Embedding Provider: ${config.active_embedding_provider}`

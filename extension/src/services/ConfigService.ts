@@ -419,7 +419,8 @@ export class ConfigService implements vscode.Disposable {
    */
   public get<T>(key: string): T {
     const keys = key.split(".");
-    let value: unknown = this._deepClone(this._config); // Changed from 'any'
+    // FIX 1: Convert to unknown first before casting to Record<string, unknown> to satisfy TS2352
+    let value: unknown = this._deepClone(this._config) as unknown as Record<string, unknown>;
 
     for (const k of keys) {
       if (value && typeof value === "object" && k in value) {
@@ -439,24 +440,18 @@ export class ConfigService implements vscode.Disposable {
    */
   public update(key: string, value: unknown): void { // Changed from 'any'
     const keys = key.split(".");
-    
-    // FIX: Assigning Configuration to Record<string, unknown> causes a type error.
-    // Since this is the internal configuration object, we must maintain its Configuration type
-    // but use a utility type for indexing/traversal during the loop.
-    let target: Configuration | Record<string, unknown> = this._config; 
+    // FIX 2: Convert to unknown first before casting to Record<string, unknown> to satisfy TS2352
+    let target: Record<string, unknown> = this._config as unknown as Record<string, unknown>; 
 
     for (let i = 0; i < keys.length - 1; i++) {
       const k = keys[i];
-      if (!(k in target) || typeof target[k as keyof typeof target] !== "object" || target[k as keyof typeof target] === null) {
-        // We know target[k] must be an object here if we are traversing. 
-        // We initialize it as a generic object if it doesn't exist or is primitive.
-        (target as Record<string, unknown>)[k] = {};
+      if (!(k in target) || typeof target[k] !== "object" || target[k] === null) {
+        target[k] = {};
       }
-      // Move target down one level, casting to Record<string, unknown> for flexible indexing
-      target = (target as Record<string, unknown>)[k] as Record<string, unknown>;
+      target = target[k] as Record<string, unknown>;
     }
 
-    (target as Record<string, unknown>)[keys[keys.length - 1]] = value;
+    target[keys[keys.length - 1]] = value;
 
     // Notify listeners of change
     this._listeners.forEach((listener) => {
