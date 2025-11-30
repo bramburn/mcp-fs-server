@@ -3,10 +3,12 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  GET_VSCODE_SETTINGS_METHOD,
   LOAD_CONFIG_METHOD,
-  SAVE_CONFIG_METHOD,
   START_INDEX_METHOD,
-  type QdrantOllamaConfig,
+  TEST_CONFIG_METHOD,
+  UPDATE_VSCODE_SETTINGS_METHOD,
+  type VSCodeSettings,
 } from "../../protocol";
 import { IpcProvider, type HostIpc } from "../contexts/ipc";
 import { FluentWrapper } from "../providers/FluentWrapper";
@@ -22,7 +24,6 @@ vi.mock("../store", async () => {
   };
 });
 
-// Type for mock IPC with vi.fn methods
 type MockHostIpc = HostIpc & {
   sendCommand: ReturnType<typeof vi.fn>;
   sendRequest: ReturnType<typeof vi.fn>;
@@ -52,273 +53,160 @@ function renderWithIpc(
   };
 }
 
-function createMockConfig(
-  overrides?: Partial<QdrantOllamaConfig>
-): QdrantOllamaConfig {
-  return {
-    active_vector_db: "qdrant",
-    active_embedding_provider: "ollama",
-    index_info: {
-      name: "test-index",
-      embedding_dimension: 768,
-    },
-    qdrant_config: {
-      url: "http://localhost:6333",
-      api_key: "test-key",
-    },
-    pinecone_config: {
-      index_name: "",
-      environment: "",
-      api_key: "",
-    },
-    ollama_config: {
-      base_url: "http://localhost:11434",
-      model: "nomic-embed-text",
-    },
-    openai_config: {
-      api_key: "",
-      model: "text-embedding-3-small",
-    },
-    gemini_config: {
-      api_key: "",
-      model: "text-embedding-004",
-    },
-    ...overrides,
-  };
-}
-
-function setupMockStore(storeState?: {
-  config?: QdrantOllamaConfig | undefined;
-  setConfig?: ReturnType<typeof vi.fn>;
-  indexStatus?: "ready" | "indexing" | "error" | "no_workspace";
-  setView?: ReturnType<typeof vi.fn>;
-}) {
-  const defaultState = {
-    config: undefined,
-    setConfig: vi.fn(),
-    indexStatus: "ready" as const,
-    setView: vi.fn(),
-    ...storeState,
-  };
-
-  (useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
-    (selector: any) => selector(defaultState)
-  );
-
-  return defaultState;
-}
+const mockSettings: VSCodeSettings = {
+  activeVectorDb: "qdrant",
+  qdrantUrl: "http://localhost:6333",
+  qdrantApiKey: "test-key",
+  pineconeIndexName: "",
+  pineconeEnvironment: "",
+  pineconeApiKey: "",
+  activeEmbeddingProvider: "ollama",
+  ollamaBaseUrl: "http://localhost:11434",
+  ollamaModel: "nomic-embed-text",
+  openaiApiKey: "",
+  openaiModel: "text-embedding-3-small",
+  geminiApiKey: "",
+  geminiModel: "text-embedding-004",
+  indexName: "test-index",
+  embeddingDimension: 768,
+  searchLimit: 15,
+  searchThreshold: 0.6,
+  includeQueryInCopy: true,
+};
 
 describe("Settings View", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    setupMockStore();
+    (useAppStore as unknown as ReturnType<typeof vi.fn>).mockImplementation(
+      (selector: any) =>
+        selector({
+          setView: vi.fn(),
+          indexStatus: "ready",
+        })
+    );
   });
 
   describe("Initial Rendering", () => {
-    it("renders the settings header with back button", () => {
-      renderWithIpc(<Settings />);
-
-      expect(screen.getByText("Settings")).toBeInTheDocument();
-      const backButton = screen.getByRole("button", { name: "Back" });
-      expect(backButton).toBeInTheDocument();
-    });
-
-    it("renders all main sections", () => {
-      renderWithIpc(<Settings />);
-
-      expect(screen.getByText("Index Settings")).toBeInTheDocument();
-      expect(screen.getByText("Vector Database")).toBeInTheDocument();
-      expect(screen.getByText("Embedding Provider")).toBeInTheDocument();
-      expect(screen.getByText("Configuration Storage")).toBeInTheDocument();
-    });
-
-    it("renders default form values when no config exists", () => {
-      renderWithIpc(<Settings />);
-
-      const indexNameInput = screen.getByLabelText("Index Name");
-      expect(indexNameInput).toHaveValue("");
-
-      expect(
-        screen.getByPlaceholderText("http://localhost:6333")
-      ).toBeInTheDocument();
-
-      expect(
-        screen.getByPlaceholderText("nomic-embed-text")
-      ).toBeInTheDocument();
-    });
-
-    it("renders action buttons", () => {
-      renderWithIpc(<Settings />);
-
-      expect(screen.getByText("Test Connection")).toBeInTheDocument();
-      expect(screen.getByText("Save & Create")).toBeInTheDocument();
-      expect(screen.getByText("Force Re-Index")).toBeInTheDocument();
-    });
-  });
-
-  describe("Configuration Loading", () => {
-    it("populates form fields with loaded configuration", async () => {
-      const mockConfig = createMockConfig({
-        index_info: { name: "my-custom-index", embedding_dimension: 1024 },
-        qdrant_config: { url: "http://custom:6333", api_key: "secret" },
-      });
-
+    it("renders with VS Code settings values", async () => {
       const ipc = createMockIpc({
         sendRequest: vi.fn().mockImplementation((method) => {
-          if (method === LOAD_CONFIG_METHOD) {
-            return Promise.resolve(mockConfig);
+          if (method === GET_VSCODE_SETTINGS_METHOD) {
+            return Promise.resolve(mockSettings);
           }
           return Promise.resolve(null);
         }),
       });
 
-      setupMockStore({ config: undefined });
-
       renderWithIpc(<Settings />, ipc);
 
       await waitFor(() => {
-        expect(screen.getByDisplayValue("my-custom-index")).toBeInTheDocument();
-      });
-
-      await waitFor(() => {
-        expect(
-          screen.getByDisplayValue("http://custom:6333")
-        ).toBeInTheDocument();
-      });
-    });
-  });
-
-  describe("Navigation", () => {
-    it("calls setView when back button is clicked", () => {
-      const mockSetView = vi.fn();
-      setupMockStore({ setView: mockSetView });
-
-      renderWithIpc(<Settings />);
-
-      const backButton = screen.getByRole("button", { name: "Back" });
-      fireEvent.click(backButton);
-
-      expect(mockSetView).toHaveBeenCalledWith("search");
-    });
-  });
-
-  describe("Configuration Storage Toggle", () => {
-    it("renders storage toggle with default workspace storage", () => {
-      renderWithIpc(<Settings />);
-
-      expect(screen.getByText("Configuration Storage")).toBeInTheDocument();
-      expect(
-        screen.getByText(/Settings saved to \.qdrant\/ in this workspace/)
-      ).toBeInTheDocument();
-    });
-
-    it("toggles to global storage when switch is clicked", async () => {
-      renderWithIpc(<Settings />);
-
-      // There are multiple switches, find the one associated with storage
-      // The label text is inside the card content div next to the switch
-      // We can find by finding the closest card container or by label if possible
-      // Or simply grab all switches and pick the last one (since it's at the bottom)
-      const switches = screen.getAllByRole("switch");
-      const storageSwitch = switches[switches.length - 1];
-
-      fireEvent.click(storageSwitch);
-
-      await waitFor(() => {
-        expect(
-          screen.getByText(/Settings saved to User Profile/)
-        ).toBeInTheDocument();
+        // Inputs
+        expect(screen.getByDisplayValue("test-index")).toBeInTheDocument();
+        expect(screen.getByDisplayValue("http://localhost:6333")).toBeInTheDocument();
+        // Provider Selection (Radio Check)
+        const qdrantRadio = screen.getByLabelText("Qdrant");
+        expect(qdrantRadio).toBeChecked();
       });
     });
   });
 
-  describe("Save Configuration", () => {
-    it("sends save request when Save & Create button is clicked", async () => {
+  describe("Provider Selection", () => {
+    it("switches config form when Vector DB provider changes", async () => {
       const ipc = createMockIpc({
-        sendRequest: vi.fn().mockResolvedValue(undefined),
+        sendRequest: vi.fn().mockResolvedValue(mockSettings),
       });
 
       renderWithIpc(<Settings />, ipc);
 
-      const saveButton = screen.getByText("Save & Create");
-      fireEvent.click(saveButton);
+      // Verify Qdrant is active initially
+      expect(screen.getByLabelText("Qdrant")).toBeChecked();
+      expect(screen.getByDisplayValue("http://localhost:6333")).toBeVisible();
+
+      // Click Pinecone
+      const pineconeRadio = screen.getByLabelText("Pinecone");
+      fireEvent.click(pineconeRadio);
+
+      await waitFor(() => {
+        expect(pineconeRadio).toBeChecked();
+        // Should show Pinecone fields now
+        expect(screen.getByLabelText("Pinecone Index Name")).toBeVisible();
+      });
+    });
+  });
+
+  describe("Sliders and Numbers", () => {
+    it("renders Slider for Score Threshold", async () => {
+      const ipc = createMockIpc({
+        sendRequest: vi.fn().mockResolvedValue(mockSettings),
+      });
+      renderWithIpc(<Settings />, ipc);
+
+      await waitFor(() => {
+        const slider = screen.getByRole("slider");
+        expect(slider).toBeInTheDocument();
+        expect(slider).toHaveValue("60"); // 0.6 * 100 for slider display
+      });
+    });
+  });
+
+  describe("Saving", () => {
+    it("sends UPDATE_VSCODE_SETTINGS_METHOD on save", async () => {
+      const ipc = createMockIpc({
+        sendRequest: vi.fn().mockResolvedValue(mockSettings),
+      });
+
+      renderWithIpc(<Settings />, ipc);
+
+      // Wait for load
+      await waitFor(() => screen.getByDisplayValue("test-index"));
+
+      // Change a value to make form dirty
+      const input = screen.getByDisplayValue("test-index");
+      fireEvent.change(input, { target: { value: "new-index" } });
+
+      const saveBtn = screen.getByText("Save All Settings");
+      fireEvent.click(saveBtn);
 
       await waitFor(() => {
         expect(ipc.sendRequest).toHaveBeenCalledWith(
-          SAVE_CONFIG_METHOD,
+          UPDATE_VSCODE_SETTINGS_METHOD,
           "webview-mgmt",
           expect.objectContaining({
-            config: expect.any(Object),
-            useGlobal: false,
+            indexName: "new-index",
+            activeVectorDb: "qdrant"
           })
         );
       });
     });
-
-    it("includes useGlobal flag when global storage is selected", async () => {
-      const ipc = createMockIpc({
-        sendRequest: vi.fn().mockResolvedValue(undefined),
-      });
-
-      renderWithIpc(<Settings />, ipc);
-
-      const switches = screen.getAllByRole("switch");
-      const storageSwitch = switches[switches.length - 1];
-      fireEvent.click(storageSwitch);
-
-      const saveButton = screen.getByText("Save & Create");
-      fireEvent.click(saveButton);
-
-      await waitFor(() => {
-        expect(ipc.sendRequest).toHaveBeenCalledWith(
-          SAVE_CONFIG_METHOD,
-          "webview-mgmt",
-          expect.objectContaining({
-            config: expect.any(Object),
-            useGlobal: true,
-          })
-        );
-      });
-    });
-
-    it("shows Save button in header when form is dirty", async () => {
-      renderWithIpc(<Settings />);
-
-      // Initially no save button in header (header only has "Back")
-      // We can check this by looking for the "Save" text which should only exist in the footer button "Save & Create"
-      // or by checking button counts.
-
-      // Modify form to make it dirty
-      const indexNameInput = screen.getByLabelText("Index Name");
-      fireEvent.change(indexNameInput, { target: { value: "modified" } });
-
-      // Now save button should appear in header. There is already a "Save & Create" button.
-      // The header button just says "Save" (based on icon or small text, but the test looks for text "Save")
-      await waitFor(() => {
-        // We expect to find the "Save" button in header + "Save & Create" in footer
-        // Or strictly "Save" if the button text is exactly "Save"
-        const saveButtons = screen
-          .getAllByRole("button")
-          .filter((b) => b.textContent === "Save");
-        expect(saveButtons.length).toBeGreaterThan(0);
-      });
-    });
   });
 
-  describe("Force Re-Index", () => {
-    it("sends start index command when Force Re-Index button is clicked", () => {
-      const ipc = createMockIpc();
+  describe("Migration", () => {
+    it("loads legacy config and populates form when Import is clicked", async () => {
+      const legacyConfig = {
+        active_vector_db: "pinecone",
+        pinecone_config: { index_name: "legacy-pinecone" },
+        // ... other fields
+      };
+
+      const ipc = createMockIpc({
+        sendRequest: vi.fn().mockImplementation((method) => {
+          if (method === GET_VSCODE_SETTINGS_METHOD) return Promise.resolve(mockSettings);
+          if (method === LOAD_CONFIG_METHOD) return Promise.resolve(legacyConfig);
+          return Promise.resolve(null);
+        })
+      });
 
       renderWithIpc(<Settings />, ipc);
 
-      const reindexButton = screen.getByText("Force Re-Index");
-      fireEvent.click(reindexButton);
+      const importBtn = screen.getByText("Import from .qdrant/json");
+      fireEvent.click(importBtn);
 
-      expect(ipc.sendCommand).toHaveBeenCalledWith(
-        START_INDEX_METHOD,
-        "qdrantIndex",
-        {}
-      );
+      await waitFor(() => {
+        expect(ipc.sendRequest).toHaveBeenCalledWith(LOAD_CONFIG_METHOD, "webview-mgmt", expect.any(Object));
+        // Verify UI updated to reflect legacy config
+        expect(screen.getByLabelText("Pinecone")).toBeChecked();
+        expect(screen.getByDisplayValue("legacy-pinecone")).toBeVisible();
+      });
     });
   });
 });
