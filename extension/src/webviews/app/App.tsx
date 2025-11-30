@@ -6,9 +6,9 @@ import {
   tokens,
 } from "@fluentui/react-components";
 import {
+  BugRegular,
   SearchRegular,
   SettingsRegular,
-  BugRegular,
 } from "@fluentui/react-icons";
 import { useEffect } from "react";
 import type {
@@ -23,6 +23,7 @@ import {
   INDEX_STATUS_METHOD,
   LOAD_CONFIG_METHOD,
   SEARCH_METHOD,
+  WEBVIEW_READY_METHOD,
 } from "../protocol.js";
 import CommandPaletteTest from "./components/CommandPaletteTest.js";
 import { IpcProvider } from "./contexts/ipc.js";
@@ -107,7 +108,7 @@ export default function App() {
         vscodeApi.postMessage({
           id: "ready-request",
           scope: "webview-mgmt",
-          method: "ipc:ready-request",
+          method: WEBVIEW_READY_METHOD,
           params: undefined,
           kind: "command",
           timestamp: Date.now(),
