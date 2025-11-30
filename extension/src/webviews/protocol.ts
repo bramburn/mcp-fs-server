@@ -4,7 +4,7 @@
  */
 
 // --- Scope Definitions ---
-export type IpcScope = "qdrantIndex" | "webview-mgmt";
+export type IpcScope = "qdrantIndex" | "webview-mgmt" | "debugger";
 
 // --- Base Message Envelope ---
 export interface IpcBaseMessage {
@@ -51,7 +51,7 @@ export type IpcMessage =
 // --- Data Structures ---
 
 export interface FileSnippetResult {
-  uri: string; // !AI: Uri serialization to string requires verification that deserialization logic in host is robust against all possible Uri formats.
+  uri: string;
   filePath: string;
   snippet: string;
   lineStart: number;
@@ -64,17 +64,13 @@ export interface FileSnippetResult {
  * Used only for the migration feature.
  */
 export interface QdrantOllamaConfig {
-  // Provider selections
   active_vector_db: "qdrant" | "pinecone";
   active_embedding_provider: "ollama" | "openai" | "gemini";
-
   index_info?: {
     name?: string;
     version?: string;
-    embedding_dimension?: number; // Vector size for the embedding model
+    embedding_dimension?: number;
   };
-
-  // Vector Database Configurations (optional based on active_vector_db)
   qdrant_config?: {
     url: string;
     api_key?: string;
@@ -84,8 +80,6 @@ export interface QdrantOllamaConfig {
     environment: string;
     api_key: string;
   };
-
-  // Embedding Provider Configurations (optional based on active_embedding_provider)
   ollama_config?: {
     base_url: string;
     model: string;
@@ -100,17 +94,13 @@ export interface QdrantOllamaConfig {
   };
 }
 
-// VS Code Settings interface for SettingsManager (The new source of truth)
 export interface VSCodeSettings {
-  // Vector DB settings
   activeVectorDb: string;
   qdrantUrl: string;
   qdrantApiKey: string;
   pineconeIndexName: string;
   pineconeEnvironment: string;
   pineconeApiKey: string;
-
-  // Embedding provider settings
   activeEmbeddingProvider: string;
   ollamaBaseUrl: string;
   ollamaModel: string;
@@ -118,12 +108,8 @@ export interface VSCodeSettings {
   openaiModel: string;
   geminiApiKey: string;
   geminiModel: string;
-
-  // Index settings
   indexName: string;
   embeddingDimension: number;
-
-  // Search settings
   searchLimit: number;
   searchThreshold: number;
   includeQueryInCopy: boolean;
@@ -131,73 +117,66 @@ export interface VSCodeSettings {
 
 // --- Specific Messages ---
 
-// 1. Search Request (Guest -> Host)
+// 1. Search Request
 export interface SearchRequestParams {
   query: string;
-  limit?: number; // Maximum number of results to return
-  globFilter?: string; // NEW: File pattern filter (e.g., "**/*.ts,*.py")
+  limit?: number;
+  globFilter?: string;
 }
 export interface SearchResponseParams {
   results: FileSnippetResult[];
 }
 export const SEARCH_METHOD = "search";
 
-// 2. Index Status Notification (Host -> Guest)
+// 2. Index Status Notification
 export interface IndexStatusParams {
-  // Added 'no_workspace'
   status: "ready" | "indexing" | "error" | "no_workspace";
   message?: string;
-  progress?: number; // 0-100
+  progress?: number;
   stats?: {
-    // <--- Add this
     vectorCount: number;
   };
 }
 export const INDEX_STATUS_METHOD = "index/status";
 
-// 3. Start Indexing Command (Guest -> Host)
+// 3. Start Indexing Command
 export const START_INDEX_METHOD = "index/start";
 
-// 4. Load Configuration Request (Guest -> Host)
-// Now only used for loading the LEGACY file for migration
+// 4. Load Configuration Request
 export const LOAD_CONFIG_METHOD = "config/load";
 
-// 5. Config Data Notification (Host -> Guest)
+// 5. Config Data Notification
 export const CONFIG_DATA_METHOD = "config/data";
 
-// 6. Open File Command (Guest -> Host)
+// 6. Open File Command
 export interface OpenFileParams {
   uri: string;
   line: number;
 }
 export const OPEN_FILE_METHOD = "file/open";
 
-// 7. Copy Results Command (Guest -> Host)
+// 7. Copy Results Command
 export interface CopyResultsParams {
   mode: "files" | "snippets";
   results: FileSnippetResult[];
-  query?: string; // NEW: Original search query for context
-  includeQuery?: boolean; // NEW: Query preservation setting
+  query?: string;
+  includeQuery?: boolean;
 }
 export const COPY_RESULTS_METHOD = "results/copy";
 
-// --- Webview Management Messages (Introduced for step 3/5 compliance) ---
+// --- Webview Management Messages ---
 
-// 7. Webview Ready Request (Guest -> Host) - Used to request initial state
-// Empty payload represented as a "no properties" object type.
 export type WebviewReadyParams = Record<string, never>;
 export type WebviewReadyRequest = IpcRequest<WebviewReadyParams>;
 export const WEBVIEW_READY_METHOD = "webview/ready-request";
 
-// 8. Execute Command (Guest -> Host) - Used to trigger VS Code API commands
 export interface ExecuteCommandParams {
-  command: string; // !AI: Security risk - Host must whitelist commands before execution via vscode.commands.executeCommand.
+  command: string;
   args?: any[];
 }
 export type ExecuteCommand = IpcCommand<ExecuteCommandParams>;
 export const EXECUTE_COMMAND_METHOD = "webview/execute-command";
 
-// 9. Did Change Configuration Notification (Host -> Guest)
 export interface DidChangeConfigurationParams {
   configKey: string;
   value: any;
@@ -207,48 +186,54 @@ export type DidChangeConfigurationNotification =
 export const DID_CHANGE_CONFIG_NOTIFICATION =
   "webview/did-change-configuration";
 
-// 10. Save Configuration Request (Guest -> Host)
-/**
- * Parameters for SAVE_CONFIG_METHOD.
- * This is deprecated in the new flow, as all saving goes through UPDATE_VSCODE_SETTINGS_METHOD.
- */
 export interface SaveConfigParams {
   config: QdrantOllamaConfig;
-  useGlobal?: boolean; // New optional flag
+  useGlobal?: boolean;
 }
 export const SAVE_CONFIG_METHOD = "config/save";
 
-// 11. Test Configuration Request (Guest -> Host)
 export interface TestConfigParams {
   config: QdrantOllamaConfig;
 }
 export interface TestConfigResponse {
   success: boolean;
   message: string;
-  // Granular results
   qdrantStatus: "connected" | "failed";
   ollamaStatus: "connected" | "failed";
 }
 export const TEST_CONFIG_METHOD = "config/test";
 
-// 12. Update Search Settings Request (Guest -> Host)
 export interface UpdateSearchSettingsParams {
   limit?: number;
   threshold?: number;
-  includeQueryInCopy?: boolean; // NEW: Query preservation setting
+  includeQueryInCopy?: boolean;
 }
 export const UPDATE_SEARCH_SETTINGS_METHOD = "config/update-search-settings";
 
-// 13. Get Search Settings Request (Guest -> Host)
 export interface GetSearchSettingsResponse {
   limit: number;
   threshold: number;
-  includeQueryInCopy?: boolean; // NEW: Query preservation setting
+  includeQueryInCopy?: boolean;
 }
 export const GET_SEARCH_SETTINGS_METHOD = "config/get-search-settings";
 
-// 14. Get VS Code Settings Request (Guest -> Host)
 export const GET_VSCODE_SETTINGS_METHOD = "config/get-vscode-settings";
-
-// 15. Update VS Code Settings Request (Guest -> Host)
 export const UPDATE_VSCODE_SETTINGS_METHOD = "config/update-vscode-settings";
+
+// --- Debugger Messages ---
+
+// 16. Debug Analyze Request (Guest -> Host)
+export interface DebugAnalyzeResponse {
+  hasActiveEditor: boolean;
+  filePath?: string;
+  fileName?: string;
+  errorCount?: number;
+  language?: string;
+}
+export const DEBUG_ANALYZE_METHOD = "debug/analyze";
+
+// 17. Debug Copy Command (Guest -> Host)
+export interface DebugCopyParams {
+  includePrompt?: boolean;
+}
+export const DEBUG_COPY_METHOD = "debug/copy";

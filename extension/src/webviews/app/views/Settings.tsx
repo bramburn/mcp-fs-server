@@ -20,7 +20,6 @@ import {
 import {
   ArrowClockwiseRegular,
   ArrowImportRegular,
-  ArrowLeftRegular,
   CheckmarkCircleRegular,
   DatabaseRegular,
   DismissCircleRegular,
@@ -39,7 +38,7 @@ import {
   type VSCodeSettings,
 } from "../../protocol.js";
 import { useIpc } from "../contexts/ipc.js";
-import { useAppStore } from "../store.js";
+// import { useAppStore } from "../store.js";
 
 const useStyles = makeStyles({
   root: {
@@ -144,8 +143,7 @@ const getModelDefaults = (provider: string, model: string): number => {
 export default function Settings() {
   const styles = useStyles();
   const ipc = useIpc();
-  const setView = useAppStore((state) => state.setView);
-  // Unused 'indexStatus' removed
+  // const setView = useAppStore((state) => state.setView); // Retained but not used for navigation
 
   // State maps directly to VSCodeSettings interface
   const [settings, setSettings] = useState<VSCodeSettings>({
@@ -404,13 +402,7 @@ export default function Settings() {
       {/* Header */}
       <div className={styles.header}>
         <div style={{ display: "flex", gap: "8px", alignItems: "center" }}>
-          <Button
-            appearance="subtle"
-            icon={<ArrowLeftRegular />}
-            onClick={() => setView("search")}
-          >
-            Back
-          </Button>
+          {/* REMOVED BACK BUTTON */}
           <Text weight="semibold">Settings (VS Code)</Text>
         </div>
         <Button

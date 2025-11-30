@@ -17,7 +17,6 @@ import {
   DocumentCopyRegular,
   FilterRegular,
   FolderOpenRegular,
-  SettingsRegular,
 } from "@fluentui/react-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -146,7 +145,7 @@ export default function Search() {
 
   const indexStatus = useAppStore((state) => state.indexStatus);
   const indexStats = useAppStore((state) => state.indexStats);
-  const setView = useAppStore((state) => state.setView);
+  // const setView = useAppStore((state) => state.setView); // Retained but not used for navigation
 
   const [searchInput, setSearchInput] = useState("");
   const [globFilter, setGlobFilter] = useState("");
@@ -316,14 +315,7 @@ export default function Search() {
           <Text weight="semibold" size={400}>
             Semantic Search
           </Text>
-          <Button
-            appearance="subtle"
-            size="small"
-            icon={<SettingsRegular />}
-            onClick={() => setView("settings")}
-          >
-            Settings
-          </Button>
+          {/* REMOVED SETTINGS BUTTON */}
         </div>
       </div>
 
@@ -332,7 +324,10 @@ export default function Search() {
         <Text weight="semibold" size={500}>
           SEMANTIC CODE SEARCH
         </Text>
-        <Text size={300} style={{ color: tokens.colorNeutralForeground3, marginTop: "8px" }}>
+        <Text
+          size={300}
+          style={{ color: tokens.colorNeutralForeground3, marginTop: "8px" }}
+        >
           Find relevant code using natural language queries
         </Text>
       </div>
@@ -346,7 +341,11 @@ export default function Search() {
             value={searchInput}
             onChange={(_e, data) => handleSearchValueChange(data.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter" && !e.shiftKey && searchInput.trim().length > 2) {
+              if (
+                e.key === "Enter" &&
+                !e.shiftKey &&
+                searchInput.trim().length > 2
+              ) {
                 executeSearch(searchInput, {
                   limit: maxResults,
                   threshold: scoreThreshold,
@@ -356,7 +355,7 @@ export default function Search() {
             appearance="outline"
             resize="vertical"
           />
-          
+
           <Input
             placeholder="File filter (e.g. **/*.ts,*.py)"
             contentAfter={<FilterRegular />}
