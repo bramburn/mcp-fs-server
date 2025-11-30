@@ -85,7 +85,7 @@ export class IndexingService implements vscode.Disposable {
         "tree-sitter-typescript.wasm"
       ).fsPath;
       await this._splitter.initialize(wasmPath, langPath);
-    } catch (e) {
+    } catch {
       this._logger.log(
         "Failed to init splitter WASM (falling back to line split)",
         "WARN"
@@ -426,7 +426,7 @@ export class IndexingService implements vscode.Disposable {
           "tree-sitter-typescript.wasm"
         ).fsPath;
         await this._splitter.initialize(wasmPath, langPath);
-      } catch (e) {
+      } catch {
         this._logger.log(
           "Failed to init splitter WASM (falling back to line split)",
           "WARN"
@@ -920,8 +920,7 @@ export class IndexingService implements vscode.Disposable {
       );
       this._logger.log(`[INDEXING] Detected embedding dimension: ${dimension}`);
       return dimension;
-    } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
+    } catch {
       this._logger.log(
         "[INDEXING] Error detecting embedding dimension:",
         "ERROR"
@@ -1079,7 +1078,6 @@ export class IndexingService implements vscode.Disposable {
       // Pool is full, remove oldest client
       const firstKey = this._connectionPool.keys().next().value;
       if (firstKey) {
-        const oldClient = this._connectionPool.get(firstKey);
         this._connectionPool.delete(firstKey);
         this._logger.log(
           `[INDEXING] Removed oldest Qdrant client from pool (size: ${this._connectionPool.size})`
@@ -1148,7 +1146,7 @@ export class IndexingService implements vscode.Disposable {
     this._progressListeners = [];
 
     // Clean up connection pool
-    for (const [key, client] of this._connectionPool.entries()) {
+    for (const [key] of this._connectionPool.entries()) {
       try {
         // Note: QdrantClient doesn't have a dispose method, but we clean up references
         this._logger.log(
