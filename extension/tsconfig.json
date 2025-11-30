@@ -1,9 +1,9 @@
 {
   "compilerOptions": {
-    "module": "ESNext",
+    "module": "Node16",
     "target": "ES2022",
     "outDir": "out",
-    "rootDir": ".",
+    "rootDir": "./src",
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "sourceMap": true,
     "paths": {
@@ -16,23 +16,13 @@
       "@shared/*": ["../packages/shared/*"]
     },
     "strict": true,
-    "moduleResolution": "bundler",
+    "moduleResolution": "node16",
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "jsx": "react-jsx",
     "types": ["vite/client", "node", "vitest/globals"]
   },
-  "include": [
-    "src/**/*.ts",
-    "src/**/*.tsx",
-    "vite.config.ts",
-    "../shared/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    ".vscode-test",
-    "svelte.config.js",
-    "src/webviews/app/store.svelte.ts"
-  ]
+  "include": ["src/**/*.ts", "src/**/*.tsx", "../shared/**/*"],
+  "exclude": ["node_modules", ".vscode-test", "svelte.config.js"]
 }

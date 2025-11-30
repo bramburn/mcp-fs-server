@@ -72,7 +72,7 @@ vi.mock("vscode", () => ({
 }));
 
 import * as vscode from "vscode";
-import { RemoteAwareFileSystem } from "./RemoteAwareFileSystem";
+import { RemoteAwareFileSystem } from "./RemoteAwareFileSystem.js";
 
 describe("RemoteAwareFileSystem", () => {
   let fileSystem: RemoteAwareFileSystem;

@@ -37,9 +37,9 @@ import {
   TEST_CONFIG_METHOD,
   UPDATE_VSCODE_SETTINGS_METHOD,
   type VSCodeSettings,
-} from "../../protocol";
-import { useIpc } from "../contexts/ipc";
-import { useAppStore } from "../store";
+} from "../../protocol.js";
+import { useIpc } from "../contexts/ipc.js";
+import { useAppStore } from "../store.js";
 
 const useStyles = makeStyles({
   root: {

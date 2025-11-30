@@ -1,8 +1,8 @@
-import { useRef, useCallback } from 'react';
-import type { IpcMessage } from '../../protocol';
+import { useCallback, useRef } from "react";
+import type { IpcMessage } from "../../protocol.js";
 
 // VS Code API type definitions
-declare const acquireVsCodeApi: <T = unknown>() => VsCodeApi<T>;
+// declare const acquireVsCodeApi: <T = unknown>() => VsCodeApi<T>;
 interface VsCodeApi<T = unknown> {
   postMessage(message: IpcMessage): void;
   getState(): T | undefined;
@@ -17,11 +17,15 @@ export function useVSCodeApi(): VsCodeApi | null {
   const apiRef = useRef<VsCodeApi | null>(null);
 
   // Only acquire the API once per component lifecycle
-  if (!apiRef.current && typeof window !== 'undefined' && 'acquireVsCodeApi' in window) {
+  if (
+    !apiRef.current &&
+    typeof window !== "undefined" &&
+    "acquireVsCodeApi" in window
+  ) {
     try {
       apiRef.current = (window as any).acquireVsCodeApi();
     } catch (error) {
-      console.error('Failed to acquire VS Code API:', error);
+      console.error("Failed to acquire VS Code API:", error);
     }
   }
 
@@ -35,13 +39,16 @@ export function useVSCodeApi(): VsCodeApi | null {
 export function useVSCodePostMessage() {
   const vscodeApi = useVSCodeApi();
 
-  return useCallback((message: IpcMessage) => {
-    if (vscodeApi) {
-      try {
-        vscodeApi.postMessage(message);
-      } catch (error) {
-        console.error('Failed to post message to VS Code:', error);
+  return useCallback(
+    (message: IpcMessage) => {
+      if (vscodeApi) {
+        try {
+          vscodeApi.postMessage(message);
+        } catch (error) {
+          console.error("Failed to post message to VS Code:", error);
+        }
       }
-    }
-  }, [vscodeApi]);
+    },
+    [vscodeApi]
+  );
 }

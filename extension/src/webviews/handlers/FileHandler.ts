@@ -1,7 +1,8 @@
 import * as vscode from "vscode";
-import { AnalyticsService } from "../../services/AnalyticsService";
-import { ClipboardService } from "../../services/ClipboardService";
-import { ILogger } from "../../services/LoggerService";
+import { AnalyticsService } from "../../services/AnalyticsService.js";
+import { ClipboardService } from "../../services/ClipboardService.js";
+import { ILogger } from "../../services/LoggerService.js";
+import { IpcContext, IRequestHandler } from "../ipc/IpcRouter.js"; // Added .js extension
 import {
   COPY_RESULTS_METHOD,
   CopyResultsParams,
@@ -14,7 +15,6 @@ import {
   OPEN_FILE_METHOD,
   OpenFileParams,
 } from "../protocol.js"; // Added .js extension
-import { IpcContext, IRequestHandler } from "../ipc/IpcRouter.js"; // Added .js extension
 
 export class FileHandler implements IRequestHandler {
   constructor(
@@ -38,7 +38,10 @@ export class FileHandler implements IRequestHandler {
     throw new Error("FileHandler only handles commands");
   }
 
-  public async handleCommand(command: IpcCommand<any>, _context: IpcContext): Promise<void> {
+  public async handleCommand(
+    command: IpcCommand<any>,
+    _context: IpcContext
+  ): Promise<void> {
     switch (command.method) {
       case OPEN_FILE_METHOD:
         await this.handleOpenFile(command.params as OpenFileParams);
@@ -50,7 +53,9 @@ export class FileHandler implements IRequestHandler {
         await this.handleCopyResults(command.params as CopyResultsParams);
         break;
       default:
-        throw new Error(`Method ${command.method} not supported by FileHandler`);
+        throw new Error(
+          `Method ${command.method} not supported by FileHandler`
+        );
     }
   }
 
@@ -65,13 +70,19 @@ export class FileHandler implements IRequestHandler {
       viewColumn: vscode.ViewColumn.Active,
       selection: new vscode.Range(position, position),
     });
-    editor.revealRange(new vscode.Range(position, position), vscode.TextEditorRevealType.InCenter);
+    editor.revealRange(
+      new vscode.Range(position, position),
+      vscode.TextEditorRevealType.InCenter
+    );
   }
 
   private async handleExecuteCommand(params: ExecuteCommandParams) {
     // !AI: Security risk - Whitelisting recommended.
     if (!params.command) throw new Error("Missing command");
-    await vscode.commands.executeCommand(params.command, ...(params.args || []));
+    await vscode.commands.executeCommand(
+      params.command,
+      ...(params.args || [])
+    );
   }
 
   private async handleCopyResults(params: CopyResultsParams) {
@@ -80,39 +91,46 @@ export class FileHandler implements IRequestHandler {
     // Deduplicate logic
     const byUri = new Map<string, FileSnippetResult[]>();
     for (const r of results) {
-        const arr = byUri.get(r.uri) ?? [];
-        arr.push(r);
-        byUri.set(r.uri, arr);
+      const arr = byUri.get(r.uri) ?? [];
+      arr.push(r);
+      byUri.set(r.uri, arr);
     }
 
     if (mode === "files") {
-       const filePaths = Array.from(byUri.keys()).map(u => vscode.Uri.parse(u).fsPath);
-       await this.clipboardService.copyFilesToClipboard(filePaths);
+      const filePaths = Array.from(byUri.keys()).map(
+        (u) => vscode.Uri.parse(u).fsPath
+      );
+      await this.clipboardService.copyFilesToClipboard(filePaths);
     } else {
-        // Snippet mode
-        let buffer = "";
-        if (includeQuery && query) buffer += `Instruction: ${query}\n\n`;
+      // Snippet mode
+      let buffer = "";
+      if (includeQuery && query) buffer += `Instruction: ${query}\n\n`;
 
-        for (const [uriString, snippets] of byUri) {
-            const uri = vscode.Uri.parse(uriString);
-            const rel = vscode.workspace.asRelativePath(uri, false);
-            buffer += `// File: ${rel}\n`;
-            for(const s of snippets) {
-                // Determine language based on file extension for better formatting
-                const extension = rel.split(".").pop()?.toLowerCase();
-                const language = extension ? this.getLanguageFromExtension(extension) : 'text';
+      for (const [uriString, snippets] of byUri) {
+        const uri = vscode.Uri.parse(uriString);
+        const rel = vscode.workspace.asRelativePath(uri, false);
+        buffer += `// File: ${rel}\n`;
+        for (const s of snippets) {
+          // Determine language based on file extension for better formatting
+          const extension = rel.split(".").pop()?.toLowerCase();
+          const language = extension
+            ? this.getLanguageFromExtension(extension)
+            : "text";
 
-                buffer += `// Lines ${s.lineStart}-${s.lineEnd}\n`;
-                buffer += `\`\`\`${language}\n`;
-                buffer += `${s.snippet ?? ""}\n`;
-                buffer += `\`\`\`\n\n`;
-            }
+          buffer += `// Lines ${s.lineStart}-${s.lineEnd}\n`;
+          buffer += `\`\`\`${language}\n`;
+          buffer += `${s.snippet ?? ""}\n`;
+          buffer += `\`\`\`\n\n`;
         }
-        await vscode.env.clipboard.writeText(buffer);
-        vscode.window.setStatusBarMessage("Copied to clipboard", 2000);
+      }
+      await vscode.env.clipboard.writeText(buffer);
+      vscode.window.setStatusBarMessage("Copied to clipboard", 2000);
     }
-    
-    this.analyticsService.trackEvent("results_copied", { mode, count: results.length });
+
+    this.analyticsService.trackEvent("results_copied", {
+      mode,
+      count: results.length,
+    });
   }
 
   /**

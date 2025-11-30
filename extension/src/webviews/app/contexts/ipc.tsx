@@ -1,5 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
-import type { IpcScope } from '../../protocol';
+import type { IpcScope } from '../../protocol.js';
 
 export interface HostIpc {
   sendCommand<TParams>(method: string, scope: IpcScope, params: TParams): void;

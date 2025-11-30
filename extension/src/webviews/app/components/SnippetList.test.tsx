@@ -1,9 +1,9 @@
 /** @vitest-environment jsdom */
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import SnippetList from './SnippetList';
-import { IpcProvider, type HostIpc } from '../contexts/ipc';
-import { OPEN_FILE_METHOD, type FileSnippetResult } from '../../protocol';
+import SnippetList from './SnippetList.js';
+import { IpcProvider, type HostIpc } from '../contexts/ipc.js';
+import { OPEN_FILE_METHOD, type FileSnippetResult } from '../../protocol.js';
 
 // Removed unused Command import
 

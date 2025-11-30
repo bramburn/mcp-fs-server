@@ -14,8 +14,8 @@ import {
   SearchRegular,
 } from "@fluentui/react-icons";
 import { useCallback, useMemo, useState } from "react";
-import type { IpcScope } from "../../protocol";
-import { useIpc } from "../contexts/ipc";
+import type { IpcScope } from "../../protocol.js";
+import { useIpc } from "../contexts/ipc.js";
 
 const useStyles = makeStyles({
   root: {

@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import App from "./App";
+import App from "./App.js";
 
 // App uses the Zustand store and hostIpc; we keep those real but
 // spy on window message listeners to ensure they are wired correctly.

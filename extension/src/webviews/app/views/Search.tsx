@@ -24,7 +24,7 @@ import type {
   FileSnippetResult,
   SearchRequestParams,
   SearchResponseParams,
-} from "../../protocol";
+} from "../../protocol.js";
 import {
   COPY_RESULTS_METHOD,
   DID_CHANGE_CONFIG_NOTIFICATION,
@@ -32,10 +32,10 @@ import {
   type GetSearchSettingsResponse,
   SEARCH_METHOD,
   START_INDEX_METHOD,
-} from "../../protocol";
-import SnippetList from "../components/SnippetList";
-import { useIpc } from "../contexts/ipc";
-import { useAppStore } from "../store";
+} from "../../protocol.js";
+import SnippetList from "../components/SnippetList.js";
+import { useIpc } from "../contexts/ipc.js";
+import { useAppStore } from "../store.js";
 
 const useStyles = makeStyles({
   root: {

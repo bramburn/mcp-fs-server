@@ -1,9 +1,9 @@
 import { makeStyles, shorthands, tokens, Button } from "@fluentui/react-components";
 import { DocumentRegular, CodeRegular, ArrowRightRegular } from "@fluentui/react-icons";
-import { FileSnippetResult } from "../../protocol";
+import { FileSnippetResult } from "../../protocol.js";
 import { memo } from "react";
-import { OPEN_FILE_METHOD } from "../../protocol";
-import { useIpc } from "../contexts/ipc";
+import { OPEN_FILE_METHOD } from "../../protocol.js";
+import { useIpc } from "../contexts/ipc.js";
 
 const useStyles = makeStyles({
   list: {

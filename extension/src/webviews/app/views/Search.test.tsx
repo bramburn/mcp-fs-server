@@ -6,17 +6,17 @@ import {
   COPY_RESULTS_METHOD,
   SEARCH_METHOD,
   START_INDEX_METHOD,
-} from "../../protocol";
-import { IpcProvider, type HostIpc } from "../contexts/ipc";
-import { FluentWrapper } from "../providers/FluentWrapper";
-import { useAppStore } from "../store";
-import Search from "./Search";
+} from "../../protocol.js";
+import { IpcProvider, type HostIpc } from "../contexts/ipc.js";
+import { FluentWrapper } from "../providers/FluentWrapper.js";
+import { useAppStore } from "../store.js";
+import Search from "./Search.js";
 
 type ViMockFn = ReturnType<typeof vi.fn>;
 
 // Mock the store
 vi.mock("../store", async () => {
-  const actual = await vi.importActual<typeof import("../store")>("../store");
+  const actual = await vi.importActual<typeof import("../store.js")>("../store");
   return {
     ...actual,
     useAppStore: vi.fn(actual.useAppStore),

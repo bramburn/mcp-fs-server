@@ -2,6 +2,13 @@
 /// <reference types="react-dom" />
 /// <reference types="vite/client" />
 
+// [ADD THIS MODULE DECLARATION]
+declare module "*.css" {
+  const content: any;
+  export default content;
+}
+// [END ADDITION]
+
 interface VsCodeApi<T = unknown> {
   postMessage(message: unknown): void;
   getState<S = T>(): S | undefined;

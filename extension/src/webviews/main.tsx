@@ -1,12 +1,13 @@
-import React from 'react';
-import ReactDOM from 'react-dom/client';
-import './app.css';
-import App from './app/App';
+import React from "react";
+import ReactDOM from "react-dom/client";
+import "./app.css";
+import App from "./app/App.js";
+import "./global.d.ts";
 
-const container = document.getElementById('app');
+const container = document.getElementById("app");
 
 if (!container) {
-  throw new Error('Root element #app not found');
+  throw new Error("Root element #app not found");
 }
 
 const root = ReactDOM.createRoot(container);
@@ -30,9 +31,9 @@ export function cleanup() {
   try {
     root.unmount();
   } catch (error) {
-    console.error('Failed to unmount React root', error);
+    console.error("Failed to unmount React root", error);
   }
 }
 
 // Handle page unload for cleanup
-window.addEventListener('unload', cleanup);
+window.addEventListener("unload", cleanup);

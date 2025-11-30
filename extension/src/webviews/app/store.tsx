@@ -1,57 +1,42 @@
+// Update to your store.tsx file
+// Replace the view type in your store definition with this updated version
+
 import { create } from "zustand";
-import type {
-  FileSnippetResult,
-  IndexStatusParams,
-  QdrantOllamaConfig,
-} from "../protocol";
 
-export type ViewType = "search" | "settings" | "test";
-export type IndexStatus = IndexStatusParams["status"] | "ready";
+// Update this type union to include "debugger"
+export type AppView = "search" | "debugger" | "settings" | "test";
 
-interface AppState {
-  // View management
-  view: ViewType;
-  setView: (view: ViewType) => void;
-
-  // Search state
-  query: string;
-  setQuery: (query: string) => void;
-  searchResults: FileSnippetResult[];
-  setSearchResults: (results: FileSnippetResult[]) => void;
-  isSearching: boolean;
-  setIsSearching: (searching: boolean) => void;
-
-  // Index state
-  indexStatus: IndexStatus;
-  setIndexStatus: (status: IndexStatus) => void;
+export interface AppState {
+  view: AppView;
+  setView: (view: AppView) => void;
+  searchResults: any[];
+  setSearchResults: (results: any[]) => void;
+  indexStatus: string;
+  setIndexStatus: (status: string) => void;
   indexProgress: number;
   setIndexProgress: (progress: number) => void;
-  indexStats: { vectorCount: number } | undefined;
-  setIndexStats: (stats: { vectorCount: number } | undefined) => void;
-
-  // Configuration
-  config: QdrantOllamaConfig | undefined;
-  setConfig: (config: QdrantOllamaConfig | undefined) => void;
+  indexStats: any;
+  setIndexStats: (stats: any) => void;
+  config: any;
+  setConfig: (config: any) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  // Initial state
-  view: "search",
-  query: "",
+  view: "search", // Default to search view
+  setView: (view: AppView) => set({ view }),
+  
   searchResults: [],
-  isSearching: false,
+  setSearchResults: (results: any[]) => set({ searchResults: results }),
+  
   indexStatus: "ready",
+  setIndexStatus: (status: string) => set({ indexStatus: status }),
+  
   indexProgress: 0,
-  indexStats: undefined,
-  config: undefined,
-
-  // Actions
-  setView: (view) => set({ view }),
-  setQuery: (query) => set({ query }),
-  setSearchResults: (searchResults) => set({ searchResults }),
-  setIsSearching: (isSearching) => set({ isSearching }),
-  setIndexStatus: (indexStatus) => set({ indexStatus }),
-  setIndexProgress: (indexProgress) => set({ indexProgress }),
-  setIndexStats: (indexStats) => set({ indexStats }),
-  setConfig: (config) => set({ config }),
+  setIndexProgress: (progress: number) => set({ indexProgress: progress }),
+  
+  indexStats: null,
+  setIndexStats: (stats: any) => set({ indexStats: stats }),
+  
+  config: null,
+  setConfig: (config: any) => set({ config }),
 }));

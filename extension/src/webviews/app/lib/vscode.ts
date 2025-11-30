@@ -1,5 +1,5 @@
-import type { IpcMessage, IpcScope } from "../../protocol"; // Changed to .ts, removed .js
-import { generateUuid } from "./utils"; // Assumed utility import
+import type { IpcMessage, IpcScope } from "../../protocol.js"; // Changed to .ts, removed .js
+import { generateUuid } from "./utils.js"; // Assumed utility import
 
 // VS Code API type definitions (for reference)
 declare const acquireVsCodeApi: <T = unknown>() => VsCodeApi<T>;
