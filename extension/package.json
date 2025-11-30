@@ -18,7 +18,7 @@
   "activationEvents": [
     "onView:qdrant.search.view"
   ],
-  "main": "./out/extension/src/extension.js",
+  "main": "./out/extension.js",
   "contributes": {
      "viewsContainers": {
       "activitybar": [

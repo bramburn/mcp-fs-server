@@ -3,13 +3,9 @@
     "module": "ESNext",
     "target": "ES2022",
     "outDir": "out",
-    "lib": [
-      "ES2022",
-      "DOM",
-      "DOM.Iterable"
-    ],
+    "rootDir": ".",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "sourceMap": true,
-    "rootDir": "..",
     "paths": {
       "$lib": ["./src/lib"],
       "$lib/*": ["./src/lib/*"],
@@ -19,8 +15,6 @@
       "@lib/*": ["./src/lib/*"],
       "@shared/*": ["../packages/shared/*"]
     },
-    "allowImportingTsExtensions": true,
-    "rewriteRelativeImportExtensions": true,
     "strict": true,
     "moduleResolution": "bundler",
     "allowSyntheticDefaultImports": true,
