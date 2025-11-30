@@ -187,7 +187,7 @@ export default function Settings() {
     active_embedding_provider: "ollama",
     index_info: { name: "", embedding_dimension: 768 },
     qdrant_config: { url: "http://localhost:6333", api_key: "" },
-    pinecone_config: { index_name: "", environment: "", api_key: "" },
+    pinecone_config: { index_name: "", api_key: "" },
     ollama_config: {
       base_url: "http://localhost:11434",
       model: "nomic-embed-text",
@@ -597,19 +597,6 @@ export default function Settings() {
                         )
                       }
                       placeholder="my-index"
-                    />
-                  </Field>
-                  <Field label="Environment (e.g. gcp-starter)">
-                    <Input
-                      value={formData.pinecone_config?.environment || ""}
-                      onChange={(_e, d) =>
-                        handleInputChange(
-                          "pinecone_config",
-                          "environment",
-                          d.value
-                        )
-                      }
-                      placeholder="gcp-starter"
                     />
                   </Field>
                   <Field label="API Key">

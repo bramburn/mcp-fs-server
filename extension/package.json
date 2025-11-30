@@ -75,6 +75,14 @@
           "type": "boolean",
           "default": false,
           "description": "Include search query as 'Instruction:' prefix when copying snippets"
+        },
+        "qdrant.search.pinecone.apiKey": {
+          "type": "string",
+          "description": "Pinecone API key"
+        },
+        "qdrant.search.pinecone.indexName": {
+          "type": "string",
+          "description": "Name of the Pinecone index"
         }
       }
     }

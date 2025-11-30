@@ -68,7 +68,6 @@ function createMockConfig(
     },
     pinecone_config: {
       index_name: "",
-      environment: "",
       api_key: "",
     },
     ollama_config: {

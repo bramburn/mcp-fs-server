@@ -29,7 +29,7 @@ export interface IpcRequest<T> extends IpcBaseMessage {
 
 export interface IpcResponse<T = any, E = string> extends IpcBaseMessage {
   kind: "response";
-  responseId: string; // ID of the request being responded to
+  responseId: string; // ID of request being responded to
   data?: T;
   error?: E;
 }
@@ -45,13 +45,13 @@ export interface IpcNotification<T> extends IpcBaseMessage {
 export type IpcMessage =
   | IpcCommand<any>
   | IpcRequest<any>
-  | IpcResponse<any>
+  | IpcResponse<any, string>
   | IpcNotification<any>;
 
 // --- Data Structures ---
 
 export interface FileSnippetResult {
-  uri: string; // !AI: Uri serialization to string requires verification that the deserialization logic in the host is robust against all possible Uri formats.
+  uri: string; // !AI: Uri serialization to string requires verification that deserialization logic in host is robust against all possible Uri formats.
   filePath: string;
   snippet: string;
   lineStart: number;
@@ -77,7 +77,6 @@ export interface QdrantOllamaConfig {
   };
   pinecone_config?: {
     index_name: string;
-    environment: string; // e.g., 'gcp-starter'
     api_key: string;
   };
 
@@ -143,7 +142,7 @@ export interface CopyResultsParams {
   mode: "files" | "snippets";
   results: FileSnippetResult[];
   query?: string; // NEW: Original search query for context
-  includeQuery?: boolean; // NEW: Whether to prepend query to copied content
+  includeQuery?: boolean; // NEW: Query preservation setting
 }
 export const COPY_RESULTS_METHOD = "results/copy";
 

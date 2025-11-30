@@ -1,0 +1,336 @@
+import * as vscode from "vscode";
+import { IVectorStore } from "./IVectorStore.js";
+import { SearchResultItem } from "../types.js";
+import { ILogger } from "../LoggerService.js";
+
+/**
+ * Pinecone vector store implementation using new SDK
+ */
+export class PineconeVectorStore implements IVectorStore {
+  private readonly indexName: string;
+  private readonly apiKey: string;
+  private readonly logger: ILogger;
+
+  constructor(indexName: string, apiKey: string, logger: ILogger) {
+    this.indexName = indexName;
+    this.apiKey = apiKey;
+    this.logger = logger;
+    // New Pinecone SDK only needs index name and API key
+  }
+
+  async ensureCollection(
+    name: string,
+    vectorSize: number,
+    token?: vscode.CancellationToken
+  ): Promise<void> {
+    if (token?.isCancellationRequested) {
+      throw new Error("Indexing cancelled");
+    }
+
+    const startTime = Date.now();
+    this.logger.log(
+      `[VECTOR_STORE] Checking if Pinecone index '${name}' exists`
+    );
+
+    try {
+      const controller = new AbortController();
+
+      if (token) {
+        token.onCancellationRequested(() => {
+          this.logger.log(
+            `[VECTOR_STORE] ensureCollection cancelled via token`
+          );
+          controller.abort();
+        });
+      }
+
+      // Pinecone uses the index name directly, no need to create
+      // Just verify we can connect to the index
+      const describeResponse = await fetch(
+        `https://${this.indexName}.pinecone.io/describe_index_stats`,
+        {
+          method: "GET",
+          headers: {
+            "Api-Key": this.apiKey,
+            "Content-Type": "application/json",
+          },
+          signal: controller.signal,
+        }
+      );
+
+      if (!describeResponse.ok) {
+        const errorText = await describeResponse
+          .text()
+          .catch(() => "Unable to read error response");
+        this.logger.log(
+          `[VECTOR_STORE] Pinecone index check failed - Status: ${describeResponse.status}, Response: ${errorText}`,
+          "ERROR"
+        );
+        throw new Error(
+          `Pinecone Error: ${describeResponse.status} ${describeResponse.statusText} - ${errorText}`
+        );
+      }
+
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        `[VECTOR_STORE] Pinecone index '${name}' verified successfully in ${duration}ms`
+      );
+    } catch (e) {
+      const duration = Date.now() - startTime;
+      const error = e instanceof Error ? e : new Error(String(e));
+
+      if (error.name === "AbortError") {
+        this.logger.log(
+          `[VECTOR_STORE] ensureCollection was aborted after ${duration}ms`
+        );
+        throw new Error("Indexing cancelled");
+      }
+
+      this.logger.log(
+        `[VECTOR_STORE] Error verifying Pinecone index '${name}' after ${duration}ms:`,
+        "ERROR"
+      );
+
+      if (
+        error.message.includes("ECONNRESET") ||
+        error.message.includes("connection reset") ||
+        error.message.includes("network") ||
+        error.message.includes("fetch")
+      ) {
+        this.logger.log(
+          `[VECTOR_STORE] NETWORK ERROR in ensureCollection - Type: ${error.name}, Message: ${error.message}`,
+          "FATAL"
+        );
+      }
+
+      throw e;
+    }
+  }
+
+  async upsertPoints(
+    collectionName: string,
+    points: Array<{
+      id: string;
+      vector: number[];
+      payload: {
+        filePath: string;
+        content: string;
+        lineStart: number;
+        lineEnd: number;
+      };
+    }>,
+    token?: vscode.CancellationToken
+  ): Promise<void> {
+    if (token?.isCancellationRequested) {
+      throw new Error("Indexing cancelled");
+    }
+
+    if (points.length === 0) return;
+
+    const startTime = Date.now();
+    this.logger.log(
+      `[VECTOR_STORE] Upserting ${points.length} points to Pinecone index '${collectionName}'`
+    );
+
+    try {
+      const controller = new AbortController();
+
+      if (token) {
+        token.onCancellationRequested(() => {
+          this.logger.log(`[VECTOR_STORE] upsertPoints cancelled via token`);
+          controller.abort();
+        });
+      }
+
+      // Transform points to Pinecone format
+      const pineconeVectors = points.map((point) => ({
+        id: point.id,
+        values: point.vector,
+        metadata: {
+          filePath: point.payload.filePath,
+          content: point.payload.content,
+          lineStart: point.payload.lineStart,
+          lineEnd: point.payload.lineEnd,
+        },
+      }));
+
+      const upsertResponse = await fetch(
+        `https://${this.indexName}.pinecone.io/vectors/upsert`,
+        {
+          method: "POST",
+          headers: {
+            "Api-Key": this.apiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            vectors: pineconeVectors,
+            namespace: collectionName,
+          }),
+          signal: controller.signal,
+        }
+      );
+
+      if (!upsertResponse.ok) {
+        const errorText = await upsertResponse
+          .text()
+          .catch(() => "Unable to read error response");
+        this.logger.log(
+          `[VECTOR_STORE] Pinecone upsert failed - Status: ${upsertResponse.status}, Response: ${errorText}`,
+          "ERROR"
+        );
+        throw new Error(
+          `Pinecone Error: ${upsertResponse.status} ${upsertResponse.statusText} - ${errorText}`
+        );
+      }
+
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        `[VECTOR_STORE] Pinecone upsert completed successfully in ${duration}ms for ${points.length} points`
+      );
+    } catch (e) {
+      const duration = Date.now() - startTime;
+      const error = e instanceof Error ? e : new Error(String(e));
+
+      if (error.name === "AbortError") {
+        this.logger.log(
+          `[VECTOR_STORE] upsertPoints was aborted after ${duration}ms`
+        );
+        throw new Error("Indexing cancelled");
+      }
+
+      this.logger.log(
+        `[VECTOR_STORE] Pinecone upsert failed after ${duration}ms for ${points.length} points:`,
+        "ERROR"
+      );
+
+      if (
+        error.message.includes("ECONNRESET") ||
+        error.message.includes("connection reset") ||
+        error.message.includes("network") ||
+        error.message.includes("fetch")
+      ) {
+        this.logger.log(
+          `[VECTOR_STORE] NETWORK ERROR in upsertPoints - Type: ${error.name}, Message: ${error.message}`,
+          "FATAL"
+        );
+      }
+
+      throw e;
+    }
+  }
+
+  async search(
+    collectionName: string,
+    vector: number[],
+    limit: number,
+    token?: vscode.CancellationToken
+  ): Promise<SearchResultItem[]> {
+    if (token?.isCancellationRequested) {
+      throw new Error("Search cancelled");
+    }
+
+    const startTime = Date.now();
+    this.logger.log(
+      `[VECTOR_STORE] Executing Pinecone vector search in index '${collectionName}' with limit ${limit}`
+    );
+
+    try {
+      const controller = new AbortController();
+
+      if (token) {
+        token.onCancellationRequested(() => {
+          this.logger.log(`[VECTOR_STORE] search cancelled via token`);
+          controller.abort();
+        });
+      }
+
+      const searchResponse = await fetch(
+        `https://${this.indexName}.pinecone.io/query`,
+        {
+          method: "POST",
+          headers: {
+            "Api-Key": this.apiKey,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            vector: vector,
+            topK: limit,
+            includeMetadata: true,
+            namespace: collectionName,
+          }),
+          signal: controller.signal,
+        }
+      );
+
+      if (!searchResponse.ok) {
+        const errorText = await searchResponse
+          .text()
+          .catch(() => "Unable to read error response");
+        this.logger.log(
+          `[VECTOR_STORE] Pinecone search failed - Status: ${searchResponse.status}, Response: ${errorText}`,
+          "ERROR"
+        );
+        throw new Error(
+          `Pinecone Error: ${searchResponse.status} ${searchResponse.statusText} - ${errorText}`
+        );
+      }
+
+      const data = (await searchResponse.json()) as {
+        matches: Array<{
+          id: string;
+          score: number;
+          metadata: {
+            filePath: string;
+            content: string;
+            lineStart: number;
+            lineEnd: number;
+          };
+        }>;
+      };
+
+      const duration = Date.now() - startTime;
+      this.logger.log(
+        `[VECTOR_STORE] Pinecone search completed in ${duration}ms, found ${data.matches.length} results`
+      );
+
+      // Transform Pinecone results to SearchResultItem format
+      const results: SearchResultItem[] = data.matches.map((match) => ({
+        id: match.id,
+        score: match.score,
+        payload: match.metadata,
+      }));
+
+      return results;
+    } catch (e) {
+      const duration = Date.now() - startTime;
+      const error = e instanceof Error ? e : new Error(String(e));
+
+      if (error.name === "AbortError") {
+        this.logger.log(
+          `[VECTOR_STORE] search was aborted after ${duration}ms`
+        );
+        throw new Error("Search cancelled");
+      }
+
+      this.logger.log(
+        `[VECTOR_STORE] Pinecone search failed after ${duration}ms:`,
+        "ERROR"
+      );
+
+      if (
+        error.message.includes("ECONNRESET") ||
+        error.message.includes("connection reset") ||
+        error.message.includes("network") ||
+        error.message.includes("fetch")
+      ) {
+        this.logger.log(
+          `[VECTOR_STORE] NETWORK ERROR in search - Type: ${error.name}, Message: ${error.message}`,
+          "FATAL"
+        );
+      }
+
+      throw e;
+    }
+  }
+}
+

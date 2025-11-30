@@ -169,6 +169,45 @@ export class ConfigService implements vscode.Disposable {
       // Global not found
     }
 
+    // 3. Try VS Code Settings for Pinecone configuration
+    try {
+      const vscodeConfig = vscode.workspace.getConfiguration('qdrant-codesearch');
+      const pineconeApiKey = vscodeConfig.get<string>('pineconeApiKey');
+      const pineconeIndex = vscodeConfig.get<string>('pineconeIndex');
+      
+      if (pineconeApiKey && pineconeIndex) {
+        this._logger.log(
+          `Loaded Pinecone config from VS Code settings for ${folder.name}`,
+          "CONFIG"
+        );
+        
+        // Create a minimal config with just the Pinecone settings
+        const config: QdrantOllamaConfig = {
+          active_vector_db: "pinecone",
+          active_embedding_provider: "ollama", // Default, will be overridden if needed
+          index_info: { name: "", embedding_dimension: 768 },
+          qdrant_config: { url: "", api_key: "" },
+          pinecone_config: {
+            index_name: pineconeIndex,
+            api_key: pineconeApiKey
+          },
+          ollama_config: {
+            base_url: "http://localhost:11434",
+            model: "nomic-embed-text",
+          },
+          openai_config: { api_key: "", model: "text-embedding-3-small" },
+          gemini_config: { api_key: "", model: "text-embedding-004" },
+        };
+        
+        return config;
+      }
+    } catch (error) {
+      this._logger.log(
+        `Failed to load Pinecone config from VS Code settings: ${error}`,
+        "ERROR"
+      );
+    }
+
     return null;
   }
 
@@ -310,7 +349,7 @@ export class ConfigService implements vscode.Disposable {
         // or just assume config presence is enough if no SDK is active.
         if (
           config.pinecone_config.api_key &&
-          config.pinecone_config.environment
+          config.pinecone_config.index_name
         ) {
           dbStatus = "connected"; // Weak check without SDK
         } else {
@@ -540,7 +579,7 @@ export class ConfigService implements vscode.Disposable {
     }
     if (
       config.active_vector_db === "pinecone" &&
-      !config.pinecone_config?.index_name
+      (!config.pinecone_config?.index_name || !config.pinecone_config?.api_key)
     ) {
       this._logger.log(
         `Invalid config in ${source}: Pinecone selected but config missing`,

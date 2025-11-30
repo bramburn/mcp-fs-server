@@ -19,21 +19,21 @@
     },
     "index_info": {
       "type": "object",
-      "description": "Metadata about the current index state",
+      "description": "Metadata about current index state",
       "properties": {
         "name": {
           "type": "string",
-          "description": "Name of the collection/index",
+          "description": "Name of collection/index",
           "default": "codebase-index"
         },
         "version": {
           "type": "string",
-          "description": "Version of the index schema"
+          "description": "Version of index schema"
         },
         "embedding_dimension": {
           "type": "integer",
           "default": 768,
-          "description": "Vector size for the embedding model (e.g., 1536 for OpenAI text-embedding-3-small, 768 for Nomic/Gemini)"
+          "description": "Vector size for embedding model (e.g., 1536 for OpenAI text-embedding-3-small, 768 for Nomic/Gemini)"
         }
       }
     },
@@ -43,7 +43,7 @@
       "properties": {
         "url": {
           "type": "string",
-          "description": "URL of the Qdrant instance",
+          "description": "URL of Qdrant instance",
           "default": "http://localhost:6333"
         },
         "api_key": {
@@ -54,15 +54,11 @@
     },
     "pinecone_config": {
       "type": "object",
-      "required": ["index_name", "environment", "api_key"],
+      "required": ["index_name", "api_key"],
       "properties": {
         "index_name": {
           "type": "string",
           "description": "Name of the Pinecone index"
-        },
-        "environment": {
-          "type": "string",
-          "description": "Pinecone environment (e.g., 'gcp-starter', 'us-east-1-aws')"
         },
         "api_key": {
           "type": "string",
