@@ -1,17 +1,24 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
-import { afterEach, beforeEach, describe, expect, test, vi, type Mock } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  test,
+  vi,
+  type Mock,
+} from "vitest";
 // ✅ FIX: Import mocked vscode instead of real vscode API
-import vscode from "../test/mocks/vscode-api.js";
 import type * as vscodeTypes from "vscode"; // Type-only import for interfaces
+import vscode from "../test/mocks/vscode-api.js";
 import { VSCodeSettings } from "../webviews/protocol.js";
+import { AnalyticsService } from "./AnalyticsService.js";
 import { ConfigService } from "./ConfigService.js";
+import type { IEmbeddingProvider } from "./embedding-providers/IEmbeddingProvider.js";
 import { IndexingService } from "./IndexingService.js";
 import { ILogger } from "./LoggerService.js";
-import { AnalyticsService } from "./AnalyticsService.js";
-import type { IEmbeddingProvider } from "./embedding-providers/IEmbeddingProvider.js";
 import type { IVectorStore } from "./vector-stores/IVectorStore.js";
 import { SettingsManager } from "../settings.js";
-
 
 // Mock Qdrant client
 vi.mock("@qdrant/js-client-rest");
@@ -48,9 +55,9 @@ vi.mock("../settings.js", () => ({
 
 // Mock shared code splitter (must match the actual import specifier)
 vi.mock("../shared/code-splitter.js", () => ({
-  CodeSplitter: vi.fn().mockImplementation(() => ({
-    initialize: vi.fn().mockResolvedValue(undefined),
-    split: vi.fn().mockReturnValue([
+  CodeSplitter: class MockCodeSplitter {
+    initialize = vi.fn().mockResolvedValue(undefined);
+    split = vi.fn().mockReturnValue([
       {
         id: "test-chunk-1",
         filePath: "test.ts",
@@ -58,8 +65,8 @@ vi.mock("../shared/code-splitter.js", () => ({
         lineStart: 1,
         lineEnd: 5,
       },
-    ]),
-  })),
+    ]);
+  },
 }));
 
 // Mock VS Code API globally for the test suite
@@ -142,7 +149,8 @@ vi.mock("vscode", () => {
       })),
     },
     RelativePattern: vi.fn(),
-    CancellationTokenSource: MockCancellationTokenSource as unknown as vscodeTypes.CancellationTokenSource, 
+    CancellationTokenSource:
+      MockCancellationTokenSource as unknown as vscodeTypes.CancellationTokenSource,
     Disposable: class Disposable {
       dispose = vi.fn();
     },
@@ -209,23 +217,29 @@ describe("IndexingService", () => {
       delete: vi.fn(),
     } as unknown as QdrantClient;
 
-    (QdrantClient as unknown as Mock).mockImplementation(() => mockQdrantClient);
+    (QdrantClient as unknown as Mock).mockImplementation(
+      () => mockQdrantClient
+    );
 
     vi.clearAllMocks();
 
     // Mock successful connection check internally used by IndexingService
     // NOTE: This mock is required because IndexingService internally creates providers and calls validateConnectionDetailed.
-    vi.spyOn(mockConfigService, "validateConnectionDetailed").mockResolvedValue({
-      success: true,
-      message: "Connection successful",
-      ollamaStatus: "connected",
-      qdrantStatus: "connected",
-    });
+    vi.spyOn(mockConfigService, "validateConnectionDetailed").mockResolvedValue(
+      {
+        success: true,
+        message: "Connection successful",
+        ollamaStatus: "connected",
+        qdrantStatus: "connected",
+      }
+    );
 
     // Mock embedding provider dimension detection
     indexingService["_embeddingProvider"] = {
-        generateEmbedding: vi.fn().mockResolvedValue([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]), // 8 dimensions for test
-        getEmbeddingDimension: vi.fn().mockResolvedValue(8)
+      generateEmbedding: vi
+        .fn()
+        .mockResolvedValue([0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8]), // 8 dimensions for test
+      getEmbeddingDimension: vi.fn().mockResolvedValue(8),
     } as unknown as IEmbeddingProvider;
   });
 
@@ -286,6 +300,7 @@ describe("IndexingService", () => {
     });
 
     test("should handle no files found gracefully", async () => {
+
         vi.spyOn(mockConfigService, "config", "get").mockReturnValue({
           indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
           search: { limit: 10, threshold: 0.7 },
@@ -300,16 +315,21 @@ describe("IndexingService", () => {
           semanticSearch: { pineconeHost: "" }
         });
 
-        vi.mocked(vscode.workspace.findFiles).mockResolvedValueOnce([]);
-        (mockQdrantClient.getCollections as Mock).mockResolvedValueOnce({ collections: [] });
-        indexingService["_vectorStore"] = { ensureCollection: vi.fn().mockResolvedValue(undefined) } as unknown as IVectorStore;
 
-        await indexingService.startIndexing();
+      vi.mocked(vscode.workspace.findFiles).mockResolvedValueOnce([]);
+      (mockQdrantClient.getCollections as Mock).mockResolvedValueOnce({
+        collections: [],
+      });
+      indexingService["_vectorStore"] = {
+        ensureCollection: vi.fn().mockResolvedValue(undefined),
+      } as unknown as IVectorStore;
 
-        expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
-          expect.stringContaining("Indexed 0 files successfully")
-        );
-        expect(indexingService.isIndexing).toBe(false);
+      await indexingService.startIndexing();
+
+      expect(vscode.window.showInformationMessage).toHaveBeenCalledWith(
+        expect.stringContaining("Indexed 0 files successfully")
+      );
+      expect(indexingService.isIndexing).toBe(false);
     });
   });
 
@@ -373,7 +393,12 @@ describe("IndexingService", () => {
     test("should successfully initialize providers using VSCodeSettings", async () => {
       // Mock ConfigService general config (still needed for trace/indexing flags)
       vi.spyOn(mockConfigService, "config", "get").mockReturnValue({
-        indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+        indexing: {
+          enabled: true,
+          maxFiles: 500,
+          excludePatterns: [],
+          includeExtensions: ["ts", "js"],
+        },
         search: { limit: 10, threshold: 0.7 },
         general: { trace: false },
         qdrantConfig: {
@@ -385,7 +410,7 @@ describe("IndexingService", () => {
         },
         semanticSearch: { pineconeHost: "" }
       });
-      
+
       const folder = vscode.workspace.workspaceFolders![0];
       const result = await indexingService.initializeForSearch(folder);
 

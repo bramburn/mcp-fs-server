@@ -74,6 +74,26 @@ export class ConfigService implements vscode.Disposable {
     return JSON.parse(JSON.stringify(obj)) as T;
   }
 
+  /**
+   * Convert nested key to flat camelCase key
+   * e.g., "search.limit" -> "searchLimit"
+   * e.g., "indexing.maxFiles" -> "indexingMaxFiles"
+   */
+  private convertToFlatKey(key: string): string {
+    const parts = key.split(".");
+    if (parts.length === 1) {
+      return key; // Already flat
+    }
+    // Convert to camelCase: first part as-is, rest capitalized
+    return (
+      parts[0] +
+      parts
+        .slice(1)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join("")
+    );
+  }
+
   private loadConfiguration(): void {
     const vscodeConfig = vscode.workspace.getConfiguration(ConfigPath.GENERAL);
     this._config = ConfigurationFactory.from(vscodeConfig);
@@ -86,7 +106,7 @@ export class ConfigService implements vscode.Disposable {
       );
       this._config = this._deepClone(DefaultConfiguration);
     }
-    
+
     // NOTE: qdrantConfig (_qdrantConfig) is now only loaded/set via the explicit migration action,
     // not automatically from the file system during startup.
   }
@@ -156,11 +176,17 @@ export class ConfigService implements vscode.Disposable {
     try {
       await vscode.workspace.fs.stat(localUri);
       const content = await vscode.workspace.fs.readFile(localUri);
-      this._logger.log(`Found and read legacy config file at: ${localUri.fsPath}`, "CONFIG");
+      this._logger.log(
+        `Found and read legacy config file at: ${localUri.fsPath}`,
+        "CONFIG"
+      );
       // Use parseAndValidate, but DO NOT set _qdrantConfig, just return the data
-      return this.parseAndValidate(content, localUri.toString(), false); 
+      return this.parseAndValidate(content, localUri.toString(), false);
     } catch {
-      this._logger.log(`Legacy config not found at: ${localUri.fsPath}`, "CONFIG");
+      this._logger.log(
+        `Legacy config not found at: ${localUri.fsPath}`,
+        "CONFIG"
+      );
       // Local not found, continue (no longer falling back to global/settings on startup)
     }
 
@@ -169,7 +195,7 @@ export class ConfigService implements vscode.Disposable {
 
   /**
    * Saves the Qdrant configuration to the active workspace folder.
-   * This is now only called by the WebviewController's `handleSaveConfigRequest` 
+   * This is now only called by the WebviewController's `handleSaveConfigRequest`
    * which is **deprecated** and used only during the migration flow (which we are removing).
    * * We retain the body for now but will delete this in Phase 2.
    */
@@ -178,7 +204,10 @@ export class ConfigService implements vscode.Disposable {
     config: QdrantOllamaConfig,
     useGlobal: boolean = false
   ): Promise<void> {
-    this._logger.log(`[DEPRECATED] saveQdrantConfig called. Use updateVSCodeSetting instead.`, "WARN");
+    this._logger.log(
+      `[DEPRECATED] saveQdrantConfig called. Use updateVSCodeSetting instead.`,
+      "WARN"
+    );
 
     // Cleanup URLs for active providers
     if (config.qdrant_config?.url) {
@@ -413,10 +442,16 @@ export class ConfigService implements vscode.Disposable {
 
   /**
    * Get the current Qdrant configuration
+   * Returns the qdrantConfig from the Configuration object (bridge from VS Code settings)
+   * or the legacy _qdrantConfig if it was explicitly loaded via loadQdrantConfig
    */
   public get qdrantConfig(): QdrantOllamaConfig | null {
-    // Use the deep clone helper to ensure immutability
-    return this._deepClone(this._qdrantConfig);
+    // Prefer the legacy _qdrantConfig if it was explicitly loaded (migration scenario)
+    // Otherwise, return the bridge config from the Configuration object
+    if (this._qdrantConfig) {
+      return this._deepClone(this._qdrantConfig);
+    }
+    return this._deepClone(this._config.qdrantConfig ?? null);
   }
 
   /**
@@ -447,7 +482,10 @@ export class ConfigService implements vscode.Disposable {
   public get<T>(key: string): T {
     const keys = key.split(".");
     // FIX 1: Convert to unknown first before casting to Record<string, unknown> to satisfy TS2352
-    let value: unknown = this._deepClone(this._config) as unknown as Record<string, unknown>;
+    let value: unknown = this._deepClone(this._config) as unknown as Record<
+      string,
+      unknown
+    >;
 
     for (const k of keys) {
       if (value && typeof value === "object" && k in value) {
@@ -465,14 +503,22 @@ export class ConfigService implements vscode.Disposable {
   /**
    * Update a configuration value (this updates the in-memory config only)
    */
-  public update(key: string, value: unknown): void { // Changed from 'any'
+  public update(key: string, value: unknown): void {
+    // Changed from 'any'
     const keys = key.split(".");
     // FIX 2: Convert to unknown first before casting to Record<string, unknown> to satisfy TS2352
-    let target: Record<string, unknown> = this._config as unknown as Record<string, unknown>; 
+    let target: Record<string, unknown> = this._config as unknown as Record<
+      string,
+      unknown
+    >;
 
     for (let i = 0; i < keys.length - 1; i++) {
       const k = keys[i];
-      if (!(k in target) || typeof target[k] !== "object" || target[k] === null) {
+      if (
+        !(k in target) ||
+        typeof target[k] !== "object" ||
+        target[k] === null
+      ) {
         target[k] = {};
       }
       target = target[k] as Record<string, unknown>;
@@ -505,13 +551,18 @@ export class ConfigService implements vscode.Disposable {
     global: boolean = false
   ): Promise<void> {
     try {
-      // NOTE: We rely on the `SettingsManager` in settings.ts to handle the updates
-      // via the unified configuration section "semanticSearch".
-      // This helper updates the legacy path.
-      
-      const fullKey = `${ConfigPath.GENERAL}.${key}`;
+      // Convert nested key (e.g., "search.limit") to flat camelCase key (e.g., "searchLimit")
+      // This matches the new VS Code settings structure
+      const flatKey = this.convertToFlatKey(key);
+      const fullKey = `${ConfigPath.GENERAL}.${flatKey}`;
       const config = vscode.workspace.getConfiguration();
-      await config.update(fullKey, value, global ? vscode.ConfigurationTarget.Global : vscode.ConfigurationTarget.Workspace);
+      await config.update(
+        fullKey,
+        value,
+        global
+          ? vscode.ConfigurationTarget.Global
+          : vscode.ConfigurationTarget.Workspace
+      );
 
       // Also update in-memory config
       this.update(key, value);
@@ -630,7 +681,7 @@ export class ConfigService implements vscode.Disposable {
     if (setInternalConfig) {
       this._qdrantConfig = config;
     }
-    
+
     return this._deepClone(config);
   }
 

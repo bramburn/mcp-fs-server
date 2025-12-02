@@ -1,4 +1,4 @@
-import * as vscode from "vscode";
+import * as vscode from 'vscode';
 import { IndexingService } from "../../services/IndexingService.js";
 import { SearchResultItem } from "../../services/types.js";
 import { IpcContext, IRequestHandler } from "../ipc/IpcRouter.js";
@@ -10,6 +10,40 @@ import {
   WEBVIEW_ACTION_IMPLEMENT,
   WEBVIEW_ACTION_PREVIEW,
 } from "../protocol.js";
+
+/**
+ * Helper to determine if a character index range (a match) is within a user-specified line range.
+ */
+function isMatchWithinLines(document: vscode.TextDocument, index: number, matchLength: number, linesInput: string): boolean {
+    const startPos = document.positionAt(index);
+    const endPos = document.positionAt(index + matchLength);
+    // Use the 1-based line number of the start of the match
+    const targetStartLine = startPos.line + 1; 
+    
+    // Parse the input string "12, 45-50, 60" into a set of included line numbers/ranges
+    const parts = linesInput.split(',').map(p => p.trim()).filter(p => p.length > 0);
+
+    for (const part of parts) {
+        if (part.includes('-')) {
+            // Handle range "45-50"
+            const [start, end] = part.split('-').map(Number);
+            if (targetStartLine >= start && targetStartLine <= end) {
+                return true;
+            }
+        } else {
+            // Handle single line "12"
+            const singleLine = Number(part);
+            
+            // We check if the match starts or ends on the specified line, 
+            // ensuring multiline matches spanning the target line are included.
+            if (targetStartLine <= singleLine && endPos.line + 1 >= singleLine) {
+                 return true;
+            }
+        }
+    }
+    return false;
+}
+
 
 export class EditHandler implements IRequestHandler {
   constructor(private readonly indexingService: IndexingService) {}
@@ -72,6 +106,7 @@ export class EditHandler implements IRequestHandler {
     const fullText = document.getText();
     const searchBlock = action.searchBlock || "";
     const replaceBlock = action.replaceBlock || "";
+    const linesInput = action.lines || ''; // Ambiguity resolution input
 
     if (!searchBlock)
       throw new Error("Missing <search> block for replace action.");
@@ -86,16 +121,29 @@ export class EditHandler implements IRequestHandler {
       indices.push(matchIndex);
       matchIndex = normalizedDoc.indexOf(normalizedSearch, matchIndex + 1);
     }
+    
+    // --- AMBIGUITY RESOLUTION AND LINE FILTERING ---
+    let finalIndices = indices;
 
-    if (indices.length === 0) {
-      // --- Phase 4 Feature: Semantic Search Fallback ---
+    if (linesInput) {
+        // Filter the indices based on the user-provided lines
+        finalIndices = indices.filter(index => 
+            isMatchWithinLines(document, index, normalizedSearch.length, linesInput)
+        );
+        
+        if (finalIndices.length === 0 && indices.length > 0) {
+            throw new Error(`Found matches, but none matched the specified lines: ${linesInput}.`);
+        }
+    }
+
+    if (finalIndices.length === 0) {
+      // Semantic Search Fallback: Triggered if no exact match OR no match in specified lines
       const suggestions = await this.findSemanticSuggestions(
         uri,
         normalizedSearch
       );
 
       if (suggestions.length > 0) {
-        // Throw specific error to be handled by ClipboardManager/UI for ambiguity resolution
         throw new Error(
           `Exact match failed. Found similar code blocks in ${
             action.path
@@ -108,21 +156,24 @@ export class EditHandler implements IRequestHandler {
       );
     }
 
-    if (indices.length > 1 && !action.multiLineApprove) {
-      throw new Error(
-        `Found ${indices.length} occurrences of the search block. Please specify 'lines="..."' or 'multiLineApprove="true"' attributes.`
-      );
+    if (finalIndices.length > 1 && !action.multiLineApprove) {
+        // If line filtering was unsuccessful or not provided, and we still have ambiguity
+        throw new Error(
+            `Found ${finalIndices.length} ambiguous occurrences of the search block after filtering. Please set 'multiLineApprove="true"' to apply all edits.`
+        );
     }
+    // ----------------------------------------------
 
-    // 3. Apply Edits (Using first match)
+    // 3. Apply Edits
     const workspaceEdit = new vscode.WorkspaceEdit();
 
-    const index = indices[0];
-    const startPos = document.positionAt(index);
-    const endPos = document.positionAt(index + normalizedSearch.length);
-    const range = new vscode.Range(startPos, endPos);
-
-    workspaceEdit.replace(uri, range, replaceBlock);
+    // Use finalIndices (potentially multiple if multiLineApprove is true)
+    for (const index of finalIndices) {
+        const startPos = document.positionAt(index);
+        const endPos = document.positionAt(index + normalizedSearch.length);
+        const range = new vscode.Range(startPos, endPos);
+        workspaceEdit.replace(uri, range, replaceBlock);
+    }
 
     const success = await vscode.workspace.applyEdit(workspaceEdit);
     if (success) {
@@ -139,14 +190,10 @@ export class EditHandler implements IRequestHandler {
     // Only run semantic search if the file is indexed.
     // We run a small search (limit 5) against the query.
 
-    // This expression ensures the value is either a WorkspaceFolder or undefined,
-    // then we guard against the undefined case before calling initializeForSearch.
     const workspaceFolder =
       vscode.workspace.getWorkspaceFolder(uri) ||
       vscode.workspace.workspaceFolders?.[0];
     if (!workspaceFolder) {
-      // If we somehow don't have a workspace (should be rare given how this is called),
-      // skip semantic suggestions rather than throwing.
       return [];
     }
 

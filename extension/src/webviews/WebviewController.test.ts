@@ -235,7 +235,7 @@ describe("WebviewController", () => {
         data: { success: true },
       })
     );
-    
+
     // Should send a configuration change notification
     // Note: ConfigService mock doesn't trigger listener automatically, so we skip this check
     // unless we manually invoke the callback stored in addConfigurationChangeListener.
