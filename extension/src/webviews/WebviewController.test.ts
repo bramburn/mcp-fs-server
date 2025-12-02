@@ -110,6 +110,8 @@ describe("WebviewController", () => {
         ollamaStatus: "connected",
         qdrantStatus: "connected",
       }),
+      addConfigurationChangeListener: vi.fn(),
+      removeConfigurationChangeListener: vi.fn(),
     };
 
     mockAnalyticsService = {
@@ -228,7 +230,7 @@ describe("WebviewController", () => {
         data: { success: true },
       })
     );
-    
+
     // Should send a configuration change notification
     expect(mockWebview.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -317,7 +319,7 @@ describe("WebviewController", () => {
       mockLegacyConfig,
       false
     );
-    
+
     // Check for successful response
     expect(mockWebview.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({
