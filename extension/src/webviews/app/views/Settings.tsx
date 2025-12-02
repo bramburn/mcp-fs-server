@@ -186,7 +186,10 @@ export default function Settings() {
     success: boolean;
     message: string;
     qdrantStatus?: string;
+    pineconeStatus?: string;
     ollamaStatus?: string;
+    openaiStatus?: string;
+    geminiStatus?: string;
   } | null>(null);
 
   const loadSettings = useCallback(async () => {
@@ -315,7 +318,10 @@ export default function Settings() {
           success: boolean;
           message: string;
           qdrantStatus?: string;
+          pineconeStatus?: string;
           ollamaStatus?: string;
+          openaiStatus?: string;
+          geminiStatus?: string;
         }
       >(TEST_CONFIG_METHOD, "webview-mgmt", { config: configStub });
       setTestResult(res);
@@ -531,7 +537,7 @@ export default function Settings() {
                   marginTop: "8px",
                 }}
               >
-                <StatusIcon status={testResult?.qdrantStatus} />
+                <StatusIcon status={testResult?.pineconeStatus} />
               </div>
             </div>
           )}
@@ -677,6 +683,15 @@ export default function Settings() {
                   placeholder="text-embedding-3-small"
                 />
               </Field>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginTop: "8px",
+                }}
+              >
+                <StatusIcon status={testResult?.openaiStatus} />
+              </div>
             </div>
           )}
 
@@ -697,6 +712,15 @@ export default function Settings() {
                   placeholder="text-embedding-004"
                 />
               </Field>
+              <div
+                style={{
+                  display: "flex",
+                  justifyContent: "flex-end",
+                  marginTop: "8px",
+                }}
+              >
+                <StatusIcon status={testResult?.geminiStatus} />
+              </div>
             </div>
           )}
 

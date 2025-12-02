@@ -112,6 +112,9 @@ describe("WebviewController", () => {
         message: "Connection successful",
         ollamaStatus: "connected",
         qdrantStatus: "connected",
+        pineconeStatus: "connected",
+        openaiStatus: "connected",
+        geminiStatus: "connected",
       }),
       addConfigurationChangeListener: vi.fn((cb) => {
         // Store callback if needed, or just ignore for now if not manually triggering
