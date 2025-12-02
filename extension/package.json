@@ -123,10 +123,10 @@
           "default": "",
           "description": "The name of the Pinecone index."
         },
-        "semanticSearch.pineconeEnvironment": {
+        "semanticSearch.pineconeHost": {
           "type": "string",
           "default": "",
-          "description": "The Pinecone environment (e.g., gcp-starter)."
+          "description": "The host URL of the Pinecone index."
         },
         "semanticSearch.pineconeApiKey": {
           "type": "string",

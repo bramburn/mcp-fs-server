@@ -61,7 +61,7 @@ const mockSettings: VSCodeSettings = {
   qdrantUrl: "http://localhost:6333",
   qdrantApiKey: "test-key",
   pineconeIndexName: "",
-  pineconeEnvironment: "",
+  pineconeHost: "",
   pineconeApiKey: "",
   activeEmbeddingProvider: "ollama",
   ollamaBaseUrl: "http://localhost:11434",
@@ -154,7 +154,7 @@ describe("Settings View", () => {
       await waitFor(() => {
         expect(pineconeRadio).toBeChecked();
         // Should show Pinecone fields now
-        expect(screen.getByLabelText("Pinecone Index Name")).toBeVisible();
+        expect(screen.getByText("Pinecone Index")).toBeVisible();
       });
     });
   });
@@ -195,11 +195,11 @@ describe("Settings View", () => {
       const legacyConfig: QdrantOllamaConfig = {
         active_vector_db: "pinecone",
         active_embedding_provider: "openai",
-        index_info: { name: "legacy-index", embedding_dimension: 3072 },
+        index_info: { name: "legacy-index", embedding_dimension: 1024 }, // Non-default to trigger override
         qdrant_config: { url: "http://legacy:6333", api_key: "" },
         pinecone_config: {
           index_name: "legacy-pinecone",
-          environment: "aws",
+          environment: "",
           api_key: "key",
         },
         ollama_config: { base_url: "", model: "" },
@@ -236,9 +236,9 @@ describe("Settings View", () => {
         expect(screen.getByLabelText("Pinecone")).toBeChecked();
         expect(screen.getByLabelText("OpenAI (Cloud)")).toBeChecked();
         expect(screen.getByDisplayValue("legacy-index")).toBeVisible();
-        expect(screen.getByDisplayValue("legacy-pinecone")).toBeVisible();
+        expect(screen.getByText("legacy-pinecone")).toBeVisible();
 
-        // Check if dimension override checkbox is checked, as 3072 != 768
+        // Check if dimension override checkbox is checked (1024 != 3072 default for 3-large)
         expect(
           screen.getByLabelText("Manual Dimension Override")
         ).toBeChecked();

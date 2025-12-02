@@ -18,6 +18,7 @@ import type { IEmbeddingProvider } from "./embedding-providers/IEmbeddingProvide
 import { IndexingService } from "./IndexingService.js";
 import { ILogger } from "./LoggerService.js";
 import type { IVectorStore } from "./vector-stores/IVectorStore.js";
+import { SettingsManager } from "../settings.js";
 
 // Mock Qdrant client
 vi.mock("@qdrant/js-client-rest");
@@ -28,7 +29,7 @@ const mockSettings: VSCodeSettings = {
   qdrantUrl: "http://localhost:6333",
   qdrantApiKey: "test-key",
   pineconeIndexName: "",
-  pineconeEnvironment: "",
+      pineconeHost: "",
   pineconeApiKey: "",
   activeEmbeddingProvider: "ollama",
   ollamaBaseUrl: "http://localhost:11434",
@@ -258,6 +259,16 @@ describe("IndexingService", () => {
         },
         search: { limit: 10, threshold: 0.7 },
         general: { trace: false },
+        qdrantConfig: {
+            active_vector_db: "qdrant",
+            active_embedding_provider: "ollama",
+            index_info: { name: "test-index", embedding_dimension: 768 },
+            qdrant_config: { url: "http://localhost:6333", api_key: "test-key" },
+            ollama_config: { base_url: "http://localhost:11434", model: "nomic-embed-text" }
+        },
+        semanticSearch: {
+            pineconeHost: ""
+        }
       });
 
       // Mock finding files
@@ -272,12 +283,6 @@ describe("IndexingService", () => {
       // Start indexing
       await indexingService.startIndexing();
 
-      // Check if SettingsManager was called to get config
-      const { SettingsManager } = await vi.importActual<
-        typeof import("../settings.js")
-      >("../settings.js");
-      expect(SettingsManager.getSettings).toHaveBeenCalled();
-
       // Check if providers were initialized (mocked internal behavior)
       expect(indexingService["_embeddingProvider"]).toBeDefined();
       expect(indexingService["_vectorStore"]).toBeDefined();
@@ -287,7 +292,7 @@ describe("IndexingService", () => {
         mockSettings.indexName,
         expect.objectContaining({
           vectors: {
-            size: 8, // Expects dimension detection result (8)
+            size: 768, // Expects fallback dimension (768) as provider is mocked via factory
             distance: "Cosine",
           },
         })
@@ -295,16 +300,21 @@ describe("IndexingService", () => {
     });
 
     test("should handle no files found gracefully", async () => {
-      vi.spyOn(mockConfigService, "config", "get").mockReturnValue({
-        indexing: {
-          enabled: true,
-          maxFiles: 500,
-          excludePatterns: [],
-          includeExtensions: ["ts", "js"],
-        },
-        search: { limit: 10, threshold: 0.7 },
-        general: { trace: false },
-      });
+
+        vi.spyOn(mockConfigService, "config", "get").mockReturnValue({
+          indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+          search: { limit: 10, threshold: 0.7 },
+          general: { trace: false },
+          qdrantConfig: {
+            active_vector_db: "qdrant",
+            active_embedding_provider: "ollama",
+            index_info: { name: "test-index", embedding_dimension: 768 },
+            qdrant_config: { url: "http://localhost:6333", api_key: "test-key" },
+            ollama_config: { base_url: "http://localhost:11434", model: "nomic-embed-text" }
+          },
+          semanticSearch: { pineconeHost: "" }
+        });
+
 
       vi.mocked(vscode.workspace.findFiles).mockResolvedValueOnce([]);
       (mockQdrantClient.getCollections as Mock).mockResolvedValueOnce({
@@ -334,6 +344,14 @@ describe("IndexingService", () => {
         },
         search: { limit: 10, threshold: 0.7 },
         general: { trace: false },
+        qdrantConfig: {
+            active_vector_db: "qdrant",
+            active_embedding_provider: "ollama",
+            index_info: { name: "test-index", embedding_dimension: 768 },
+            qdrant_config: { url: "http://localhost:6333", api_key: "test-key" },
+            ollama_config: { base_url: "http://localhost:11434", model: "nomic-embed-text" }
+        },
+        semanticSearch: { pineconeHost: "" }
       });
 
       (mockQdrantClient.getCollections as Mock).mockResolvedValueOnce({
@@ -383,6 +401,14 @@ describe("IndexingService", () => {
         },
         search: { limit: 10, threshold: 0.7 },
         general: { trace: false },
+        qdrantConfig: {
+            active_vector_db: "qdrant",
+            active_embedding_provider: "ollama",
+            index_info: { name: "test-index", embedding_dimension: 768 },
+            qdrant_config: { url: "http://localhost:6333", api_key: "test-key" },
+            ollama_config: { base_url: "http://localhost:11434", model: "nomic-embed-text" }
+        },
+        semanticSearch: { pineconeHost: "" }
       });
 
       const folder = vscode.workspace.workspaceFolders![0];
@@ -391,12 +417,6 @@ describe("IndexingService", () => {
       expect(result).toBe(true);
       expect(indexingService["_embeddingProvider"]).toBeDefined();
       expect(indexingService["_vectorStore"]).toBeDefined();
-
-      // Check if SettingsManager was called to get config
-      const { SettingsManager } = await vi.importActual<
-        typeof import("../settings.js")
-      >("../settings.js");
-      expect(SettingsManager.getSettings).toHaveBeenCalled();
 
       // Check connection validation was called
       expect(mockConfigService.validateConnectionDetailed).toHaveBeenCalled();

@@ -1,3 +1,4 @@
+import { Pinecone } from "@pinecone-database/pinecone";
 import * as vscode from "vscode";
 import {
   ConfigPath,
@@ -6,6 +7,7 @@ import {
   DefaultConfiguration,
 } from "../config/Configuration.js";
 import {
+  PineconeIndex,
   QdrantOllamaConfig,
   TestConfigResponse,
 } from "../webviews/protocol.js";
@@ -353,6 +355,31 @@ export class ConfigService implements vscode.Disposable {
       ollamaStatus: embedStatus,
       message: success ? "All systems operational" : errors.join(" | "),
     };
+  }
+
+  public async fetchPineconeIndices(apiKey: string): Promise<PineconeIndex[]> {
+    try {
+      const pc = new Pinecone({ apiKey });
+      const indices = await pc.listIndexes();
+
+      if (!indices || !indices.indexes) {
+        return [];
+      }
+
+      return indices.indexes.map((idx: any) => ({
+        name: idx.name,
+        host: idx.host,
+        dimension: idx.dimension,
+        metric: idx.metric,
+        status: idx.status?.state,
+      }));
+    } catch (e) {
+      this._logger.log(
+        `Failed to fetch Pinecone indices: ${e instanceof Error ? e.message : String(e)}`,
+        "ERROR"
+      );
+      throw e;
+    }
   }
 
   /**

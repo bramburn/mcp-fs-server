@@ -2,6 +2,7 @@ use anyhow::{Result};
 use arboard::Clipboard;
 use chrono::Utc;
 use md5;
+use once_cell::sync::Lazy;
 use regex::Regex;
 use std::io::{self, BufRead, Write};
 use std::sync::{Arc, Mutex};
@@ -12,7 +13,7 @@ mod protocol;
 use protocol::{OutputMessage, InputCommand};
 
 /// Determines the polling state: true for active, false for paused.
-static IS_MONITORING_ACTIVE: Arc<Mutex<bool>> = Arc::new(Mutex::new(true));
+static IS_MONITORING_ACTIVE: Lazy<Arc<Mutex<bool>>> = Lazy::new(|| Arc::new(Mutex::new(true)));
 
 /// Regex for robustly detecting any qdrant XML command, capturing the entire tag block.
 /// (?s) enables dotall mode so that '.' matches newlines.

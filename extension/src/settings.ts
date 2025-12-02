@@ -15,7 +15,7 @@ export class SettingsManager {
       qdrantUrl: config.get<string>("qdrantUrl", "http://localhost:6333"),
       qdrantApiKey: config.get<string>("qdrantApiKey", ""),
       pineconeIndexName: config.get<string>("pineconeIndexName", ""),
-      pineconeEnvironment: config.get<string>("pineconeEnvironment", ""),
+      pineconeHost: config.get<string>("pineconeHost", ""),
       pineconeApiKey: config.get<string>("pineconeApiKey", ""),
 
       // Embedding provider settings
@@ -78,10 +78,10 @@ export class SettingsManager {
         )
       );
     }
-    if (settings.pineconeEnvironment !== undefined) {
+    if (settings.pineconeHost !== undefined) {
       updates.push(
         Promise.resolve(
-          config.update("pineconeEnvironment", settings.pineconeEnvironment)
+          config.update("pineconeHost", settings.pineconeHost)
         )
       );
     }
