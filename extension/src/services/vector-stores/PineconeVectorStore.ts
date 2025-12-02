@@ -9,13 +9,19 @@ import { ILogger } from "../LoggerService.js";
 export class PineconeVectorStore implements IVectorStore {
   private readonly indexName: string;
   private readonly apiKey: string;
+  private readonly host: string;
   private readonly logger: ILogger;
 
-  constructor(indexName: string, apiKey: string, logger: ILogger) {
+  constructor(
+    indexName: string,
+    apiKey: string,
+    logger: ILogger,
+    host?: string
+  ) {
     this.indexName = indexName;
     this.apiKey = apiKey;
     this.logger = logger;
-    // New Pinecone SDK only needs index name and API key
+    this.host = host || `${indexName}.pinecone.io`;
   }
 
   async ensureCollection(
@@ -46,8 +52,11 @@ export class PineconeVectorStore implements IVectorStore {
 
       // Pinecone uses the index name directly, no need to create
       // Just verify we can connect to the index
+      const baseUrl = this.host.startsWith("http")
+        ? this.host
+        : `https://${this.host}`;
       const describeResponse = await fetch(
-        `https://${this.indexName}.pinecone.io/describe_index_stats`,
+        `${baseUrl}/describe_index_stats`,
         {
           method: "GET",
           headers: {
@@ -154,8 +163,11 @@ export class PineconeVectorStore implements IVectorStore {
         },
       }));
 
+      const baseUrl = this.host.startsWith("http")
+        ? this.host
+        : `https://${this.host}`;
       const upsertResponse = await fetch(
-        `https://${this.indexName}.pinecone.io/vectors/upsert`,
+        `${baseUrl}/vectors/upsert`,
         {
           method: "POST",
           headers: {
@@ -244,8 +256,11 @@ export class PineconeVectorStore implements IVectorStore {
         });
       }
 
+      const baseUrl = this.host.startsWith("http")
+        ? this.host
+        : `https://${this.host}`;
       const searchResponse = await fetch(
-        `https://${this.indexName}.pinecone.io/query`,
+        `${baseUrl}/query`,
         {
           method: "POST",
           headers: {

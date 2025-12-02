@@ -33,6 +33,9 @@ export interface Configuration {
     includeQueryInCopy?: boolean;
   };
   qdrantConfig?: QdrantOllamaConfig;
+  semanticSearch?: {
+    pineconeHost?: string;
+  };
 }
 
 /**
@@ -146,7 +149,7 @@ export class ConfigurationFactory {
         },
         pinecone_config: {
           index_name: vscodeConfig.get("pineconeIndexName", ""),
-          environment: vscodeConfig.get("pineconeEnvironment", ""),
+          environment: "", // Deprecated, keeping empty for type safety
           api_key: vscodeConfig.get("pineconeApiKey", ""),
         },
         ollama_config: {
@@ -161,6 +164,9 @@ export class ConfigurationFactory {
           api_key: vscodeConfig.get("geminiApiKey", ""),
           model: vscodeConfig.get("geminiModel", "text-embedding-004"),
         },
+      },
+      semanticSearch: {
+        pineconeHost: vscodeConfig.get("pineconeHost", ""),
       },
     };
   }

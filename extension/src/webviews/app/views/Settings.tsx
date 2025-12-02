@@ -4,10 +4,12 @@ import {
   Card,
   Checkbox,
   Divider,
+  Dropdown,
   Field,
   Input,
   Label,
   makeStyles,
+  Option as FluentOption,
   Radio,
   RadioGroup,
   shorthands,
@@ -20,6 +22,7 @@ import {
 import {
   ArrowClockwiseRegular,
   ArrowImportRegular,
+  ArrowSyncRegular,
   CheckmarkCircleRegular,
   DatabaseRegular,
   DismissCircleRegular,
@@ -29,8 +32,11 @@ import {
 } from "@fluentui/react-icons";
 import { useCallback, useEffect, useState } from "react";
 import {
+  FETCH_PINECONE_INDICES_METHOD,
+  FetchPineconeIndicesParams,
   GET_VSCODE_SETTINGS_METHOD,
   LOAD_CONFIG_METHOD,
+  PineconeIndex,
   QdrantOllamaConfig,
   START_INDEX_METHOD,
   TEST_CONFIG_METHOD,
@@ -151,7 +157,7 @@ export default function Settings() {
     qdrantUrl: "http://localhost:6333",
     qdrantApiKey: "",
     pineconeIndexName: "",
-    pineconeEnvironment: "",
+    pineconeHost: "",
     pineconeApiKey: "",
     activeEmbeddingProvider: "ollama",
     ollamaBaseUrl: "http://localhost:11434",
@@ -173,6 +179,9 @@ export default function Settings() {
   const [isSaving, setIsSaving] = useState(false);
   const [isTesting, setIsTesting] = useState(false);
   const [isDirty, setIsDirty] = useState(false);
+  const [pineconeIndices, setPineconeIndices] = useState<PineconeIndex[]>([]);
+  const [isLoadingIndices, setIsLoadingIndices] = useState(false);
+
   const [testResult, setTestResult] = useState<{
     success: boolean;
     message: string;
@@ -282,7 +291,7 @@ export default function Settings() {
       },
       pinecone_config: {
         index_name: settings.pineconeIndexName,
-        environment: settings.pineconeEnvironment,
+        environment: "", // Deprecated
         api_key: settings.pineconeApiKey,
       },
       ollama_config: {
@@ -333,8 +342,6 @@ export default function Settings() {
           qdrantApiKey: legacy.qdrant_config?.api_key || prev.qdrantApiKey,
           pineconeIndexName:
             legacy.pinecone_config?.index_name || prev.pineconeIndexName,
-          pineconeEnvironment:
-            legacy.pinecone_config?.environment || prev.pineconeEnvironment,
           pineconeApiKey:
             legacy.pinecone_config?.api_key || prev.pineconeApiKey,
           activeEmbeddingProvider: legacy.active_embedding_provider,
@@ -349,6 +356,22 @@ export default function Settings() {
             legacy.index_info?.embedding_dimension || prev.embeddingDimension,
           // Search settings are assumed to be in VS Code settings already and not overridden by legacy file
         }));
+
+        // Determine if dimension should be overridden based on imported values
+        const autoDim = getModelDefaults(
+          legacy.active_embedding_provider,
+          legacy.ollama_config?.model ||
+            legacy.openai_config?.model ||
+            legacy.gemini_config?.model ||
+            ""
+        );
+        const importedDim =
+          legacy.index_info?.embedding_dimension || settings.embeddingDimension;
+
+        if (importedDim !== autoDim) {
+          setDimensionOverride(true);
+        }
+
         // Note: isDirty becomes true automatically
         // Use window.alert instead of vscode.window.showInformationMessage
         window.alert(
@@ -387,6 +410,52 @@ export default function Settings() {
         <Text>{isSuccess ? "Connected" : "Failed"}</Text>
       </div>
     );
+  };
+
+  const handleFetchIndices = async () => {
+    if (!settings.pineconeApiKey) {
+      window.alert("Please enter a Pinecone API Key first.");
+      return;
+    }
+
+    setIsLoadingIndices(true);
+    try {
+      const indices = await ipc.sendRequest<
+        FetchPineconeIndicesParams,
+        PineconeIndex[]
+      >(FETCH_PINECONE_INDICES_METHOD, "webview-mgmt", {
+        apiKey: settings.pineconeApiKey,
+      });
+      setPineconeIndices(indices);
+      if (indices.length === 0) {
+        window.alert("No indexes found for this API key.");
+      }
+    } catch (e) {
+      console.error("Failed to fetch indices", e);
+      window.alert(
+        `Failed to fetch indices: ${e instanceof Error ? e.message : String(e)}`
+      );
+    } finally {
+      setIsLoadingIndices(false);
+    }
+  };
+
+  const handleIndexSelect = (
+    _e: any,
+    data: { optionValue?: string; value?: string }
+  ) => {
+    // FluentUI Dropdown passes value in data.optionValue or data.value depending on version/component
+    const selectedName = data.optionValue || data.value;
+    if (!selectedName) return;
+
+    const selectedIndex = pineconeIndices.find((i) => i.name === selectedName);
+    if (selectedIndex) {
+      setSettings((prev) => ({
+        ...prev,
+        pineconeIndexName: selectedIndex.name,
+        pineconeHost: selectedIndex.host,
+      }));
+    }
   };
 
   const currentAutoDimension = getModelDefaults(
@@ -469,24 +538,6 @@ export default function Settings() {
 
           {settings.activeVectorDb === "pinecone" && (
             <div className={styles.configPanel}>
-              <Field label="Pinecone Index Name">
-                <Input
-                  value={settings.pineconeIndexName}
-                  onChange={(_, d) =>
-                    updateSetting("pineconeIndexName", d.value)
-                  }
-                  placeholder="my-index"
-                />
-              </Field>
-              <Field label="Environment">
-                <Input
-                  value={settings.pineconeEnvironment}
-                  onChange={(_, d) =>
-                    updateSetting("pineconeEnvironment", d.value)
-                  }
-                  placeholder="gcp-starter"
-                />
-              </Field>
               <Field label="API Key">
                 <Input
                   type="password"
@@ -495,6 +546,54 @@ export default function Settings() {
                   placeholder="********"
                 />
               </Field>
+
+              <div style={{ display: "flex", gap: "8px" }}>
+                <Button
+                  size="small"
+                  icon={<ArrowSyncRegular />}
+                  onClick={handleFetchIndices}
+                  disabled={isLoadingIndices || !settings.pineconeApiKey}
+                >
+                  {isLoadingIndices ? "Fetching..." : "Fetch Indexes"}
+                </Button>
+              </div>
+
+              <Field label="Pinecone Index">
+                <Dropdown
+                  placeholder="Select an index"
+                  value={settings.pineconeIndexName}
+                  onOptionSelect={handleIndexSelect}
+                  disabled={pineconeIndices.length === 0 && !isLoadingIndices}
+                >
+                  {pineconeIndices.map((idx) => (
+                    <FluentOption key={idx.name} value={idx.name} text={idx.name}>
+                      <div
+                        style={{
+                          display: "flex",
+                          justifyContent: "space-between",
+                          width: "100%",
+                        }}
+                      >
+                        <span>{idx.name}</span>
+                        <Caption1 style={{ marginLeft: "8px" }}>
+                          ({idx.dimension}d, {idx.metric})
+                        </Caption1>
+                      </div>
+                    </FluentOption>
+                  ))}
+                  {/* Allow manual entry if list is empty but value exists (legacy support) */}
+                  {pineconeIndices.length === 0 &&
+                    settings.pineconeIndexName && (
+                      <FluentOption
+                        key={settings.pineconeIndexName}
+                        value={settings.pineconeIndexName}
+                      >
+                        {settings.pineconeIndexName}
+                      </FluentOption>
+                    )}
+                </Dropdown>
+              </Field>
+
               <div
                 style={{
                   display: "flex",

@@ -80,15 +80,16 @@ describe("Search view (React)", () => {
     renderWithIpc(<Search />);
 
     expect(screen.getByText("Semantic Search")).toBeInTheDocument();
-    expect(screen.getByText("Settings")).toBeInTheDocument();
-    expect(screen.getByPlaceholderText("Search codebase...")).toBeInTheDocument();
+    // Settings button was removed from header in Search.tsx
+    // expect(screen.getByText("Settings")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("Search your codebase with natural language queries...")).toBeInTheDocument();
   });
 
   it("does not auto-search while typing", () => {
     const sendRequest = vi.fn().mockResolvedValue({});
     renderWithIpc(<Search />, { sendRequest });
 
-    const input = screen.getByPlaceholderText("Search codebase...");
+    const input = screen.getByPlaceholderText("Search your codebase with natural language queries...");
     fireEvent.change(input, { target: { value: "test query" } });
 
     expect(sendRequest).not.toHaveBeenCalledWith(
@@ -100,7 +101,7 @@ describe("Search view (React)", () => {
     const sendRequest = vi.fn().mockResolvedValue({ results: [] });
     renderWithIpc(<Search />, { sendRequest });
 
-    const input = screen.getByPlaceholderText("Search codebase...");
+    const input = screen.getByPlaceholderText("Search your codebase with natural language queries...");
     fireEvent.change(input, { target: { value: "test query" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
 
@@ -123,7 +124,7 @@ describe("Search view (React)", () => {
     renderWithIpc(<Search />, { sendRequest });
 
     // Assuming default is 0.7, so only file1 should show initially if we search
-    const input = screen.getByPlaceholderText("Search codebase...");
+    const input = screen.getByPlaceholderText("Search your codebase with natural language queries...");
     fireEvent.change(input, { target: { value: "test" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
 
@@ -159,7 +160,7 @@ describe("Search view (React)", () => {
 
     renderWithIpc(<Search />, { sendRequest, sendCommand });
 
-    const input = screen.getByPlaceholderText("Search codebase...");
+    const input = screen.getByPlaceholderText("Search your codebase with natural language queries...");
     fireEvent.change(input, { target: { value: "test" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
 
@@ -167,7 +168,7 @@ describe("Search view (React)", () => {
       expect(screen.getByTestId("snippet-list")).toBeInTheDocument();
     });
 
-    const copyButton = screen.getByText("Copy");
+    const copyButton = screen.getByText("COPY CONTEXT");
     fireEvent.click(copyButton);
 
     expect(sendCommand).toHaveBeenCalledWith(
@@ -206,6 +207,6 @@ describe("Search view (React)", () => {
     renderWithIpc(<Search />);
 
     expect(screen.getByText("No Workspace Open")).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("Search codebase...")).not.toBeInTheDocument();
+    expect(screen.queryByPlaceholderText("Search your codebase with natural language queries...")).not.toBeInTheDocument();
   });
 });

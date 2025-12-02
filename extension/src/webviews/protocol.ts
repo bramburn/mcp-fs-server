@@ -99,7 +99,7 @@ export interface VSCodeSettings {
   qdrantUrl: string;
   qdrantApiKey: string;
   pineconeIndexName: string;
-  pineconeEnvironment: string;
+  pineconeHost: string;
   pineconeApiKey: string;
   activeEmbeddingProvider: string;
   ollamaBaseUrl: string;
@@ -254,6 +254,18 @@ export const GET_SEARCH_SETTINGS_METHOD = "config/get-search-settings";
 
 export const GET_VSCODE_SETTINGS_METHOD = "config/get-vscode-settings";
 export const UPDATE_VSCODE_SETTINGS_METHOD = "config/update-vscode-settings";
+
+export interface FetchPineconeIndicesParams {
+  apiKey: string;
+}
+export interface PineconeIndex {
+  name: string;
+  host: string;
+  dimension?: number;
+  metric?: string;
+  status?: string;
+}
+export const FETCH_PINECONE_INDICES_METHOD = "config/fetch-pinecone-indices";
 
 // --- Debugger Messages ---
 

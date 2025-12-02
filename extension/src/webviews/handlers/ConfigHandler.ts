@@ -2,6 +2,8 @@ import { ConfigService } from "../../services/ConfigService.js";
 import { SettingsManager } from "../../settings.js";
 import { IpcContext, IRequestHandler } from "../ipc/IpcRouter.js";
 import {
+  FETCH_PINECONE_INDICES_METHOD,
+  FetchPineconeIndicesParams,
   GET_VSCODE_SETTINGS_METHOD,
   IpcCommand,
   IpcRequest,
@@ -24,6 +26,7 @@ export class ConfigHandler implements IRequestHandler {
       TEST_CONFIG_METHOD,
       LOAD_CONFIG_METHOD,
       SAVE_CONFIG_METHOD, // Deprecated, but handled
+      FETCH_PINECONE_INDICES_METHOD,
     ].includes(method);
   }
 
@@ -82,6 +85,17 @@ export class ConfigHandler implements IRequestHandler {
       case SAVE_CONFIG_METHOD: {
         context.log(`Received deprecated SAVE_CONFIG_METHOD`, "WARN");
         return { ...baseResponse, data: { success: true } };
+      }
+
+      case FETCH_PINECONE_INDICES_METHOD: {
+        const params = request.params as FetchPineconeIndicesParams;
+        if (!params.apiKey) {
+          throw new Error("API Key is required to fetch indices");
+        }
+        const indices = await this.configService.fetchPineconeIndices(
+          params.apiKey
+        );
+        return { ...baseResponse, data: indices };
       }
 
       default:

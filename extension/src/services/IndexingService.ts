@@ -286,10 +286,16 @@ export class IndexingService implements vscode.Disposable {
         if (!config.pinecone_config) {
           throw new Error("Pinecone config is required but not provided");
         }
+        // Retrieve host from VS Code settings directly as it might not be in the legacy QdrantOllamaConfig structure
+        // ConfigService.config returns the robust Configuration object
+        const vsCodeConfig = this._configService.config;
+        const host = vsCodeConfig.semanticSearch?.pineconeHost;
+
         return new PineconeVectorStore(
           config.pinecone_config.index_name,
           config.pinecone_config.api_key,
-          this._logger
+          this._logger,
+          host
         );
       }
 
