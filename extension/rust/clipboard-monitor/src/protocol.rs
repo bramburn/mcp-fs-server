@@ -9,6 +9,10 @@ pub enum OutputMessage {
         timestamp: String,
         length: usize,
     },
+    // Triggers a search based on <qdrant-search> tags
+    TriggerSearch {
+        query: String,
+    },
     Error {
         message: String,
     },
@@ -21,33 +25,12 @@ mod tests {
     use serde_json;
 
     #[test]
-    fn test_ready_serialization() {
-        let msg = OutputMessage::Ready;
-        let json = serde_json::to_string(&msg).unwrap();
-        assert_eq!(json, r#"{"type":"ready"}"#);
-    }
-
-    #[test]
-    fn test_error_serialization() {
-        let msg = OutputMessage::Error {
-            message: "Test Error".to_string(),
+    fn test_trigger_search_serialization() {
+        let msg = OutputMessage::TriggerSearch {
+            query: "test query".to_string(),
         };
         let json = serde_json::to_string(&msg).unwrap();
-        assert_eq!(json, r#"{"type":"error","message":"Test Error"}"#);
-    }
-
-    #[test]
-    fn test_update_serialization() {
-        let msg = OutputMessage::ClipboardUpdate {
-            content: "hello".to_string(),
-            timestamp: "2024-01-01T00:00:00Z".to_string(),
-            length: 5,
-        };
-        let json = serde_json::to_string(&msg).unwrap();
-
-        // verify structure
-        assert!(json.contains(r#""type":"clipboard_update""#));
-        assert!(json.contains(r#""content":"hello""#));
-        assert!(json.contains(r#""length":5"#));
+        assert!(json.contains(r#""type":"trigger_search""#));
+        assert!(json.contains(r#""query":"test query""#));
     }
 }

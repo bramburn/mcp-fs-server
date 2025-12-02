@@ -5,12 +5,19 @@ import {
   makeStyles,
   Text,
   tokens,
+  Badge,
+  Divider,
 } from "@fluentui/react-components";
 import {
   ArrowClockwiseRegular,
   BugRegular,
   ClipboardCodeRegular,
   DocumentErrorRegular,
+  CopyRegular,
+  DeleteRegular,
+  CodeRegular,
+  SearchRegular,
+  ChatRegular
 } from "@fluentui/react-icons";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -19,6 +26,7 @@ import {
   type DebugAnalyzeResponse,
 } from "../../protocol.js";
 import { useIpc } from "../contexts/ipc.js";
+import { useAppStore } from "../store.js";
 
 const useStyles = makeStyles({
   root: {
@@ -29,19 +37,15 @@ const useStyles = makeStyles({
     color: tokens.colorNeutralForeground1,
     padding: "24px",
     overflow: "auto",
+    gap: "24px"
   },
   header: {
-    marginBottom: "24px",
+    marginBottom: "12px",
   },
   title: {
     fontSize: "24px",
     fontWeight: "bold",
     marginBottom: "12px",
-  },
-  content: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "16px",
   },
   section: {
     display: "flex",
@@ -60,47 +64,75 @@ const useStyles = makeStyles({
     alignItems: "center",
     gap: "8px",
   },
-  debugInfo: {
-    fontFamily: "monospace",
-    fontSize: "12px",
-    color: tokens.colorNeutralForeground3,
-    padding: "8px",
-    backgroundColor: tokens.colorNeutralBackground1,
-    borderRadius: tokens.borderRadiusSmall,
-    border: `1px solid ${tokens.colorNeutralStroke1}`,
-    maxHeight: "200px",
-    overflowY: "auto",
-  },
   activeFileCard: {
     backgroundColor: tokens.colorNeutralBackground1,
     border: `1px solid ${tokens.colorNeutralStroke1}`,
   },
-  errorBadge: {
-    color: tokens.colorPaletteRedForeground1,
-    fontWeight: "bold",
+  historyList: {
     display: "flex",
-    alignItems: "center",
+    flexDirection: "column",
+    gap: "8px",
+    marginTop: "8px"
+  },
+  historyItem: {
+    display: "flex",
+    flexDirection: "column",
     gap: "4px",
+    padding: "12px",
+    backgroundColor: tokens.colorNeutralBackground1,
+    borderRadius: tokens.borderRadiusMedium,
+    border: `1px solid ${tokens.colorNeutralStroke1}`,
+    cursor: "pointer",
+    ":hover": {
+        backgroundColor: tokens.colorNeutralBackground1Hover
+    }
   },
-  okBadge: {
-    color: tokens.colorPaletteGreenForeground1,
-    fontWeight: "bold",
-  },
-  actionRow: {
+  historyHeader: {
     display: "flex",
     justifyContent: "space-between",
     alignItems: "center",
-    marginTop: "8px",
+    fontSize: "12px",
+    color: tokens.colorNeutralForeground3
   },
+  historyContent: {
+    fontFamily: "monospace",
+    fontSize: "12px",
+    whiteSpace: "pre-wrap",
+    maxHeight: "60px",
+    overflow: "hidden",
+    opacity: 0.8
+  },
+  promptArea: {
+    padding: "12px",
+    backgroundColor: tokens.colorNeutralBackgroundAlpha,
+    borderRadius: tokens.borderRadiusMedium,
+    border: `1px dashed ${tokens.colorBrandStroke1}`,
+    display: "flex",
+    flexDirection: "column",
+    gap: "8px"
+  },
+  actionRow: {
+      display: 'flex',
+      gap: '8px',
+      marginTop: '8px'
+  }
 });
+
+const SYSTEM_PROMPT = `You are an advanced coding assistant. 
+Protocol:
+1. To search: <qdrant-search>query</qdrant-search>
+2. To edit/create: <qdrant-file path="path">code</qdrant-file>
+Do not ask to paste code. Use search tags.`;
 
 export default function Debugger() {
   const styles = useStyles();
   const ipc = useIpc();
+  
+  // Store state
+  const clipboardHistory = useAppStore(state => state.clipboardHistory);
+  const clearHistory = useAppStore(state => state.clearClipboardHistory);
 
-  const [analyzeState, setAnalyzeState] = useState<DebugAnalyzeResponse | null>(
-    null
-  );
+  const [analyzeState, setAnalyzeState] = useState<DebugAnalyzeResponse | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   const fetchAnalysis = useCallback(async () => {
@@ -120,161 +152,138 @@ export default function Debugger() {
   }, [ipc]);
 
   useEffect(() => {
-    // 1. Initial fetch on load
     fetchAnalysis();
-
-    // 2. Listen for push updates from DebugMonitor (Host -> Guest command)
-    const handleRefreshCommand = () => {
-      fetchAnalysis();
-    };
-
-    // The host sends a command when the active editor or diagnostics change.
-    // We register a listener for this command's method.
+    const handleRefreshCommand = () => fetchAnalysis();
     ipc.onNotification("debug/refresh-analysis", handleRefreshCommand);
-
-    // We do NOT use setInterval/polling anymore, relying entirely on the host monitor.
-    // Cleanup interval removed.
-
-    return () => {
-      // Note: Removing listeners registered via onNotification is complex
-      // without a proper deregistration function in useIpc/createHostIpc.
-      // For standard IPC usage, this is typically handled by the VS Code webview lifecycle,
-      // but if this component unmounts, the component instance's handler reference
-      // should ideally be removed from the global window listener.
-      // Assuming current `onNotification` implementation doesn't return a cleanup function.
-    };
   }, [fetchAnalysis, ipc]);
 
   const handleCopyContext = () => {
     ipc.sendCommand(DEBUG_COPY_METHOD, "debugger", { includePrompt: true });
   };
 
+  const copySystemPrompt = () => {
+      navigator.clipboard.writeText(SYSTEM_PROMPT);
+  };
+
+  const copyHistoryItem = (content: string) => {
+      navigator.clipboard.writeText(content);
+  };
+
   return (
     <div className={styles.root}>
       <div className={styles.header}>
-        <div className={styles.title}>Debugger</div>
-        <Text>Debug information and diagnostics</Text>
+        <div className={styles.title}>Paste-Driven Development</div>
+        <Text>Interact with AI via clipboard automation.</Text>
       </div>
 
-      <div className={styles.content}>
-        {/* Active File Debugging */}
-        <div className={styles.section}>
+      {/* 1. System Prompt Generator */}
+      <div className={styles.section}>
           <div className={styles.sectionTitle}>
-            <BugRegular />
-            Active File Debugging
+              <ChatRegular />
+              1. Setup AI Context
           </div>
-          <Text size={200} style={{ color: tokens.colorNeutralForeground3 }}>
-            Detect errors in the active file and prepare context for AI
-            assistance.
-          </Text>
+          <div className={styles.promptArea}>
+              <Text size={200}>
+                  Copy these instructions and paste them into ChatGPT or Gemini at the start of your session.
+                  This enables the AI to control your editor via tags like <code>&lt;qdrant-search&gt;</code>.
+              </Text>
+              <Button 
+                appearance="primary" 
+                size="small" 
+                icon={<CopyRegular />}
+                onClick={copySystemPrompt}
+              >
+                  Copy Meta-Prompt Instructions
+              </Button>
+          </div>
+      </div>
 
-          <Card className={styles.activeFileCard}>
-            <CardHeader
-              header={
-                <Text weight="semibold">
-                  {analyzeState?.fileName || "No Active File"}
-                </Text>
-              }
-              description={
-                <Text size={200} style={{ opacity: 0.7 }}>
-                  {analyzeState?.filePath || "Open a file to start debugging"}
-                </Text>
-              }
-              action={
-                <Button
-                  appearance="subtle"
-                  icon={<ArrowClockwiseRegular />}
-                  onClick={fetchAnalysis}
-                  disabled={isRefreshing}
-                >
-                  {isRefreshing ? "Refreshing..." : "Refresh"}
-                </Button>
-              }
-            />
-
-            <div style={{ padding: "0 12px 12px 12px" }}>
-              {analyzeState?.hasActiveEditor ? (
-                <>
-                  <div style={{ marginBottom: "12px" }}>
-                    {(analyzeState.errorCount ?? 0) > 0 ? (
-                      <span className={styles.errorBadge}>
-                        <DocumentErrorRegular />
-                        {analyzeState.errorCount} Issues Found
-                      </span>
-                    ) : (
-                      <span className={styles.okBadge}>No Issues Detected</span>
-                    )}
-                  </div>
-
-                  <Button
-                    appearance="primary"
-                    icon={<ClipboardCodeRegular />}
-                    onClick={handleCopyContext}
-                    style={{ width: "100%" }}
-                    disabled={isRefreshing}
-                  >
-                    Copy Context for AI ({analyzeState.errorCount}{" "}
-                    Errors/Warnings)
-                  </Button>
-                  <Text
-                    size={100}
-                    style={{
-                      marginTop: "8px",
-                      display: "block",
-                      textAlign: "center",
-                      color: tokens.colorNeutralForeground3,
-                    }}
-                  >
-                    Copies active file & errors to clipboard as a markdown
-                    attachment.
-                  </Text>
-                </>
-              ) : (
-                <div
-                  style={{
-                    padding: "20px",
-                    textAlign: "center",
-                    color: tokens.colorNeutralForeground3,
-                  }}
-                >
-                  Focus a file in the editor to see details.
-                </div>
-              )}
-            </div>
-          </Card>
+      {/* 2. Active File Errors (Source of Truth) */}
+      <div className={styles.section}>
+        <div className={styles.sectionTitle}>
+          <BugRegular />
+          2. Active File Analysis
         </div>
-
-        {/* Configuration Summary (Existing) */}
-        <div className={styles.section}>
-          <div className={styles.sectionTitle}>System Status</div>
-          <div className={styles.debugInfo}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: "4px",
-              }}
-            >
-              <span>IPC Status:</span>
-              <span style={{ color: tokens.colorPaletteGreenForeground1 }}>
-                Connected
-              </span>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                marginBottom: "4px",
-              }}
-            >
-              <span>Platform:</span>
-              <span>{navigator.platform}</span>
-            </div>
-            <div style={{ display: "flex", justifyContent: "space-between" }}>
-              <span>Timestamp:</span>
-              <span>{new Date().toLocaleTimeString()}</span>
-            </div>
+        
+        <Card className={styles.activeFileCard}>
+          <CardHeader
+            header={<Text weight="semibold">{analyzeState?.fileName || "No Active File"}</Text>}
+            action={
+              <Button
+                appearance="subtle"
+                icon={<ArrowClockwiseRegular />}
+                onClick={fetchAnalysis}
+                disabled={isRefreshing}
+              />
+            }
+          />
+          <div style={{ padding: "0 12px 12px 12px" }}>
+            {analyzeState?.hasActiveEditor ? (
+              <>
+                <div style={{ marginBottom: "12px", display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  {(analyzeState.errorCount ?? 0) > 0 ? (
+                    <Badge color="danger" icon={<DocumentErrorRegular />}>
+                      {analyzeState.errorCount} Issues
+                    </Badge>
+                  ) : (
+                    <Badge color="success">No Issues</Badge>
+                  )}
+                </div>
+                <Button
+                  appearance="secondary"
+                  icon={<ClipboardCodeRegular />}
+                  onClick={handleCopyContext}
+                  style={{ width: "100%" }}
+                >
+                  Copy Context & Errors
+                </Button>
+              </>
+            ) : (
+              <Text size={200} style={{ opacity: 0.7 }}>Focus a file to see diagnostics.</Text>
+            )}
           </div>
+        </Card>
+      </div>
+
+      {/* 3. Clipboard History */}
+      <div className={styles.section} style={{ flexGrow: 1 }}>
+        <div className={styles.sectionTitle} style={{ justifyContent: 'space-between' }}>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center'}}>
+                <ClipboardCodeRegular />
+                Recent Clipboard
+            </div>
+            <Button 
+                appearance="subtle" 
+                icon={<DeleteRegular />} 
+                size="small"
+                onClick={clearHistory}
+                disabled={clipboardHistory.length === 0}
+            />
+        </div>
+        
+        <div className={styles.historyList}>
+            {clipboardHistory.length === 0 && (
+                <Text align="center" style={{ padding: '20px', opacity: 0.5 }}>
+                    History is empty. Copy text to see it here.
+                </Text>
+            )}
+            {clipboardHistory.map(item => (
+                <div key={item.id} className={styles.historyItem} onClick={() => copyHistoryItem(item.content)}>
+                    <div className={styles.historyHeader}>
+                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center'}}>
+                            {item.type === 'xml-command' && <SearchRegular style={{color: tokens.colorPaletteBlueBorderActive}} />}
+                            {item.type === 'code' && <CodeRegular />}
+                            {item.type === 'text' && <ChatRegular />}
+                            <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
+                        </div>
+                        <CopyRegular fontSize={12} />
+                    </div>
+                    <div className={styles.historyContent}>
+                        {item.content.substring(0, 150)}
+                        {item.content.length > 150 && "..."}
+                    </div>
+                </div>
+            ))}
         </div>
       </div>
     </div>
