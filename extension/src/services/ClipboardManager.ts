@@ -5,6 +5,18 @@ import { XmlParser } from './XmlParser.js';
 import { WebviewController } from '../webviews/WebviewController.js'; 
 import { ParsedAction, ClipboardHistoryItem } from '../webviews/protocol.js';
 
+// List of highly sensitive patterns that should never be edited/read by AI.
+const SENSITIVE_FILE_BLOCKLIST = [
+    '**/.git/**',
+    '**/node_modules/**',
+    '**/.vscode/**',
+    '**/.ssh/**',
+    '**/.env',
+    '**/*.key',
+    '**/*.pem',
+    '**/credentials.*'
+];
+
 export class ClipboardManager implements vscode.Disposable {
     private disposables: vscode.Disposable[] = [];
 
@@ -74,37 +86,52 @@ export class ClipboardManager implements vscode.Disposable {
                 return { ...action, status: 'error', errorDetails: 'No file path provided.' };
             }
 
+            // --- Phase 4 Feature: Safety Guardrails ---
+            const isSensitive = SENSITIVE_FILE_BLOCKLIST.some(pattern => {
+                // Check if the path matches any sensitive glob pattern
+                // Use non-null assertion (!) here since we checked action.path above
+                const match = vscode.workspace.asRelativePath(action.path!).match(new RegExp(pattern.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*')));
+                return match !== null;
+            });
+
+            if (isSensitive) {
+                return { 
+                    ...action, 
+                    status: 'error', 
+                    errorDetails: 'Access Denied: This file path is restricted for security.' 
+                };
+            }
+            // ----------------------------------------
+            
             // Resolve path relative to workspace root
             const workspaceFolders = vscode.workspace.workspaceFolders;
             if (!workspaceFolders) {
                 return { ...action, status: 'error', errorDetails: 'No workspace open.' };
             }
 
+            // Note: Absolute path is primarily for the FS API, security checks use relative path above.
             const rootPath = workspaceFolders[0].uri.fsPath;
             const absolutePath = path.join(rootPath, action.path);
 
-            // Security Check: Prevent accessing parent directories or hidden files
+            // Security Check: Prevent accessing parent directories or absolute paths (redundant, but good practice)
             if (action.path.includes('..') || path.isAbsolute(action.path)) {
                  return { ...action, status: 'error', errorDetails: 'Invalid relative path.' };
             }
 
             // Check if file exists (only if action is NOT 'create', or if 'read')
-            // For 'create', we don't strictly require it to not exist, but we might warn if it does (overwrite).
-            // For 'replace' or 'read', it MUST exist.
             if (action.type === 'read' || (action.type === 'file' && action.action === 'replace')) {
                 try {
                     await vscode.workspace.fs.stat(vscode.Uri.file(absolutePath));
                     // File exists, action is valid
                     return { ...action, status: 'ready' };
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                } catch (_) { // Fixed: prefix with _ to mark unused
+                } catch (_error) { // Use _error to denote unused variable
                     // File does not exist
                     return { 
                         ...action, 
                         status: 'error', 
                         errorDetails: `File not found: ${action.path}` 
                     };
-                    // TODO: Here is where we would trigger the Semantic Search fallback logic
                 }
             }
         }
