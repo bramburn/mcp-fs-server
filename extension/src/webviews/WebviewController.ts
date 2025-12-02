@@ -10,10 +10,11 @@ import { DID_CHANGE_CONFIG_NOTIFICATION, IpcMessage } from "./protocol.js";
 // IPC Infrastructure
 import { ConfigHandler } from "./handlers/ConfigHandler.js";
 import { DebugHandler } from "./handlers/DebugHandler.js";
-import { DebugMonitor } from "./handlers/DebugMonitor.js"; // Import new monitor
+import { DebugMonitor } from "./handlers/DebugMonitor.js";
 import { FileHandler } from "./handlers/FileHandler.js";
 import { IndexHandler } from "./handlers/IndexHandler.js";
 import { SearchHandler } from "./handlers/SearchHandler.js";
+import { EditHandler } from "./handlers/EditHandler.js"; 
 import { IpcContext, IpcRouter } from "./ipc/IpcRouter.js";
 
 /**
@@ -27,7 +28,7 @@ export class WebviewController
   private _view?: vscode.WebviewView;
   private _disposables: vscode.Disposable[] = [];
   private _ipcRouter: IpcRouter;
-  private _debugMonitor: DebugMonitor | undefined; // Instance of the monitor
+  private _debugMonitor: DebugMonitor | undefined;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
@@ -73,6 +74,11 @@ export class WebviewController
     // 5. Debug Handler (Active file debugging)
     this._ipcRouter.registerHandler(
       new DebugHandler(this._logger, this._clipboardService)
+    );
+
+    // 6. Edit Handler (New: Apply changes from clipboard)
+    this._ipcRouter.registerHandler( 
+      new EditHandler(this._indexingService)
     );
   }
 
@@ -146,6 +152,18 @@ export class WebviewController
         });
       }
     });
+  }
+
+  /**
+   * Public method to send a message to the active webview.
+   * Used by external services (like ClipboardManager) to push updates.
+   */
+  public sendToWebview(message: IpcMessage): void {
+    if (this._view) {
+      this._view.webview.postMessage(message);
+    } else {
+      this._logger.log("Attempted to send message to closed webview", "WARN");
+    }
   }
 
   public dispose() {

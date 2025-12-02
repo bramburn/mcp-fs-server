@@ -6,7 +6,6 @@ import {
   Text,
   tokens,
   Badge,
-  Divider,
 } from "@fluentui/react-components";
 import {
   ArrowClockwiseRegular,
@@ -15,8 +14,6 @@ import {
   DocumentErrorRegular,
   CopyRegular,
   DeleteRegular,
-  CodeRegular,
-  SearchRegular,
   ChatRegular
 } from "@fluentui/react-icons";
 import { useCallback, useEffect, useState } from "react";
@@ -27,6 +24,7 @@ import {
 } from "../../protocol.js";
 import { useIpc } from "../contexts/ipc.js";
 import { useAppStore } from "../store.js";
+import { ActionCard } from "../components/ActionCard.js";
 
 const useStyles = makeStyles({
   root: {
@@ -74,34 +72,6 @@ const useStyles = makeStyles({
     gap: "8px",
     marginTop: "8px"
   },
-  historyItem: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "4px",
-    padding: "12px",
-    backgroundColor: tokens.colorNeutralBackground1,
-    borderRadius: tokens.borderRadiusMedium,
-    border: `1px solid ${tokens.colorNeutralStroke1}`,
-    cursor: "pointer",
-    ":hover": {
-        backgroundColor: tokens.colorNeutralBackground1Hover
-    }
-  },
-  historyHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    fontSize: "12px",
-    color: tokens.colorNeutralForeground3
-  },
-  historyContent: {
-    fontFamily: "monospace",
-    fontSize: "12px",
-    whiteSpace: "pre-wrap",
-    maxHeight: "60px",
-    overflow: "hidden",
-    opacity: 0.8
-  },
   promptArea: {
     padding: "12px",
     backgroundColor: tokens.colorNeutralBackgroundAlpha,
@@ -111,11 +81,6 @@ const useStyles = makeStyles({
     flexDirection: "column",
     gap: "8px"
   },
-  actionRow: {
-      display: 'flex',
-      gap: '8px',
-      marginTop: '8px'
-  }
 });
 
 const SYSTEM_PROMPT = `You are an advanced coding assistant. 
@@ -163,10 +128,6 @@ export default function Debugger() {
 
   const copySystemPrompt = () => {
       navigator.clipboard.writeText(SYSTEM_PROMPT);
-  };
-
-  const copyHistoryItem = (content: string) => {
-      navigator.clipboard.writeText(content);
   };
 
   return (
@@ -268,20 +229,28 @@ export default function Debugger() {
                 </Text>
             )}
             {clipboardHistory.map(item => (
-                <div key={item.id} className={styles.historyItem} onClick={() => copyHistoryItem(item.content)}>
-                    <div className={styles.historyHeader}>
-                        <div style={{ display: 'flex', gap: '4px', alignItems: 'center'}}>
-                            {item.type === 'xml-command' && <SearchRegular style={{color: tokens.colorPaletteBlueBorderActive}} />}
-                            {item.type === 'code' && <CodeRegular />}
-                            {item.type === 'text' && <ChatRegular />}
-                            <span>{new Date(item.timestamp).toLocaleTimeString()}</span>
+                <div key={item.id}>
+                    {/* Render Action Actions vs Plain Text */}
+                    {item.parsedActions && item.parsedActions.length > 0 ? (
+                        item.parsedActions.map(action => (
+                            <ActionCard 
+                                key={action.id} 
+                                action={action} 
+                                timestamp={item.timestamp} 
+                            />
+                        ))
+                    ) : (
+                        // Fallback for plain text
+                        <div 
+                            className={styles.promptArea} 
+                            style={{ cursor: 'pointer', opacity: 0.7 }}
+                            onClick={() => navigator.clipboard.writeText(item.originalContent)}
+                        >
+                            <Text size={100} font="monospace">
+                                {item.originalContent.substring(0, 100)}...
+                            </Text>
                         </div>
-                        <CopyRegular fontSize={12} />
-                    </div>
-                    <div className={styles.historyContent}>
-                        {item.content.substring(0, 150)}
-                        {item.content.length > 150 && "..."}
-                    </div>
+                    )}
                 </div>
             ))}
         </div>

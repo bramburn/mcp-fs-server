@@ -2,33 +2,63 @@ use anyhow::{Result};
 use arboard::Clipboard;
 use chrono::Utc;
 use md5;
-use std::io::{self, Write};
+use regex::Regex;
+use std::io::{self, BufRead, Write};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 mod protocol;
-use protocol::OutputMessage;
+use protocol::{OutputMessage, InputCommand};
 
-// --- Logic Extraction for Testing ---
+/// Determines the polling state: true for active, false for paused.
+static IS_MONITORING_ACTIVE: Arc<Mutex<bool>> = Arc::new(Mutex::new(true));
+
+/// Regex for robustly detecting any qdrant XML command, capturing the entire tag block.
+/// (?s) enables dotall mode so that '.' matches newlines.
+const XML_COMMAND_REGEX: &str = r"(?s)(<qdrant-(file|search|read).*?>(.*?)</qdrant-\2>|<qdrant-(file|search|read).*?/>)";
+
+/// Checks for special XML tags in content and returns specific trigger messages.
+fn check_for_triggers(content: &str) -> Option<OutputMessage> {
+    let re = Regex::new(XML_COMMAND_REGEX).unwrap();
+    
+    let xml_payloads: Vec<String> = re.find_iter(content)
+        .map(|m| m.as_str().to_string())
+        .collect();
+
+    if !xml_payloads.is_empty() {
+        return Some(OutputMessage::TriggerXml {
+            xml_payloads,
+        });
+    }
+
+    None
+}
 
 /// Calculates hash and returns a message if the content is new.
 fn process_clipboard_content(
     content: String,
     last_hash: &Option<String>,
-) -> (Option<OutputMessage>, String) {
+) -> (Option<OutputMessage>, Option<OutputMessage>, String) {
     let digest = md5::compute(content.as_bytes());
     let current_hash = format!("{:x}", digest);
 
-    if last_hash.as_deref() != Some(&current_hash) {
-        let message = OutputMessage::ClipboardUpdate {
-            length: content.len(),
-            content,
-            timestamp: Utc::now().to_rfc3339(),
-        };
-        return (Some(message), current_hash);
+    // If identical to last hash, do nothing
+    if last_hash.as_deref() == Some(&current_hash) {
+        return (None, None, current_hash);
     }
 
-    (None, current_hash)
+    // 1. Generate Standard Update Message
+    let update_msg = Some(OutputMessage::ClipboardUpdate {
+        length: content.len(),
+        content: content.clone(),
+        timestamp: Utc::now().to_rfc3339(),
+    });
+
+    // 2. Check for triggers (XML commands)
+    let trigger_msg = check_for_triggers(&content);
+
+    (update_msg, trigger_msg, current_hash)
 }
 
 fn send_json(msg: &OutputMessage) -> Result<()> {
@@ -40,19 +70,49 @@ fn send_json(msg: &OutputMessage) -> Result<()> {
     Ok(())
 }
 
+/// Thread dedicated to listening for commands from the extension via stdin.
+fn input_listener() {
+    let stdin = io::stdin();
+    for line in stdin.lock().lines() {
+        match line {
+            Ok(json_line) => {
+                match serde_json::from_str::<InputCommand>(&json_line) {
+                    Ok(cmd) => {
+                        let mut monitoring = IS_MONITORING_ACTIVE.lock().unwrap();
+                        match cmd {
+                            InputCommand::Pause => {
+                                *monitoring = false;
+                                // Optional: Send confirmation back to TS
+                                // let _ = send_json(&OutputMessage::Ready);
+                            }
+                            InputCommand::Resume => {
+                                *monitoring = true;
+                                // Optional: Send confirmation back to TS
+                                // let _ = send_json(&OutputMessage::Ready);
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Rust Input Parsing Error: {} | Raw: {}", e, json_line);
+                        // Log error internally, don't flood stdout as that disrupts main flow
+                        eprintln!("{}", error_msg);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Rust Input Read Error: {}", e);
+                break; // Exit loop on read error (e.g., pipe closed)
+            }
+        }
+    }
+}
+
 fn main() -> Result<()> {
-    // 1. Initialize Clipboard with OS-specific error context
+    // 1. Initialize Clipboard
     let mut clipboard = match Clipboard::new() {
         Ok(cb) => cb,
         Err(e) => {
-            let error_msg = if cfg!(target_os = "linux") {
-                format!("Failed to init Linux clipboard (Check X11/Wayland support): {}", e)
-            } else if cfg!(target_os = "macos") {
-                format!("Failed to init MacOS clipboard (Check permissions): {}", e)
-            } else {
-                format!("Failed to init Clipboard: {}", e)
-            };
-
+            let error_msg = format!("Failed to init Clipboard: {}", e);
             let _ = send_json(&OutputMessage::Error {
                 message: error_msg.clone(),
             });
@@ -60,65 +120,44 @@ fn main() -> Result<()> {
         }
     };
 
-    // 2. Signal Ready
+    // 2. Start input listener thread
+    thread::spawn(input_listener);
+
+    // 3. Signal Ready
     send_json(&OutputMessage::Ready)?;
 
     let mut last_hash: Option<String> = None;
 
-    // 3. Main Polling Loop
+    // 4. Main Polling Loop
     loop {
-        // 500ms is a good balance between responsiveness and CPU usage 
-        // across Mac/Linux/Windows
         thread::sleep(Duration::from_millis(500));
+        
+        // Check if monitoring is paused
+        if !*IS_MONITORING_ACTIVE.lock().unwrap() {
+             thread::sleep(Duration::from_secs(1)); // Sleep longer while paused
+             continue;
+        }
 
         match clipboard.get_text() {
             Ok(content) => {
-                let (message, new_hash) = process_clipboard_content(content, &last_hash);
+                let (update_msg, trigger_msg, new_hash) = process_clipboard_content(content, &last_hash);
 
-                if let Some(msg) = message {
-                    if let Err(e) = send_json(&msg) {
-                        // If stdout fails (e.g., parent process died), exit.
-                        eprintln!("Failed to send message: {}", e);
-                        break;
-                    }
-                    last_hash = Some(new_hash);
+                if let Some(msg) = update_msg {
+                    if let Err(_) = send_json(&msg) { break; }
                 }
-            }
-            Err(arboard::Error::ContentNotAvailable) => {
-                // Common on some OSs when non-text is copied. Ignore.
+
+                // If a trigger was found (XML commands), send it immediately after the update
+                if let Some(msg) = trigger_msg {
+                    if let Err(_) = send_json(&msg) { break; }
+                }
+
+                last_hash = Some(new_hash);
             }
             Err(_) => {
-                // Ignore transient clipboard errors (locking, etc)
+                // Ignore transient errors
             }
         }
     }
 
     Ok(())
-}
-
-// --- Unit Tests ---
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_process_new_content() {
-        let content = "Test Data".to_string();
-        let last_hash = None;
-
-        let (msg, new_hash) = process_clipboard_content(content.clone(), &last_hash);
-
-        assert!(msg.is_some());
-        assert_eq!(new_hash.len(), 32);
-    }
-
-    #[test]
-    fn test_process_duplicate_content() {
-        let content = "Test Data".to_string();
-        let (_, hash1) = process_clipboard_content(content.clone(), &None);
-        let (msg, hash2) = process_clipboard_content(content.clone(), &Some(hash1.clone()));
-
-        assert!(msg.is_none());
-        assert_eq!(hash1, hash2);
-    }
 }

@@ -1,13 +1,10 @@
 import { create } from "zustand";
+import { ClipboardHistoryItem, ParsedAction } from "../protocol.js";
+
+// Re-export types for convenience in components
+export type { ClipboardHistoryItem, ParsedAction };
 
 export type AppView = "search" | "debugger" | "settings" | "test";
-
-export interface ClipboardHistoryItem {
-  id: string;
-  content: string;
-  timestamp: number;
-  type: "text" | "code" | "xml-command";
-}
 
 export interface AppState {
   view: AppView;
@@ -28,10 +25,16 @@ export interface AppState {
   config: any;
   setConfig: (config: any) => void;
 
-  // New Clipboard History
+  // Updated Clipboard History State
   clipboardHistory: ClipboardHistoryItem[];
-  addClipboardItem: (content: string) => void;
+  
+  // Handles adding items (both plain text and parsed XML items)
+  addClipboardItem: (item: ClipboardHistoryItem | string) => void;
+  
   clearClipboardHistory: () => void;
+  
+  // Update the status of a specific action within a history item (e.g. after clicking Implement)
+  updateActionStatus: (historyId: string, actionId: string, status: ParsedAction['status']) => void;
 }
 
 export const useAppStore = create<AppState>((set) => ({
@@ -54,25 +57,50 @@ export const useAppStore = create<AppState>((set) => ({
   setConfig: (config: any) => set({ config }),
 
   clipboardHistory: [],
-  addClipboardItem: (content: string) => set((state) => {
-    // Deduplicate: Don't add if identical to the most recent item
-    if (state.clipboardHistory.length > 0 && state.clipboardHistory[0].content === content) {
-      return {};
+  addClipboardItem: (input) => set((state) => {
+    let newItem: ClipboardHistoryItem;
+
+    if (typeof input === 'string') {
+        // 1. Handle String Input (Manual Copy)
+        // Deduplicate based on content
+        if (state.clipboardHistory.length > 0 && state.clipboardHistory[0].originalContent === input) {
+            return {};
+        }
+
+        const type = input.includes('<qdrant-search>') ? 'xml-command' 
+                   : input.includes('```') ? 'code' 
+                   : 'text';
+
+        newItem = {
+            id: crypto.randomUUID(),
+            timestamp: Date.now(),
+            originalContent: input, // Note: Protocol uses 'originalContent'
+            type,
+            parsedActions: [] // No actions for plain text
+        };
+    } else {
+        // 2. Handle Structured Input (From ClipboardManager)
+        if (state.clipboardHistory.length > 0 && state.clipboardHistory[0].originalContent === input.originalContent) {
+            return {};
+        }
+        newItem = input;
     }
-
-    const type = content.includes('<qdrant-search>') ? 'xml-command' 
-               : content.includes('```') ? 'code' 
-               : 'text';
-
-    const newItem: ClipboardHistoryItem = {
-      id: crypto.randomUUID(),
-      content,
-      timestamp: Date.now(),
-      type
-    };
 
     // Keep last 20 items
     return { clipboardHistory: [newItem, ...state.clipboardHistory].slice(0, 20) };
   }),
+  
   clearClipboardHistory: () => set({ clipboardHistory: [] }),
+
+  updateActionStatus: (historyId, actionId, status) => set((state) => ({
+      clipboardHistory: state.clipboardHistory.map(item => {
+          if (item.id !== historyId) return item;
+          return {
+              ...item,
+              parsedActions: item.parsedActions.map(action => 
+                  action.id === actionId ? { ...action, status } : action
+              )
+          };
+      })
+  }))
 }));

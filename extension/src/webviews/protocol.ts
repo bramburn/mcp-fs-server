@@ -115,6 +115,41 @@ export interface VSCodeSettings {
   includeQueryInCopy: boolean;
 }
 
+// --- Clipboard Action Definitions (New) ---
+
+/** Defines the attributes for a File or Edit action. */
+export interface ActionAttributes {
+    path?: string;
+    action?: 'create' | 'replace';
+    lines?: string; // Comma-separated line numbers for ambiguity resolution (e.g., "1, 20, 49")
+    multiLineApprove?: boolean; // If true, allows multiple identical replacements.
+}
+
+/** Represents a single parsed XML command detected in the clipboard. */
+export interface ParsedAction extends ActionAttributes {
+    id: string; // Unique ID for this action within the history item
+    type: 'file' | 'search' | 'read';
+    status: 'pending' | 'ready' | 'error' | 'implemented';
+    rawXml: string;
+    content?: string; // Inner text content (e.g., search query, file content for 'create')
+    searchBlock?: string; // Content of <search> tag
+    replaceBlock?: string; // Content of <replace> tag
+    errorDetails?: string; // If status is 'error'
+    semanticSuggestions?: { path: string, snippet: string, score: number }[]; // Semantic fallback
+}
+
+// --- History & State Definitions (New) ---
+
+export interface ClipboardHistoryItem {
+    id: string; // Unique ID for the clipboard event
+    timestamp: number;
+    originalContent: string;
+    type: 'text' | 'code' | 'xml-command';
+    
+    // Array of parsed, actionable commands found in the content
+    parsedActions: ParsedAction[]; 
+}
+
 // --- Specific Messages ---
 
 // 1. Search Request
@@ -198,8 +233,8 @@ export interface TestConfigParams {
 export interface TestConfigResponse {
   success: boolean;
   message: string;
-  qdrantStatus: "connected" | "failed";
-  ollamaStatus: "connected" | "failed";
+  qdrantStatus?: string;
+  ollamaStatus?: string;
 }
 export const TEST_CONFIG_METHOD = "config/test";
 
@@ -229,6 +264,7 @@ export interface DebugAnalyzeResponse {
   fileName?: string;
   errorCount?: number;
   language?: string;
+  contentPreview?: string | null;
 }
 export const DEBUG_ANALYZE_METHOD = "debug/analyze";
 
@@ -237,3 +273,9 @@ export interface DebugCopyParams {
   includePrompt?: boolean;
 }
 export const DEBUG_COPY_METHOD = "debug/copy";
+
+// 18. New Webview Actions
+export const TRIGGER_MONITOR_COMMAND = 'monitor/toggle'; // IPC to host to send command to Rust stdin
+export const WEBVIEW_ACTION_VIEW = 'webview/view-code';
+export const WEBVIEW_ACTION_PREVIEW = 'webview/preview-diff';
+export const WEBVIEW_ACTION_IMPLEMENT = 'webview/implement-edit';

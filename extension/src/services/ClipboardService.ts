@@ -3,14 +3,14 @@ import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
 import * as vscode from "vscode";
-import { IndexingService } from "./IndexingService.js"; // Import IndexingService
 
+// Define the updated message types matching Rust protocol
 export interface ClipboardMessage {
-  type: "clipboard_update" | "error" | "ready" | "trigger_search";
+  type: "clipboard_update" | "error" | "ready" | "trigger_xml";
   content?: string;
   message?: string;
   timestamp?: string;
-  query?: string; // For trigger_search
+  xml_payloads?: string[]; // New field for XML trigger
 }
 
 export class ClipboardService implements vscode.Disposable {
@@ -20,8 +20,9 @@ export class ClipboardService implements vscode.Disposable {
   private disposables: vscode.Disposable[] = [];
   private isStarting: boolean = false;
   
-  // Dependency Injection for performing searches
-  private indexingService?: IndexingService;
+  // Event Emitter for XML Triggers
+  private _onTriggerXml = new vscode.EventEmitter<string[]>();
+  public readonly onTriggerXml = this._onTriggerXml.event;
 
   constructor(
     context: vscode.ExtensionContext,
@@ -29,11 +30,6 @@ export class ClipboardService implements vscode.Disposable {
   ) {
     this.context = context;
     this.outputChannel = outputChannel;
-  }
-
-  // Setter for IndexingService to avoid circular dependency in Container
-  public setIndexingService(service: IndexingService) {
-      this.indexingService = service;
   }
 
   public start(): void {
@@ -100,15 +96,14 @@ export class ClipboardService implements vscode.Disposable {
         break;
         
       case "clipboard_update":
-        // Notify webview store if needed (this would require an event emitter or callback)
-        // For P1, we primarily use this log. 
-        // In P2, we should emit this event so the React Store can add it to 'clipboardHistory'.
         this.outputChannel.appendLine(`Clipboard copied: ${msg.content?.substring(0, 50)}...`);
         break;
         
-      case "trigger_search":
-        if (msg.query) {
-            await this.handleSearchTrigger(msg.query);
+      case "trigger_xml":
+        if (msg.xml_payloads && msg.xml_payloads.length > 0) {
+            this.outputChannel.appendLine(`[TRIGGER] Detected ${msg.xml_payloads.length} XML actions.`);
+            // Fire the event for the ClipboardManager to handle
+            this._onTriggerXml.fire(msg.xml_payloads);
         }
         break;
         
@@ -118,56 +113,8 @@ export class ClipboardService implements vscode.Disposable {
     }
   }
 
-  private async handleSearchTrigger(query: string) {
-      if (!this.indexingService) {
-          vscode.window.showWarningMessage("Search triggered but IndexingService not available.");
-          return;
-      }
-
-      this.outputChannel.appendLine(`[TRIGGER] Executing search for: "${query}"`);
-      
-      try {
-        // Execute search
-        const results = await this.indexingService.search(query, { limit: 5 });
-        
-        if (results.length === 0) {
-            vscode.window.showInformationMessage(`No results found for: ${query}`);
-            return;
-        }
-
-        // Format results for clipboard
-        let buffer = `// Search Results for: "${query}"\n\n`;
-        for (const r of results) {
-            const relPath = r.payload.filePath; // path is absolute in payload usually, need relative?
-            buffer += `// File: ${relPath} (Lines ${r.payload.lineStart}-${r.payload.lineEnd})\n`;
-            buffer += `\`\`\`${path.extname(relPath).substring(1)}\n`;
-            buffer += `${r.payload.content}\n`;
-            buffer += `\`\`\`\n\n`;
-        }
-
-        // Write back to clipboard
-        await vscode.env.clipboard.writeText(buffer);
-        
-        // Show notification (This mimics "Desktop Notification" via VS Code API which shows system toast on many OSs)
-        vscode.window.showInformationMessage(
-            `Search results for "${query}" copied to clipboard!`, 
-            "View in Editor"
-        ).then(selection => {
-            if (selection === "View in Editor") {
-                // Optional: Open a new file with results
-            }
-        });
-
-      } catch (err) {
-          this.outputChannel.appendLine(`Search trigger failed: ${err}`);
-          vscode.window.showErrorMessage("Failed to execute clipboard search trigger.");
-      }
-  }
-
-  // ... (copyFilesToClipboard, getBinaryPath, cleanupProcess, dispose - same as before)
+  // ... (copyFilesToClipboard, getBinaryPath kept as is from previous version)
   public async copyFilesToClipboard(filePaths: string[]): Promise<void> {
-    // Implementation kept from previous file...
-    // Re-implemented briefly for completeness of this file block
     if (!filePaths.length) return;
     const uniqueFilePaths = [...new Set(filePaths)];
     const binPath = this.getBinaryPath("clipboard-files");
@@ -215,6 +162,7 @@ export class ClipboardService implements vscode.Disposable {
 
   public dispose(): void {
     this.cleanupProcess();
+    this._onTriggerXml.dispose();
     for (const d of this.disposables) d.dispose();
   }
 }
