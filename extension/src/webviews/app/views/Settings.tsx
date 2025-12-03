@@ -29,6 +29,7 @@ import {
   PlayRegular,
   SaveRegular,
   SearchRegular,
+  ClipboardCodeRegular
 } from "@fluentui/react-icons";
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -171,6 +172,9 @@ export default function Settings() {
     searchLimit: 10,
     searchThreshold: 0.7,
     includeQueryInCopy: false,
+    clipboardMonitorDuration: 5,
+    guidanceSearchLimit: 2,
+    guidanceSearchThreshold: 0.6
   });
 
   const [initialSettings, setInitialSettings] =
@@ -832,7 +836,62 @@ export default function Settings() {
 
         <Divider />
 
-        {/* 4. Maintenance / Migration */}
+        {/* 4. Clipboard & Guidance Settings */}
+        <section className={styles.section}>
+          <div className={styles.sectionHeader}>
+            <ClipboardCodeRegular />
+            <Text weight="semibold">Clipboard & Guidance</Text>
+          </div>
+
+          <div className={styles.gridTwoCol}>
+            <Field label="Clipboard Monitor Duration">
+                <Dropdown
+                    placeholder="Select duration"
+                    value={`${settings.clipboardMonitorDuration} minutes`}
+                    onOptionSelect={(_, data) => updateSetting("clipboardMonitorDuration", parseInt(data.optionValue || "5"))}
+                >
+                    <FluentOption key="1" value="1">1 Minute</FluentOption>
+                    <FluentOption key="5" value="5">5 Minutes</FluentOption>
+                    <FluentOption key="10" value="10">10 Minutes</FluentOption>
+                    <FluentOption key="20" value="20">20 Minutes</FluentOption>
+                </Dropdown>
+            </Field>
+          </div>
+
+          <div className={styles.gridTwoCol}>
+            <Field label="Guidance Max Results">
+                <Input
+                type="number"
+                min={1}
+                max={20}
+                value={settings.guidanceSearchLimit.toString()}
+                onChange={(_, d) =>
+                    updateSetting("guidanceSearchLimit", parseInt(d.value))
+                }
+                />
+            </Field>
+
+             <Field
+                label={`Guidance Threshold (${(settings.guidanceSearchThreshold * 100).toFixed(
+                0
+                )}%)`}
+            >
+                <Slider
+                min={0}
+                max={100}
+                step={5}
+                value={settings.guidanceSearchThreshold * 100}
+                onChange={(_, d) =>
+                    updateSetting("guidanceSearchThreshold", d.value / 100)
+                }
+                />
+            </Field>
+          </div>
+        </section>
+
+        <Divider />
+
+        {/* 5. Maintenance / Migration */}
         <section className={styles.maintenanceZone}>
           <div className={styles.maintenanceRow}>
             <div>

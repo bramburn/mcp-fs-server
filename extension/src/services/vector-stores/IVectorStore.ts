@@ -33,6 +33,8 @@ export interface IVectorStore {
         content: string;
         lineStart: number;
         lineEnd: number;
+        type?: 'file' | 'guidance';
+        guidanceId?: string;
       };
     }>,
     token?: vscode.CancellationToken
@@ -44,13 +46,14 @@ export interface IVectorStore {
    * @param vector Query vector
    * @param limit Maximum number of results
    * @param token Optional cancellation token
+   * @param filter Optional filter object (provider specific)
    * @returns Array of search results
    */
   search(
     collectionName: string,
     vector: number[],
     limit: number,
-    token?: vscode.CancellationToken
+    token?: vscode.CancellationToken,
+    filter?: any
   ): Promise<SearchResultItem[]>;
 }
-

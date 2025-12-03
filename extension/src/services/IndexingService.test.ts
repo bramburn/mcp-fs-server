@@ -43,6 +43,10 @@ const mockSettings: VSCodeSettings = {
   searchLimit: 10,
   searchThreshold: 0.7,
   includeQueryInCopy: false,
+  // Added new properties to satisfy type checker
+  clipboardMonitorDuration: 5,
+  guidanceSearchLimit: 2,
+  guidanceSearchThreshold: 0.6
 };
 
 // Mock SettingsManager directly since the IndexingService should rely on it now
@@ -257,7 +261,8 @@ describe("IndexingService", () => {
           excludePatterns: [],
           includeExtensions: ["ts", "js"],
         },
-        search: { limit: 10, threshold: 0.7 },
+        search: { limit: 10, threshold: 0.7, includeQueryInCopy: false, guidanceLimit: 2, guidanceThreshold: 0.6 },
+        clipboard: { monitorDuration: 5 },
         general: { trace: false },
         qdrantConfig: {
             active_vector_db: "qdrant",
@@ -303,7 +308,8 @@ describe("IndexingService", () => {
 
         vi.spyOn(mockConfigService, "config", "get").mockReturnValue({
           indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
-          search: { limit: 10, threshold: 0.7 },
+          search: { limit: 10, threshold: 0.7, includeQueryInCopy: false, guidanceLimit: 2, guidanceThreshold: 0.6 },
+          clipboard: { monitorDuration: 5 },
           general: { trace: false },
           qdrantConfig: {
             active_vector_db: "qdrant",
@@ -342,7 +348,8 @@ describe("IndexingService", () => {
           excludePatterns: [],
           includeExtensions: ["ts", "js"],
         },
-        search: { limit: 10, threshold: 0.7 },
+        search: { limit: 10, threshold: 0.7, includeQueryInCopy: false, guidanceLimit: 2, guidanceThreshold: 0.6 },
+        clipboard: { monitorDuration: 5 },
         general: { trace: false },
         qdrantConfig: {
             active_vector_db: "qdrant",
@@ -399,7 +406,8 @@ describe("IndexingService", () => {
           excludePatterns: [],
           includeExtensions: ["ts", "js"],
         },
-        search: { limit: 10, threshold: 0.7 },
+        search: { limit: 10, threshold: 0.7, includeQueryInCopy: false, guidanceLimit: 2, guidanceThreshold: 0.6 },
+        clipboard: { monitorDuration: 5 },
         general: { trace: false },
         qdrantConfig: {
             active_vector_db: "qdrant",

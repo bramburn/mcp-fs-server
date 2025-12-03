@@ -13,6 +13,7 @@ export interface SearchResultItem {
     content: string;
     lineStart: number;
     lineEnd: number;
+    type?: 'file' | 'guidance';
   };
 }
 
@@ -30,4 +31,3 @@ export interface IndexingProgress {
  * Callback type for indexing progress updates
  */
 export type IndexingProgressListener = (progress: IndexingProgress) => void;
-

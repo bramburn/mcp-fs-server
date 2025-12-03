@@ -60,10 +60,20 @@ export class XmlParser {
 
     const type = match[1].toLowerCase() as ParsedAction["type"];
     const attributes = extractAttributes(match[2]);
-    const fullContent = rawXml.substring(
-      rawXml.indexOf(">") + 1,
-      rawXml.lastIndexOf("</")
-    );
+
+    // Handle Content Extraction (Self-closing vs Full)
+    const isSelfClosing = rawXml.trim().endsWith("/>");
+    let fullContent = "";
+
+    if (!isSelfClosing) {
+        // Standard tag with closing </qdrant-xxx>
+        const closeTagIndex = rawXml.lastIndexOf("</");
+        const openTagEndIndex = rawXml.indexOf(">") + 1;
+
+        if (closeTagIndex > openTagEndIndex) {
+            fullContent = rawXml.substring(openTagEndIndex, closeTagIndex);
+        }
+    }
 
     const parsedAction: ParsedAction = {
       id: `${Date.now()}-${index}`,

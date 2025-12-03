@@ -728,6 +728,94 @@ export class IndexingService implements vscode.Disposable {
   }
 
   /**
+   * Indexes a guidance string (e.g., from clipboard).
+   */
+  public async indexGuidance(content: string, token?: vscode.CancellationToken): Promise<string> {
+    if (!this._activeConfig || !this._vectorStore) {
+        // Attempt to auto-init if not ready (uses default workspace behavior)
+        if (!await this.initializeForSearch(this.getActiveWorkspaceFolder()!)) {
+             throw new Error("Indexing Service not initialized.");
+        }
+    }
+
+    // Double check initialization
+    if (!this._activeConfig || !this._vectorStore) {
+        throw new Error("Indexing Service initialization failed.");
+    }
+
+    // Check for cancellation
+    if (token?.isCancellationRequested) {
+      throw new Error("Indexing cancelled");
+    }
+
+    const collectionName = this._activeConfig.index_info?.name || "codebase";
+    const guidanceId = crypto.randomUUID();
+
+    this._logger.log(`[INDEXING] Processing guidance item (${content.length} bytes)`);
+
+    // Use custom splitting logic for guidance: 10% overlap
+    const lines = content.split('\n');
+    const CHUNK_SIZE = 50;
+    const OVERLAP = Math.ceil(CHUNK_SIZE * 0.10); // 10% overlap -> 5 lines
+
+    const chunks = [];
+    for (let i = 0; i < lines.length; i += (CHUNK_SIZE - OVERLAP)) {
+        const end = Math.min(i + CHUNK_SIZE, lines.length);
+        const chunkLines = lines.slice(i, end);
+        const chunkText = chunkLines.join('\n').trim();
+
+        if (chunkText.length > 0) {
+            chunks.push({
+                id: crypto.randomUUID(),
+                content: chunkText,
+                lineStart: i + 1,
+                lineEnd: end
+            });
+        }
+    }
+
+    const points: Array<{
+        id: string;
+        vector: number[];
+        payload: {
+            filePath: string;
+            content: string;
+            lineStart: number;
+            lineEnd: number;
+            type: "guidance";
+            guidanceId: string;
+        }
+    }> = [];
+
+    for (const chunk of chunks) {
+        if (token?.isCancellationRequested) throw new Error("Indexing cancelled");
+
+        const vector = await this.generateEmbedding(chunk.content, token);
+        if (vector) {
+            points.push({
+                id: chunk.id,
+                vector: vector,
+                payload: {
+                    filePath: "clipboard", // Special marker
+                    content: chunk.content,
+                    lineStart: chunk.lineStart,
+                    lineEnd: chunk.lineEnd,
+                    type: "guidance", // Explicitly typed as "guidance"
+                    guidanceId: guidanceId
+                }
+            });
+        }
+    }
+
+    if (points.length > 0) {
+         await this._vectorStore.upsertPoints(collectionName, points, token);
+         this._logger.log(`[INDEXING] Indexed guidance item ${guidanceId} with ${points.length} chunks.`);
+    }
+
+    return guidanceId;
+  }
+
+  /**
    * Breaks file content into chunks, embeds them, and uploads to Qdrant
    */
   private async indexFile(
@@ -760,7 +848,17 @@ export class IndexingService implements vscode.Disposable {
       `[INDEXING] Split ${filePath} into ${chunks.length} chunks`
     );
 
-    const points = [];
+    const points: Array<{
+        id: string;
+        vector: number[];
+        payload: {
+            filePath: string;
+            content: string;
+            lineStart: number;
+            lineEnd: number;
+            type: "file";
+        }
+    }> = [];
     let embeddingCount = 0;
 
     for (const chunk of chunks) {
@@ -787,6 +885,7 @@ export class IndexingService implements vscode.Disposable {
           content: chunk.content,
           lineStart: chunk.lineStart,
           lineEnd: chunk.lineEnd,
+          type: 'file' // Explicitly set type to "file"
         },
       });
     }
@@ -944,7 +1043,7 @@ export class IndexingService implements vscode.Disposable {
 
   public async search(
     query: string,
-    options?: { limit?: number },
+    options?: { limit?: number, filter?: any }, // Added filter
     token?: vscode.CancellationToken
   ): Promise<SearchResultItem[]> {
     if (!this._vectorStore || !this._activeConfig) {
@@ -1001,11 +1100,13 @@ export class IndexingService implements vscode.Disposable {
         `[SEARCH] Executing vector search with limit ${searchLimit}`
       );
 
+      // Pass filter to vector store (assumes vector store supports it, which Qdrant does)
       const results = await this._vectorStore.search(
         collectionName,
         vector,
         searchLimit,
-        token
+        token,
+        options?.filter
       );
 
       const searchDuration = Date.now() - searchStartTime;

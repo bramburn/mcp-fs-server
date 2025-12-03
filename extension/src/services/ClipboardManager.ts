@@ -3,7 +3,7 @@ import * as path from 'path';
 import { ClipboardService } from './ClipboardService.js';
 import { XmlParser } from './XmlParser.js';
 import { WebviewController } from '../webviews/WebviewController.js'; 
-import { ParsedAction, ClipboardHistoryItem } from '../webviews/protocol.js';
+import { ParsedAction, ClipboardHistoryItem, MONITOR_STOP_COMMAND } from '../webviews/protocol.js';
 
 // List of highly sensitive patterns that should never be edited/read by AI.
 const SENSITIVE_FILE_BLOCKLIST = [
@@ -19,6 +19,8 @@ const SENSITIVE_FILE_BLOCKLIST = [
 
 export class ClipboardManager implements vscode.Disposable {
     private disposables: vscode.Disposable[] = [];
+    private isMonitoring = false;
+    private monitorTimeout: NodeJS.Timeout | null = null;
 
     constructor(
         private clipboardService: ClipboardService,
@@ -29,10 +31,77 @@ export class ClipboardManager implements vscode.Disposable {
     }
 
     private initialize() {
-        // Listen to the specific trigger event from ClipboardService
+        // Listen to the specific trigger event from ClipboardService (always active for automations)
         this.disposables.push(
             this.clipboardService.onTriggerXml((payloads) => this.handleXmlTrigger(payloads))
         );
+
+        // Listen for general clipboard updates (only active when monitoring is enabled)
+        this.disposables.push(
+            this.clipboardService.onClipboardUpdate((content) => this.handleClipboardUpdate(content))
+        );
+    }
+
+    public startMonitoring(durationMinutes: number) {
+        this.isMonitoring = true;
+
+        // Clear existing timeout if any
+        if (this.monitorTimeout) {
+            clearTimeout(this.monitorTimeout);
+        }
+
+        const durationMs = durationMinutes * 60 * 1000;
+        this.monitorTimeout = setTimeout(() => {
+            this.stopMonitoring();
+        }, durationMs);
+
+        vscode.window.setStatusBarMessage(`Clipboard Monitor Started (${durationMinutes}m)`, 3000);
+    }
+
+    public stopMonitoring() {
+        if (!this.isMonitoring) return;
+
+        this.isMonitoring = false;
+        if (this.monitorTimeout) {
+            clearTimeout(this.monitorTimeout);
+            this.monitorTimeout = null;
+        }
+
+        // Notify Webview that monitoring stopped
+        this.webviewController.sendToWebview({
+            id: crypto.randomUUID(),
+            scope: 'debugger',
+            kind: 'notification',
+            timestamp: Date.now(),
+            method: MONITOR_STOP_COMMAND,
+            params: {}
+        });
+
+        // Notify User via desktop notification
+        vscode.window.showInformationMessage("Clipboard monitoring session has ended.");
+    }
+
+    private async handleClipboardUpdate(content: string) {
+        if (!this.isMonitoring) return;
+
+        // Create a history item for the plain text content
+        const historyItem: ClipboardHistoryItem = {
+            id: crypto.randomUUID(),
+            timestamp: Date.now(),
+            originalContent: content,
+            type: 'text',
+            parsedActions: []
+        };
+
+        // Send to Webview
+        this.webviewController.sendToWebview({
+            id: crypto.randomUUID(),
+            scope: 'debugger',
+            kind: 'notification',
+            timestamp: Date.now(),
+            method: 'clipboard/history-add',
+            params: { item: historyItem }
+        });
     }
 
     private async handleXmlTrigger(xmlPayloads: string[]) {
@@ -140,6 +209,9 @@ export class ClipboardManager implements vscode.Disposable {
     }
 
     public dispose() {
+        if (this.monitorTimeout) {
+            clearTimeout(this.monitorTimeout);
+        }
         this.disposables.forEach(d => d.dispose());
     }
 }

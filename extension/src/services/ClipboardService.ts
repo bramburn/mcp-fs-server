@@ -24,6 +24,10 @@ export class ClipboardService implements vscode.Disposable {
   private _onTriggerXml = new vscode.EventEmitter<string[]>();
   public readonly onTriggerXml = this._onTriggerXml.event;
 
+  // Event Emitter for General Clipboard Updates
+  private _onClipboardUpdate = new vscode.EventEmitter<string>();
+  public readonly onClipboardUpdate = this._onClipboardUpdate.event;
+
   constructor(
     context: vscode.ExtensionContext,
     outputChannel: vscode.OutputChannel
@@ -97,6 +101,9 @@ export class ClipboardService implements vscode.Disposable {
         
       case "clipboard_update":
         this.outputChannel.appendLine(`Clipboard copied: ${msg.content?.substring(0, 50)}...`);
+        if (msg.content) {
+            this._onClipboardUpdate.fire(msg.content);
+        }
         break;
         
       case "trigger_xml":
@@ -163,6 +170,7 @@ export class ClipboardService implements vscode.Disposable {
   public dispose(): void {
     this.cleanupProcess();
     this._onTriggerXml.dispose();
+    this._onClipboardUpdate.dispose();
     for (const d of this.disposables) d.dispose();
   }
 }
