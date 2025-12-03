@@ -234,7 +234,10 @@ export interface TestConfigResponse {
   success: boolean;
   message: string;
   qdrantStatus?: string;
+  pineconeStatus?: string;
   ollamaStatus?: string;
+  openaiStatus?: string;
+  geminiStatus?: string;
 }
 export const TEST_CONFIG_METHOD = "config/test";
 

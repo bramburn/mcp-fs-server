@@ -263,6 +263,13 @@ export class ConfigService implements vscode.Disposable {
     let embedStatus: "connected" | "failed" = "failed";
     const errors: string[] = [];
 
+    // Track specific provider statuses
+    let qdrantStatus: "connected" | "failed" | undefined;
+    let pineconeStatus: "connected" | "failed" | undefined;
+    let ollamaStatus: "connected" | "failed" | undefined;
+    let openaiStatus: "connected" | "failed" | undefined;
+    let geminiStatus: "connected" | "failed" | undefined;
+
     // 1. Test Active Embedding Provider
     try {
       if (
@@ -274,8 +281,13 @@ export class ConfigService implements vscode.Disposable {
         const res = await fetch(`${config.ollama_config.base_url}/api/tags`, {
           signal: controller.signal,
         });
-        if (res.ok) embedStatus = "connected";
-        else errors.push(`Ollama: ${res.statusText}`);
+        if (res.ok) {
+          embedStatus = "connected";
+          ollamaStatus = "connected";
+        } else {
+          errors.push(`Ollama: ${res.statusText}`);
+          ollamaStatus = "failed";
+        }
       } else if (
         config.active_embedding_provider === "openai" &&
         config.openai_config
@@ -288,8 +300,13 @@ export class ConfigService implements vscode.Disposable {
           },
           signal: controller.signal,
         });
-        if (res.ok) embedStatus = "connected";
-        else errors.push(`OpenAI: ${res.statusText}`);
+        if (res.ok) {
+          embedStatus = "connected";
+          openaiStatus = "connected";
+        } else {
+          errors.push(`OpenAI: ${res.statusText}`);
+          openaiStatus = "failed";
+        }
       } else if (
         config.active_embedding_provider === "gemini" &&
         config.gemini_config
@@ -303,8 +320,13 @@ export class ConfigService implements vscode.Disposable {
             signal: controller.signal,
           }
         );
-        if (res.ok) embedStatus = "connected";
-        else errors.push(`Gemini: ${res.statusText}`);
+        if (res.ok) {
+          embedStatus = "connected";
+          geminiStatus = "connected";
+        } else {
+          errors.push(`Gemini: ${res.statusText}`);
+          geminiStatus = "failed";
+        }
       }
     } catch (e) {
       errors.push(
@@ -312,6 +334,13 @@ export class ConfigService implements vscode.Disposable {
           e instanceof Error ? e.message : String(e)
         }`
       );
+      // Mark active provider as failed if exception occurred
+      if (config.active_embedding_provider === "ollama")
+        ollamaStatus = "failed";
+      else if (config.active_embedding_provider === "openai")
+        openaiStatus = "failed";
+      else if (config.active_embedding_provider === "gemini")
+        geminiStatus = "failed";
     }
 
     // 2. Test Active Vector DB
@@ -322,9 +351,13 @@ export class ConfigService implements vscode.Disposable {
         const res = await fetch(`${config.qdrant_config.url}/collections`, {
           signal: controller.signal,
         });
-        if (res.ok || res.status === 401 || res.status === 403)
+        if (res.ok || res.status === 401 || res.status === 403) {
           dbStatus = "connected"; // Auth error means reachable
-        else errors.push(`Qdrant: ${res.statusText}`);
+          qdrantStatus = "connected";
+        } else {
+          errors.push(`Qdrant: ${res.statusText}`);
+          qdrantStatus = "failed";
+        }
       } else if (
         config.active_vector_db === "pinecone" &&
         config.pinecone_config
@@ -337,23 +370,30 @@ export class ConfigService implements vscode.Disposable {
           config.pinecone_config.index_name
         ) {
           dbStatus = "connected"; // Weak check without SDK
+          pineconeStatus = "connected";
         } else {
           errors.push("Pinecone: Missing configuration");
+          pineconeStatus = "failed";
         }
       }
     } catch (e) {
       errors.push(
         `Vector DB Error: ${e instanceof Error ? e.message : String(e)}`
       );
+      if (config.active_vector_db === "qdrant") qdrantStatus = "failed";
+      else if (config.active_vector_db === "pinecone") pineconeStatus = "failed";
     }
 
     const success = dbStatus === "connected" && embedStatus === "connected";
 
     return {
       success,
-      qdrantStatus: dbStatus, // Reuse existing field names for compatibility
-      ollamaStatus: embedStatus,
       message: success ? "All systems operational" : errors.join(" | "),
+      qdrantStatus,
+      pineconeStatus,
+      ollamaStatus,
+      openaiStatus,
+      geminiStatus,
     };
   }
 
