@@ -68,7 +68,7 @@ export class SearchHandler implements IRequestHandler {
     request: IpcRequest<SearchRequestParams>,
     context: IpcContext
   ): Promise<IpcResponse<any>> {
-    const { query, limit, globFilter } = request.params;
+    const { query, limit, globFilter, includeGuidance } = request.params;
 
     if (!query || typeof query !== "string" || query.trim().length === 0) {
       throw new Error("Invalid search query");
@@ -83,26 +83,74 @@ export class SearchHandler implements IRequestHandler {
       throw new Error("Indexing service failed to initialize.");
     }
 
-    // 2. Perform Search
-    context.log(`Executing search for: "${query}"`, "INFO");
-    const rawResults = await this.indexingService.search(query.trim(), {
+    // 2. Perform Primary Search (Files)
+    // Filter out guidance items by default unless strictly asked for (or just separate them)
+    // The requirement is: "first undertake a search with filters for files, then undertake a second search using the filter for the guidance"
+    // Assuming 'type' field is available in payload. If 'type' is missing, assume it's a file (legacy items).
+    context.log(`Executing file search for: "${query}"`, "INFO");
+
+    // Qdrant filter for files (type != 'guidance' OR type is null)
+    const fileFilter = {
+        must_not: [
+            { key: "type", match: { value: "guidance" } }
+        ]
+    };
+
+    const rawFileResults = await this.indexingService.search(query.trim(), {
       limit,
+      filter: fileFilter
     });
 
-    // 3. Transform & Filter Results
-    let results: FileSnippetResult[] = rawResults.map((item) => {
-      const workspacePath = folder.uri.fsPath;
-      const fullPath = item.payload.filePath.startsWith("/")
-        ? item.payload.filePath
-        : `${workspacePath}/${item.payload.filePath}`;
+    let finalRawResults = [...rawFileResults];
+
+    // 3. Perform Secondary Search (Guidance) if requested
+    if (includeGuidance) {
+        const guidanceLimit = this.configService.config.search.guidanceLimit || 2;
+        const guidanceThreshold = this.configService.config.search.guidanceThreshold || 0.6;
+
+        context.log(`Executing guidance search for: "${query}" (Limit: ${guidanceLimit})`, "INFO");
+
+        const guidanceFilter = {
+            must: [
+                { key: "type", match: { value: "guidance" } }
+            ]
+        };
+
+        const rawGuidanceResults = await this.indexingService.search(query.trim(), {
+            limit: guidanceLimit,
+            filter: guidanceFilter
+        });
+
+        // Filter by specific guidance threshold if needed, or rely on global threshold
+        const validGuidance = rawGuidanceResults.filter(r => r.score >= guidanceThreshold);
+
+        // Append to results
+        finalRawResults = [...finalRawResults, ...validGuidance];
+    }
+
+    // 4. Transform & Filter Results
+    let results: FileSnippetResult[] = finalRawResults.map((item) => {
+      const isGuidance = item.payload.type === 'guidance';
+
+      let uriString: string;
+      if (isGuidance) {
+          uriString = 'guidance:clipboard';
+      } else {
+        const workspacePath = folder.uri.fsPath;
+        const fullPath = item.payload.filePath.startsWith("/")
+            ? item.payload.filePath
+            : `${workspacePath}/${item.payload.filePath}`;
+        uriString = vscode.Uri.file(fullPath).toString();
+      }
 
       return {
-        uri: vscode.Uri.file(fullPath).toString(),
+        uri: uriString,
         filePath: item.payload.filePath,
         snippet: item.payload.content,
         lineStart: item.payload.lineStart,
         lineEnd: item.payload.lineEnd,
         score: item.score,
+        type: item.payload.type || 'file'
       };
     });
 
@@ -111,12 +159,14 @@ export class SearchHandler implements IRequestHandler {
         .split(",")
         .map((p) => p.trim())
         .filter((p) => p.length > 0);
+
+      // Only filter file results, keep guidance results
       results = results.filter((result) =>
-        patterns.some((pattern) => minimatch(result.filePath, pattern))
+        result.type === 'guidance' || patterns.some((pattern) => minimatch(result.filePath, pattern))
       );
     }
 
-    // 4. Analytics
+    // 5. Analytics
     this.analyticsService.trackSearch({
       queryLength: query.length,
       resultsCount: results.length,
@@ -153,7 +203,7 @@ export class SearchHandler implements IRequestHandler {
   private async updateSearchSettings(
     request: IpcRequest<UpdateSearchSettingsParams>
   ): Promise<IpcResponse<{ success: boolean }>> {
-    const { limit, threshold, includeQueryInCopy } = request.params;
+    const { limit, threshold, includeQueryInCopy, guidanceSearchLimit, guidanceSearchThreshold } = request.params;
 
     if (limit !== undefined) {
       await this.configService.updateVSCodeSetting("searchLimit", limit, true);
@@ -169,6 +219,20 @@ export class SearchHandler implements IRequestHandler {
       await this.configService.updateVSCodeSetting(
         "includeQueryInCopy",
         includeQueryInCopy,
+        true
+      );
+    }
+    if (guidanceSearchLimit !== undefined) {
+      await this.configService.updateVSCodeSetting(
+        "guidanceSearchLimit",
+        guidanceSearchLimit,
+        true
+      );
+    }
+    if (guidanceSearchThreshold !== undefined) {
+      await this.configService.updateVSCodeSetting(
+        "guidanceSearchThreshold",
+        guidanceSearchThreshold,
         true
       );
     }

@@ -41,6 +41,11 @@ export class SettingsManager {
       searchLimit: config.get<number>("searchLimit", 10),
       searchThreshold: config.get<number>("searchThreshold", 0.7),
       includeQueryInCopy: config.get<boolean>("includeQueryInCopy", false),
+      guidanceSearchLimit: config.get<number>("guidanceSearchLimit", 2),
+      guidanceSearchThreshold: config.get<number>("guidanceSearchThreshold", 0.6),
+
+      // Clipboard Settings
+      clipboardMonitorDuration: config.get<number>("clipboardMonitorDuration", 5)
     };
   }
 
@@ -167,6 +172,21 @@ export class SettingsManager {
         Promise.resolve(
           config.update("includeQueryInCopy", settings.includeQueryInCopy)
         )
+      );
+    }
+    if (settings.guidanceSearchLimit !== undefined) {
+      updates.push(
+        Promise.resolve(config.update("guidanceSearchLimit", settings.guidanceSearchLimit))
+      );
+    }
+    if (settings.guidanceSearchThreshold !== undefined) {
+      updates.push(
+        Promise.resolve(config.update("guidanceSearchThreshold", settings.guidanceSearchThreshold))
+      );
+    }
+    if (settings.clipboardMonitorDuration !== undefined) {
+      updates.push(
+        Promise.resolve(config.update("clipboardMonitorDuration", settings.clipboardMonitorDuration))
       );
     }
 

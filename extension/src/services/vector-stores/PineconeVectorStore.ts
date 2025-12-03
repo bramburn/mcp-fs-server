@@ -126,6 +126,8 @@ export class PineconeVectorStore implements IVectorStore {
         content: string;
         lineStart: number;
         lineEnd: number;
+        type?: 'file' | 'guidance';
+        guidanceId?: string;
       };
     }>,
     token?: vscode.CancellationToken
@@ -160,6 +162,8 @@ export class PineconeVectorStore implements IVectorStore {
           content: point.payload.content,
           lineStart: point.payload.lineStart,
           lineEnd: point.payload.lineEnd,
+          type: point.payload.type,
+          guidanceId: point.payload.guidanceId
         },
       }));
 
@@ -235,7 +239,8 @@ export class PineconeVectorStore implements IVectorStore {
     collectionName: string,
     vector: number[],
     limit: number,
-    token?: vscode.CancellationToken
+    token?: vscode.CancellationToken,
+    filter?: any
   ): Promise<SearchResultItem[]> {
     if (token?.isCancellationRequested) {
       throw new Error("Search cancelled");
@@ -259,6 +264,18 @@ export class PineconeVectorStore implements IVectorStore {
       const baseUrl = this.host.startsWith("http")
         ? this.host
         : `https://${this.host}`;
+
+      const body: any = {
+        vector: vector,
+        topK: limit,
+        includeMetadata: true,
+        namespace: collectionName,
+      };
+
+      if (filter) {
+          body.filter = filter;
+      }
+
       const searchResponse = await fetch(
         `${baseUrl}/query`,
         {
@@ -267,12 +284,7 @@ export class PineconeVectorStore implements IVectorStore {
             "Api-Key": this.apiKey,
             "Content-Type": "application/json",
           },
-          body: JSON.stringify({
-            vector: vector,
-            topK: limit,
-            includeMetadata: true,
-            namespace: collectionName,
-          }),
+          body: JSON.stringify(body),
           signal: controller.signal,
         }
       );
@@ -299,6 +311,8 @@ export class PineconeVectorStore implements IVectorStore {
             content: string;
             lineStart: number;
             lineEnd: number;
+            type?: 'file' | 'guidance';
+            guidanceId?: string;
           };
         }>;
       };
@@ -348,4 +362,3 @@ export class PineconeVectorStore implements IVectorStore {
     }
   }
 }
-

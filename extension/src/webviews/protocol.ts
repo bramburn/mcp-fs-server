@@ -57,6 +57,7 @@ export interface FileSnippetResult {
   lineStart: number;
   lineEnd: number;
   score: number;
+  type?: 'file' | 'guidance';
 }
 
 /**
@@ -113,6 +114,11 @@ export interface VSCodeSettings {
   searchLimit: number;
   searchThreshold: number;
   includeQueryInCopy: boolean;
+
+  // New Settings
+  clipboardMonitorDuration: number;
+  guidanceSearchLimit: number;
+  guidanceSearchThreshold: number;
 }
 
 // --- Clipboard Action Definitions (New) ---
@@ -145,6 +151,7 @@ export interface ClipboardHistoryItem {
     timestamp: number;
     originalContent: string;
     type: 'text' | 'code' | 'xml-command';
+    guidanceId?: string; // If vectorized, store the ID
     
     // Array of parsed, actionable commands found in the content
     parsedActions: ParsedAction[]; 
@@ -157,6 +164,7 @@ export interface SearchRequestParams {
   query: string;
   limit?: number;
   globFilter?: string;
+  includeGuidance?: boolean;
 }
 export interface SearchResponseParams {
   results: FileSnippetResult[];
@@ -245,6 +253,8 @@ export interface UpdateSearchSettingsParams {
   limit?: number;
   threshold?: number;
   includeQueryInCopy?: boolean;
+  guidanceSearchLimit?: number;
+  guidanceSearchThreshold?: number;
 }
 export const UPDATE_SEARCH_SETTINGS_METHOD = "config/update-search-settings";
 
@@ -294,3 +304,9 @@ export const TRIGGER_MONITOR_COMMAND = 'monitor/toggle'; // IPC to host to send 
 export const WEBVIEW_ACTION_VIEW = 'webview/view-code';
 export const WEBVIEW_ACTION_PREVIEW = 'webview/preview-diff';
 export const WEBVIEW_ACTION_IMPLEMENT = 'webview/implement-edit';
+
+// 19. Monitoring & Vectorization
+export const MONITOR_START_COMMAND = 'clipboard/monitor-start';
+export const MONITOR_STOP_COMMAND = 'clipboard/monitor-stop';
+export const VECTORIZE_GUIDANCE_COMMAND = 'clipboard/vectorize-guidance';
+export const VIEW_CONTENT_COMMAND = 'clipboard/view-content';

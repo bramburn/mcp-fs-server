@@ -31,6 +31,11 @@ export interface Configuration {
     limit: number;
     threshold: number;
     includeQueryInCopy?: boolean;
+    guidanceLimit: number;
+    guidanceThreshold: number;
+  };
+  clipboard: {
+      monitorDuration: number;
   };
   qdrantConfig?: QdrantOllamaConfig;
   semanticSearch?: {
@@ -78,7 +83,12 @@ export const DefaultConfiguration: Configuration = {
     limit: 10,
     threshold: 0.7,
     includeQueryInCopy: false,
+    guidanceLimit: 2,
+    guidanceThreshold: 0.6
   },
+  clipboard: {
+      monitorDuration: 5
+  }
 };
 
 /**
@@ -130,6 +140,20 @@ export class ConfigurationFactory {
           "includeQueryInCopy",
           DefaultConfiguration.search.includeQueryInCopy
         ),
+        guidanceLimit: vscodeConfig.get(
+          "guidanceSearchLimit",
+          DefaultConfiguration.search.guidanceLimit
+        ),
+        guidanceThreshold: vscodeConfig.get(
+          "guidanceSearchThreshold",
+          DefaultConfiguration.search.guidanceThreshold
+        )
+      },
+      clipboard: {
+          monitorDuration: vscodeConfig.get(
+            "clipboardMonitorDuration",
+            DefaultConfiguration.clipboard.monitorDuration
+          )
       },
       // BRIDGE: Map native VS Code settings to the internal legacy structure
       // This allows existing services to function without rewriting them to read individual setting keys.

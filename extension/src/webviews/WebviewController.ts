@@ -15,7 +15,9 @@ import { FileHandler } from "./handlers/FileHandler.js";
 import { IndexHandler } from "./handlers/IndexHandler.js";
 import { SearchHandler } from "./handlers/SearchHandler.js";
 import { EditHandler } from "./handlers/EditHandler.js"; 
+import { ClipboardHandler } from "./handlers/ClipboardHandler.js";
 import { IpcContext, IpcRouter } from "./ipc/IpcRouter.js";
+import { ClipboardManager } from "../services/ClipboardManager.js";
 
 /**
  * P2.1 Refactor: Decoupled Webview Controller
@@ -30,6 +32,9 @@ export class WebviewController
   private _ipcRouter: IpcRouter;
   private _debugMonitor: DebugMonitor | undefined;
 
+  // Late-bound handlers/managers
+  private _clipboardManager?: ClipboardManager;
+
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _indexingService: IndexingService,
@@ -41,6 +46,15 @@ export class WebviewController
   ) {
     this._ipcRouter = new IpcRouter(_logger);
     this.registerHandlers();
+  }
+
+  // Allow setting ClipboardManager after construction since they depend on each other
+  public setClipboardManager(clipboardManager: ClipboardManager) {
+      this._clipboardManager = clipboardManager;
+      // Register the handler now that we have the manager
+      this._ipcRouter.registerHandler(
+          new ClipboardHandler(clipboardManager, this._indexingService)
+      );
   }
 
   private registerHandlers() {

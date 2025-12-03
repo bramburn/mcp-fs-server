@@ -5,6 +5,9 @@ import { ConfigService } from "../services/ConfigService.js";
 import { IndexingService } from "../services/IndexingService.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { WorkspaceManager } from "../services/WorkspaceManager.js";
+import { WebviewController } from "../webviews/WebviewController.js";
+import { ClipboardManager } from "../services/ClipboardManager.js";
+import { XmlParser } from "../services/XmlParser.js";
 
 export class Container implements vscode.Disposable {
   static instance: Container | undefined;
@@ -30,6 +33,8 @@ export class Container implements vscode.Disposable {
   readonly indexingService: IndexingService;
   readonly statusBarItem: vscode.StatusBarItem;
   readonly clipboardService: ClipboardService;
+  readonly webviewController: WebviewController;
+  readonly clipboardManager: ClipboardManager;
 
   private readonly _readyPromise: Promise<void>;
 
@@ -53,6 +58,29 @@ export class Container implements vscode.Disposable {
       this.logger
     );
     this.clipboardService = new ClipboardService(context, outputChannel);
+
+    // Initialize WebviewController
+    this.webviewController = new WebviewController(
+        context.extensionUri,
+        this.indexingService,
+        this.workspaceManager,
+        this.configService,
+        this.analyticsService,
+        this.logger,
+        this.clipboardService
+    );
+    this.disposables.push(this.webviewController);
+
+    // Initialize ClipboardManager (Needs WebviewController)
+    this.clipboardManager = new ClipboardManager(
+        this.clipboardService,
+        new XmlParser(),
+        this.webviewController
+    );
+    this.disposables.push(this.clipboardManager);
+
+    // Inject ClipboardManager back into WebviewController for IPC handling
+    this.webviewController.setClipboardManager(this.clipboardManager);
 
     this.statusBarItem = vscode.window.createStatusBarItem(
       vscode.StatusBarAlignment.Right,

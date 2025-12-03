@@ -116,6 +116,8 @@ export class QdrantVectorStore implements IVectorStore {
         content: string;
         lineStart: number;
         lineEnd: number;
+        type?: 'file' | 'guidance';
+        guidanceId?: string;
       };
     }>,
     token?: vscode.CancellationToken
@@ -184,7 +186,8 @@ export class QdrantVectorStore implements IVectorStore {
     collectionName: string,
     vector: number[],
     limit: number,
-    token?: vscode.CancellationToken
+    token?: vscode.CancellationToken,
+    filter?: any
   ): Promise<SearchResultItem[]> {
     if (token?.isCancellationRequested) {
       throw new Error("Search cancelled");
@@ -208,6 +211,7 @@ export class QdrantVectorStore implements IVectorStore {
       const searchResult = await this.client.search(collectionName, {
         vector: vector,
         limit: limit,
+        filter: filter, // Pass filter
         with_payload: true,
       });
 
@@ -258,4 +262,3 @@ export class QdrantVectorStore implements IVectorStore {
     }
   }
 }
-

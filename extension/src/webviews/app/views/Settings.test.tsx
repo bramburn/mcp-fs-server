@@ -75,6 +75,10 @@ const mockSettings: VSCodeSettings = {
   searchLimit: 15,
   searchThreshold: 0.6,
   includeQueryInCopy: true,
+  // Added properties
+  clipboardMonitorDuration: 5,
+  guidanceSearchLimit: 2,
+  guidanceSearchThreshold: 0.6
 };
 
 describe("Settings View", () => {

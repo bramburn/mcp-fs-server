@@ -1,10 +1,36 @@
-import { describe, expect, it, vi, /* Removed beforeEach as unused */ } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
+import type * as vscodeTypes from 'vscode';
+
+// MOCK VS CODE API
+vi.mock('vscode', () => {
+    return {
+        Uri: {
+            file: (path: string) => ({ fsPath: path, path, scheme: 'file', toString: () => path }),
+            parse: (path: string) => ({ fsPath: path, path, scheme: 'file', toString: () => path })
+        },
+        workspace: {
+            openTextDocument: vi.fn(),
+            applyEdit: vi.fn(),
+            fs: {
+                stat: vi.fn(),
+                readFile: vi.fn()
+            }
+        },
+        Range: vi.fn(),
+        Position: vi.fn(),
+        WorkspaceEdit: vi.fn(() => ({
+            replace: vi.fn(),
+            createFile: vi.fn()
+        }))
+    };
+});
+
 import * as vscode from 'vscode';
 import { IndexingService } from '../../services/IndexingService.js';
 import { EditHandler } from './EditHandler.js';
 import { ParsedAction } from '../protocol.js';
 
-// Mock the IndexingService and its dependencies
+// Mock the IndexingService
 const mockIndexingService = {
     initializeForSearch: vi.fn().mockResolvedValue(true),
     search: vi.fn().mockResolvedValue([]),
@@ -45,6 +71,7 @@ const mockDocument = {
         return { line, character: char };
     }),
     lineAt: vi.fn((line: number) => ({ text: MOCK_FILE_CONTENT.split('\n')[line] })),
+    save: vi.fn().mockResolvedValue(true)
 } as unknown as vscode.TextDocument;
 
 
@@ -53,8 +80,6 @@ const { isMatchWithinLines } = new (EditHandler as any)(mockIndexingService).__p
 
 
 describe('EditHandler Line Ambiguity Resolution Logic', () => {
-
-    // Removed unused beforeEach
 
     it('should correctly identify a match within a single line number', () => {
         // Match starts at line 2 (offset 16), Match Length = 16 (const bar = 'bar';)
@@ -107,12 +132,12 @@ describe('EditHandler Line Ambiguity Resolution Logic', () => {
 describe('EditHandler Ambiguity Flow (performSearchAndReplace)', () => {
     
     // Setup for full handler test
+    // Now this works because vscode.Uri is mocked above
     const mockFileUri = vscode.Uri.file('/test/workspace/target.ts');
     
     // Mock the file system access
     vi.mocked(vscode.workspace.openTextDocument).mockResolvedValue(mockDocument);
     vi.mocked(vscode.workspace.applyEdit).mockResolvedValue(true);
-    vi.spyOn(mockDocument, 'save').mockResolvedValue(true);
 
     it('should throw ambiguity error if multiple matches found without line input', async () => {
         // The text 'const bar = 'bar';' appears on line 2 and line 8.

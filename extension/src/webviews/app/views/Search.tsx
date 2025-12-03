@@ -9,6 +9,7 @@ import {
   ToggleButton,
   tokens,
   Tooltip,
+  Checkbox,
 } from "@fluentui/react-components";
 import {
   ArrowRepeatAllRegular,
@@ -158,6 +159,9 @@ export default function Search() {
   const [scoreThreshold, setScoreThreshold] = useState(0.7);
   const [includeQueryInCopy, setIncludeQueryInCopy] = useState(false);
 
+  // New Guidance Filter
+  const [includeGuidance, setIncludeGuidance] = useState(false);
+
   // Use a ref to track the latest search input value
   const searchInputRef = useRef(searchInput);
 
@@ -229,6 +233,7 @@ export default function Search() {
           query: trimmed,
           limit: options?.limit ?? maxResults,
           globFilter: globFilter || undefined,
+          includeGuidance: includeGuidance
         });
 
         const allResults = response?.results ?? [];
@@ -250,7 +255,7 @@ export default function Search() {
         setIsLoading(false);
       }
     },
-    [ipc, maxResults, scoreThreshold, globFilter]
+    [ipc, maxResults, scoreThreshold, globFilter, includeGuidance]
   );
 
   // Clear results when input is cleared
@@ -356,13 +361,21 @@ export default function Search() {
             resize="vertical"
           />
 
-          <Input
-            placeholder="File filter (e.g. **/*.ts,*.py)"
-            contentAfter={<FilterRegular />}
-            value={globFilter}
-            onChange={(_e, data) => setGlobFilter(data.value)}
-            size="small"
-          />
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+            <Input
+                placeholder="File filter (e.g. **/*.ts,*.py)"
+                contentAfter={<FilterRegular />}
+                value={globFilter}
+                onChange={(_e, data) => setGlobFilter(data.value)}
+                size="small"
+                style={{ flexGrow: 1 }}
+            />
+            <Checkbox
+                label="Include Guidance"
+                checked={includeGuidance}
+                onChange={(_, d) => setIncludeGuidance(!!d.checked)}
+            />
+          </div>
         </div>
       </div>
 
