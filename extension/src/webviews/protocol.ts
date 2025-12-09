@@ -176,6 +176,7 @@ export interface SearchRequestParams {
   limit?: number;
   globFilter?: string;
   includeGuidance?: boolean;
+  useRegex?: boolean;
 }
 export interface SearchResponseParams {
   results: FileSnippetResult[];

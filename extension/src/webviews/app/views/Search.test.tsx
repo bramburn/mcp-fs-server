@@ -114,6 +114,40 @@ describe("Search view (React)", () => {
     });
   });
 
+  it("toggles regex mode and sends correct parameters", async () => {
+    const sendRequest = vi.fn().mockResolvedValue({ results: [] });
+    renderWithIpc(<Search />, { sendRequest });
+
+    const input = screen.getByPlaceholderText("Search your codebase with natural language queries...");
+    const regexCheckbox = screen.getByLabelText("Regex");
+    const filterInput = screen.getByPlaceholderText("File filter (e.g. **/*.ts,*.py)"); // Initial placeholder
+
+    // Enable regex
+    fireEvent.click(regexCheckbox);
+
+    // Placeholder should update
+    expect(screen.getByPlaceholderText("Regex filter (e.g. .*\\.ts$)")).toBeInTheDocument();
+
+    // Set filter and query
+    fireEvent.change(filterInput, { target: { value: ".*\\.ts$" } });
+    fireEvent.change(input, { target: { value: "test query" } });
+
+    // Trigger search
+    fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
+
+    await waitFor(() => {
+      expect(sendRequest).toHaveBeenCalledWith(
+        SEARCH_METHOD,
+        "qdrantIndex",
+        expect.objectContaining({
+            query: "test query",
+            globFilter: ".*\\.ts$",
+            useRegex: true
+        })
+      );
+    });
+  });
+
   it("filters results by score threshold", async () => {
     const mockResults = [
       { uri: "file1.ts", filePath: "file1.ts", snippet: "code", lineStart: 1, lineEnd: 2, score: 0.8 },
