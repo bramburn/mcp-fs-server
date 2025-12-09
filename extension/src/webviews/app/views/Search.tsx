@@ -155,6 +155,7 @@ export default function Search() {
 
   const [searchInput, setSearchInput] = useState("");
   const [globFilter, setGlobFilter] = useState("");
+  const [useRegex, setUseRegex] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<FileSnippetResult[]>([]);
   const [copyMode, setCopyMode] = useState<"files" | "snippets">("files");
@@ -244,7 +245,8 @@ export default function Search() {
           query: trimmed,
           limit: options?.limit ?? maxResults,
           globFilter: globFilter || undefined,
-          includeGuidance: includeGuidance
+          includeGuidance: includeGuidance,
+          useRegex: useRegex,
         });
 
         const allResults = response?.results ?? [];
@@ -266,7 +268,7 @@ export default function Search() {
         setIsLoading(false);
       }
     },
-    [ipc, maxResults, scoreThreshold, globFilter, includeGuidance]
+    [ipc, maxResults, scoreThreshold, globFilter, includeGuidance, useRegex]
   );
 
   const handleSearchClick = () => {
@@ -398,12 +400,17 @@ export default function Search() {
 
           <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px' }}> {/* ADDED MARGIN-TOP */}
             <Input
-                placeholder="File filter (e.g. **/*.ts,*.py)"
+                placeholder={useRegex ? "Regex filter (e.g. .*\\.ts$)" : "File filter (e.g. **/*.ts,*.py)"}
                 contentAfter={<FilterRegular />}
                 value={globFilter}
                 onChange={(_e, data) => setGlobFilter(data.value)}
                 size="small"
                 style={{ flexGrow: 1 }}
+            />
+             <Checkbox
+                label="Regex"
+                checked={useRegex}
+                onChange={(_, d) => setUseRegex(!!d.checked)}
             />
             <Checkbox
                 label="Include Guidance"

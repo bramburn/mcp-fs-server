@@ -68,7 +68,7 @@ export class SearchHandler implements IRequestHandler {
     request: IpcRequest<SearchRequestParams>,
     context: IpcContext
   ): Promise<IpcResponse<any>> {
-    const { query, limit, globFilter, includeGuidance } = request.params;
+    const { query, limit, globFilter, includeGuidance, useRegex } = request.params;
 
     if (!query || typeof query !== "string" || query.trim().length === 0) {
       throw new Error("Invalid search query");
@@ -155,15 +155,50 @@ export class SearchHandler implements IRequestHandler {
     });
 
     if (globFilter?.trim()) {
-      const patterns = globFilter
-        .split(",")
-        .map((p) => p.trim())
-        .filter((p) => p.length > 0);
+      if (useRegex) {
+        try {
+          // In regex mode, we treat the whole string as one pattern or split by comma if desired?
+          // Usually regexes can contain commas, so splitting by comma might be dangerous.
+          // However, to keep it consistent with "list of filters", we might want to support multiple regexes.
+          // But a single complex regex is more powerful and standard.
+          // Let's assume for now that if useRegex is true, the user provides a single regex or multiple regexes separated by a delimiter that is not common in regex (unlikely).
+          // Or we can just try to compile the whole string.
+          // IF the user wants multiple, they can use `(a|b)`.
+          // But wait, the placeholder says "e.g. .*\\.ts$".
+          // If I support comma separation, `.*\\.ts$,.*\\.js$` -> `.*\\.ts$` OR `.*\\.js$`.
+          // Users might expect comma separation because the glob mode does it.
+          // Let's support comma separation BUT be careful about escaped commas? No, that's too complex.
+          // Let's simple split by comma for now, assuming users won't use unescaped commas in their regexes often, or if they do, they accept this limitation.
+          // Alternatively, just treat the whole string as one regex. This is safer for regex users.
+          // "Glob filter (e.g. **/*.ts,*.py)" implies a list.
+          // "Regex filter" might imply a single regex.
+          // Let's treat it as a list of regexes for consistency, but maybe just use the whole string if it fails to split meaningfully?
+          // Actually, `(a|b)` is standard regex for "OR". So a single regex string is sufficient to cover "list" use cases.
+          // Splitting by comma breaks `Range{1,2}`.
+          // So for Regex mode, I will treat the ENTIRE string as ONE regex.
 
-      // Only filter file results, keep guidance results
-      results = results.filter((result) =>
-        result.type === 'guidance' || patterns.some((pattern) => minimatch(result.filePath, pattern))
-      );
+          const pattern = new RegExp(globFilter.trim());
+          results = results.filter((result) =>
+            result.type === 'guidance' || pattern.test(result.filePath)
+          );
+        } catch (e) {
+            context.log(`Invalid regex filter provided: ${globFilter}`, "ERROR");
+            // Optionally we could throw or return empty, or just ignore the filter.
+            // Ignoring is probably safest but confusing. Returning empty is clearer that "filter failed".
+            // Let's return empty matches for the file part (keep guidance).
+             results = results.filter((result) => result.type === 'guidance');
+        }
+      } else {
+        const patterns = globFilter
+            .split(",")
+            .map((p) => p.trim())
+            .filter((p) => p.length > 0);
+
+        // Only filter file results, keep guidance results
+        results = results.filter((result) =>
+            result.type === 'guidance' || patterns.some((pattern) => minimatch(result.filePath, pattern))
+        );
+      }
     }
 
     // 5. Analytics
