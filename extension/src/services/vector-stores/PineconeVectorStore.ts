@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { IVectorStore } from "./IVectorStore.js";
 import { SearchResultItem } from "../types.js";
 import { ILogger } from "../LoggerService.js";
+import { truncateByBytes } from "../../utils/stringUtils.js";
 
 /**
  * Pinecone vector store implementation using new SDK
@@ -143,21 +144,27 @@ export class PineconeVectorStore implements IVectorStore {
       }
 
       // Transform points to Pinecone format
-      const pineconeVectors = points.map((point) => ({
-        id: point.id,
-        values: point.vector,
-        metadata: {
-          filePath: point.payload.filePath,
-          content: point.payload.content,
-          lineStart: point.payload.lineStart,
-          lineEnd: point.payload.lineEnd,
-          type: point.payload.type,
-          guidanceId: point.payload.guidanceId,
-          // Map new fields safely
-          repoId: point.payload.repoId,
-          commit: point.payload.commit
-        },
-      }));
+      const pineconeVectors = points.map((point) => {
+        // Truncate content to avoid exceeding Pinecone's 40KB metadata limit
+        // We leave some buffer (35KB for content) for other fields
+        const safeContent = truncateByBytes(point.payload.content, 35000);
+
+        return {
+          id: point.id,
+          values: point.vector,
+          metadata: {
+            filePath: point.payload.filePath,
+            content: safeContent,
+            lineStart: point.payload.lineStart,
+            lineEnd: point.payload.lineEnd,
+            type: point.payload.type,
+            guidanceId: point.payload.guidanceId,
+            // Map new fields safely
+            repoId: point.payload.repoId,
+            commit: point.payload.commit
+          },
+        };
+      });
 
       const baseUrl = this.host.startsWith("http")
         ? this.host
