@@ -18,6 +18,7 @@ import {
   DocumentCopyRegular,
   FilterRegular,
   FolderOpenRegular,
+  SearchRegular,
 } from "@fluentui/react-icons";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
@@ -268,6 +269,15 @@ export default function Search() {
     [ipc, maxResults, scoreThreshold, globFilter, includeGuidance]
   );
 
+  const handleSearchClick = () => {
+    if (searchInput.trim().length > 2) {
+      executeSearch(searchInput, {
+        limit: maxResults,
+        threshold: scoreThreshold,
+      });
+    }
+  };
+
   // Clear results when input is cleared
   useEffect(() => {
     if (searchInput.length === 0) {
@@ -377,17 +387,16 @@ export default function Search() {
                 !e.shiftKey &&
                 searchInput.trim().length > 2
               ) {
-                executeSearch(searchInput, {
-                  limit: maxResults,
-                  threshold: scoreThreshold,
-                });
+                // Prevent form submission/newline insertion on simple Enter
+                e.preventDefault();
+                handleSearchClick();
               }
             }}
             appearance="outline"
             resize="vertical"
           />
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px' }}> {/* ADDED MARGIN-TOP */}
             <Input
                 placeholder="File filter (e.g. **/*.ts,*.py)"
                 contentAfter={<FilterRegular />}
@@ -401,6 +410,15 @@ export default function Search() {
                 checked={includeGuidance}
                 onChange={(_, d) => setIncludeGuidance(!!d.checked)}
             />
+            {/* ADDED SEARCH BUTTON */}
+            <Button
+                appearance="primary"
+                icon={<SearchRegular />}
+                onClick={handleSearchClick}
+                disabled={searchInput.trim().length < 3 || isLoading}
+            >
+                Search
+            </Button>
           </div>
         </div>
       </div>
