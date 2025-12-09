@@ -46,7 +46,8 @@ const mockSettings: VSCodeSettings = {
   // Added new properties to satisfy type checker
   clipboardMonitorDuration: 5,
   guidanceSearchLimit: 2,
-  guidanceSearchThreshold: 0.6
+  guidanceSearchThreshold: 0.6,
+  fileSearchLimit: 100
 };
 
 

@@ -40,7 +40,8 @@ const mockSettings: VSCodeSettings = {
   // Added properties
   clipboardMonitorDuration: 5,
   guidanceSearchLimit: 2,
-  guidanceSearchThreshold: 0.6
+  guidanceSearchThreshold: 0.6,
+  fileSearchLimit: 100
 };
 
 vi.mock("../settings.js", () => ({
