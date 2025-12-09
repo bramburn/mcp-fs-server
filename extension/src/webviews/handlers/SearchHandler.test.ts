@@ -4,7 +4,8 @@ import { IndexingService } from '../../services/IndexingService.js';
 import { WorkspaceManager } from '../../services/WorkspaceManager.js';
 import { ConfigService } from '../../services/ConfigService.js';
 import { AnalyticsService } from '../../services/AnalyticsService.js';
-import { IpcRequest, SEARCH_METHOD, SearchRequestParams, IpcContext } from '../protocol.js';
+import { IpcRequest, SEARCH_METHOD, SearchRequestParams } from '../protocol.js';
+import { IpcContext } from '../ipc/IpcRouter.js';
 
 // Mock VS Code API
 vi.mock("vscode", async () => {
@@ -126,7 +127,7 @@ describe('SearchHandler', () => {
       // and we mock separate call for guidance if needed, but the handler logic does 2 searches if includeGuidance is true)
 
       // Setup guidance search mock
-      (mockIndexingService.search as any).mockImplementation(async (_query, options) => {
+      (mockIndexingService.search as any).mockImplementation(async (_query: string, options: any): Promise<any[]> => {
           if (options.filter?.must) {
               // Guidance search
               return [{ payload: { filePath: 'guidance', content: 'tip', type: 'guidance' }, score: 0.9 }];
@@ -153,7 +154,7 @@ describe('SearchHandler', () => {
   });
 
     it('preserves guidance results regardless of regex filter', async () => {
-      (mockIndexingService.search as any).mockImplementation(async (_query, options) => {
+      (mockIndexingService.search as any).mockImplementation(async (_query: string, options: any): Promise<any[]> => {
           if (options.filter?.must) {
               return [{ payload: { filePath: 'guidance', content: 'tip', type: 'guidance' }, score: 0.9 }];
           } else {

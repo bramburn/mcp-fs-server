@@ -1,8 +1,8 @@
-import { IndexHandler } from "./IndexHandler";
-import { IndexingService } from "../../services/IndexingService";
-import { WorkspaceManager } from "../../services/WorkspaceManager";
-import { IpcContext } from "../ipc/IpcRouter";
-import { INDEX_STATUS_METHOD } from "../protocol";
+import { IndexHandler } from "./IndexHandler.js";
+import { IndexingService } from "../../services/IndexingService.js";
+import { WorkspaceManager } from "../../services/WorkspaceManager.js";
+import { IpcContext } from "../ipc/IpcRouter.js";
+import { INDEX_STATUS_METHOD } from "../protocol.js";
 import { describe, it, expect, beforeEach, vi, Mock } from "vitest";
 
 // Mock dependencies

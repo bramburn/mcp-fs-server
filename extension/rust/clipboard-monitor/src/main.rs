@@ -21,7 +21,7 @@ static CAPTURE_ALL: Lazy<Arc<Mutex<bool>>> = Lazy::new(|| Arc::new(Mutex::new(fa
 
 /// Regex for robustly detecting any qdrant XML command, capturing the entire tag block.
 /// (?s) enables dotall mode so that '.' matches newlines.
-const XML_COMMAND_REGEX: &str = r"(?s)(<qdrant-(file|search|read).*?>(.*?)</qdrant-\2>|<qdrant-(file|search|read).*?/>)";
+const XML_COMMAND_REGEX: &str = r"(?s)(<qdrant-(file|search|read).*?>(.*?)</qdrant-(file|search|read)>|<qdrant-(file|search|read).*?/>)";
 
 /// Checks for special XML tags in content and returns specific trigger messages.
 fn check_for_triggers(content: &str) -> Option<OutputMessage> {
