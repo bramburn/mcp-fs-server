@@ -201,6 +201,12 @@
           "type": "boolean",
           "default": false,
           "description": "Whether to include the search query when copying results."
+        },
+        "semanticSearch.indexInfoByRepo": {
+          "type": "object",
+          "default": {},
+          "description": "Internal state of indexing for repositories.",
+          "scope": "window"
         }
       }
     }
