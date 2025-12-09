@@ -77,6 +77,15 @@ const useStyles = makeStyles({
     width: "100%",
     ...shorthands.margin("0", "0", "12px"),
   },
+  searchControls: {
+    display: "flex",
+    flexDirection: "column",
+    ...shorthands.gap("8px"),
+    marginTop: "12px",
+  },
+  fullWidth: {
+    width: "100%",
+  },
   searchInput: {
     minHeight: "96px", // 3-4 rows
     maxHeight: "160px", // limit max height
@@ -148,7 +157,7 @@ export default function Search() {
   const ipc = useIpc();
 
   // Cast state to specific type
-  const indexStatus = useAppStore((state) => state.indexStatus) as IndexStatus; 
+  const indexStatus = useAppStore((state) => state.indexStatus) as IndexStatus;
   const indexStats = useAppStore((state) => state.indexStats);
   
   // const setView = useAppStore((state) => state.setView); // Retained but not used for navigation
@@ -398,33 +407,39 @@ export default function Search() {
             resize="vertical"
           />
 
-          <div style={{ display: 'flex', gap: '12px', alignItems: 'center', marginTop: '8px' }}> {/* ADDED MARGIN-TOP */}
-            <Input
+          <div className={styles.searchControls}>
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <Input
+                className={styles.fullWidth}
                 placeholder={useRegex ? "Regex filter (e.g. .*\\.ts$)" : "File filter (e.g. **/*.ts,*.py)"}
                 contentAfter={<FilterRegular />}
                 value={globFilter}
                 onChange={(_e, data) => setGlobFilter(data.value)}
                 size="small"
                 style={{ flexGrow: 1 }}
-            />
-             <Checkbox
+              />
+              <Checkbox
                 label="Regex"
                 checked={useRegex}
                 onChange={(_, d) => setUseRegex(!!d.checked)}
-            />
+              />
+            </div>
+            {/* Kept one instance of Include Guidance checkbox for filter options */}
             <Checkbox
-                label="Include Guidance"
-                checked={includeGuidance}
-                onChange={(_, d) => setIncludeGuidance(!!d.checked)}
+              label="Include Guidance"
+              checked={includeGuidance}
+              onChange={(_, d) => setIncludeGuidance(!!d.checked)}
             />
+            
             {/* ADDED SEARCH BUTTON */}
             <Button
-                appearance="primary"
-                icon={<SearchRegular />}
-                onClick={handleSearchClick}
-                disabled={searchInput.trim().length < 3 || isLoading}
+              className={styles.fullWidth}
+              appearance="primary"
+              icon={<SearchRegular />}
+              onClick={handleSearchClick}
+              disabled={searchInput.trim().length < 3 || isLoading}
             >
-                Search
+              Search
             </Button>
           </div>
         </div>
