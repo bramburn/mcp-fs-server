@@ -21,15 +21,8 @@ export async function activate(
 
   await container.ready;
 
-  const webviewController = new WebviewController(
-    context.extensionUri,
-    container.indexingService,
-    container.workspaceManager,
-    container.configService,
-    container.analyticsService,
-    container.logger,
-    container.clipboardService
-  );
+  // Use the WebviewController managed by the Container (which has ClipboardManager wired up)
+  const webviewController = container.webviewController;
 
   context.subscriptions.push(
     vscode.window.registerWebviewViewProvider(

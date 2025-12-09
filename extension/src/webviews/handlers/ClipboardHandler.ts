@@ -42,12 +42,15 @@ export class ClipboardHandler implements IRequestHandler {
   ): Promise<void> {
     switch (command.method) {
       case MONITOR_START_COMMAND:
+        // Start monitoring and enable capture-all (plain text) to populate clipboard history
         this.clipboardManager.startMonitoring(command.params.duration || 5);
         break;
       case MONITOR_STOP_COMMAND:
+        // Stop monitoring and disable capture-all (revert to XML-only triggers)
         this.clipboardManager.stopMonitoring();
         break;
       case TOGGLE_CAPTURE_COMMAND:
+        // Simply forward the toggle state to the manager (no conflict with Start/Stop)
         this.clipboardManager.toggleCapture(command.params.enabled);
         break;
       case VECTORIZE_GUIDANCE_COMMAND:
