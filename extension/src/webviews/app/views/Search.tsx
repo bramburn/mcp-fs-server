@@ -157,13 +157,14 @@ export default function Search() {
   const ipc = useIpc();
 
   // Cast state to specific type
-  const indexStatus = useAppStore((state) => state.indexStatus) as IndexStatus; 
+  const indexStatus = useAppStore((state) => state.indexStatus) as IndexStatus;
   const indexStats = useAppStore((state) => state.indexStats);
   
   // const setView = useAppStore((state) => state.setView); // Retained but not used for navigation
 
   const [searchInput, setSearchInput] = useState("");
   const [globFilter, setGlobFilter] = useState("");
+  const [useRegex, setUseRegex] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [results, setResults] = useState<FileSnippetResult[]>([]);
   const [copyMode, setCopyMode] = useState<"files" | "snippets">("files");
@@ -253,7 +254,8 @@ export default function Search() {
           query: trimmed,
           limit: options?.limit ?? maxResults,
           globFilter: globFilter || undefined,
-          includeGuidance: includeGuidance
+          includeGuidance: includeGuidance,
+          useRegex: useRegex,
         });
 
         const allResults = response?.results ?? [];
@@ -275,7 +277,7 @@ export default function Search() {
         setIsLoading(false);
       }
     },
-    [ipc, maxResults, scoreThreshold, globFilter, includeGuidance]
+    [ipc, maxResults, scoreThreshold, globFilter, includeGuidance, useRegex]
   );
 
   const handleSearchClick = () => {
@@ -406,14 +408,29 @@ export default function Search() {
           />
 
           <div className={styles.searchControls}>
-            <Input
-              className={styles.fullWidth}
-              placeholder="File filter (e.g. **/*.ts,*.py)"
-              contentAfter={<FilterRegular />}
-              value={globFilter}
-              onChange={(_e, data) => setGlobFilter(data.value)}
-              size="small"
+            <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+              <Input
+                className={styles.fullWidth}
+                placeholder={useRegex ? "Regex filter (e.g. .*\\.ts$)" : "File filter (e.g. **/*.ts,*.py)"}
+                contentAfter={<FilterRegular />}
+                value={globFilter}
+                onChange={(_e, data) => setGlobFilter(data.value)}
+                size="small"
+                style={{ flexGrow: 1 }}
+              />
+              <Checkbox
+                label="Regex"
+                checked={useRegex}
+                onChange={(_, d) => setUseRegex(!!d.checked)}
+              />
+            </div>
+            {/* Kept one instance of Include Guidance checkbox for filter options */}
+            <Checkbox
+              label="Include Guidance"
+              checked={includeGuidance}
+              onChange={(_, d) => setIncludeGuidance(!!d.checked)}
             />
+            
             {/* ADDED SEARCH BUTTON */}
             <Button
               className={styles.fullWidth}
@@ -424,11 +441,6 @@ export default function Search() {
             >
               Search
             </Button>
-            <Checkbox
-              label="Include Guidance"
-              checked={includeGuidance}
-              onChange={(_, d) => setIncludeGuidance(!!d.checked)}
-            />
           </div>
         </div>
       </div>
