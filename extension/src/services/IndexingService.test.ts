@@ -52,19 +52,6 @@ const mockSettings: VSCodeSettings = {
 
 
 
-// Mock GitProvider
-const mockGitProvider = {
-    getLastCommit: vi.fn().mockResolvedValue("commit-123"),
-    getRemoteUrl: vi.fn().mockResolvedValue("https://github.com/test/repo.git")
-};
-
-// Define a proper mock WorkspaceFolder BEFORE vi.mock("vscode")
-const mockWorkspaceFolder: vscodeTypes.WorkspaceFolder = {
-    uri: vscode.Uri.file("/test/workspace"), // Use the actual vscode mock
-    name: "test-workspace",
-    index: 0,
-};
-
 // Mock SettingsManager directly since the IndexingService should rely on it now
 vi.mock("../settings.js", () => ({
   SettingsManager: {
@@ -74,12 +61,6 @@ vi.mock("../settings.js", () => ({
     getRepoIndexStates: vi.fn(() => ({})),
   },
 }));
-
-// Mock WorkspaceManager to provide Git data
-const mockWorkspaceManager = {
-    getActiveWorkspaceFolder: vi.fn().mockReturnValue(mockWorkspaceFolder),
-    gitProvider: mockGitProvider
-};
 
 // Mock shared code splitter (must match the actual import specifier)
 vi.mock("../shared/code-splitter.js", () => ({
@@ -162,7 +143,11 @@ vi.mock("vscode", () => {
         }
         return pathOrUri.fsPath.replace("/test/workspace/", "");
       }),
-      workspaceFolders: [mockWorkspaceFolder], // Use the defined mockWorkspaceFolder
+      workspaceFolders: [{
+          uri: mockUri.file("/test/workspace"),
+          name: "test-workspace",
+          index: 0,
+      }],
       onDidChangeConfiguration: mockOnDidChangeConfiguration,
     },
     window: {
@@ -225,6 +210,20 @@ describe("IndexingService", () => {
       trackSearch: vi.fn(),
       trackError: vi.fn(),
       dispose: vi.fn(),
+    };
+
+    const mockGitProvider = {
+      getLastCommit: vi.fn().mockResolvedValue("commit-123"),
+      getRemoteUrl: vi.fn().mockResolvedValue("https://github.com/test/repo.git")
+    };
+
+    const mockWorkspaceManager = {
+      getActiveWorkspaceFolder: vi.fn().mockReturnValue({
+        uri: { fsPath: "/test/workspace" },
+        name: "test-workspace",
+        index: 0,
+      }),
+      gitProvider: mockGitProvider
     };
 
     indexingService = new IndexingService(
