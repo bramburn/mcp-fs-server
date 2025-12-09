@@ -516,10 +516,15 @@ export class IndexingService implements vscode.Disposable {
           : new vscode.RelativePattern(workspaceFolder, "**/*");
 
       this._logger.log(`[INDEXING] Scanning for files...`);
+      const maxResults =
+        configSettings.indexing.maxFiles === 0
+          ? undefined
+          : configSettings.indexing.maxFiles;
+
       const files = await vscode.workspace.findFiles(
         includePattern,
         excludePattern,
-        configSettings.indexing.maxFiles
+        maxResults
       );
       this._logger.log(`[INDEXING] Found ${files.length} files to index.`);
 

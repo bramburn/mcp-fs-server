@@ -76,6 +76,7 @@ const mockSettings: VSCodeSettings = {
   searchThreshold: 0.6,
   includeQueryInCopy: true,
   // Added properties
+  fileSearchLimit: 1000,
   clipboardMonitorDuration: 5,
   guidanceSearchLimit: 2,
   guidanceSearchThreshold: 0.6
@@ -116,6 +117,10 @@ describe("Settings View", () => {
         // Provider Selection (Radio Check)
         const qdrantRadio = screen.getByLabelText("Qdrant");
         expect(qdrantRadio).toBeChecked();
+
+        // Verify new field: File Search Limit
+        expect(screen.getByLabelText("File Search Limit")).toBeInTheDocument();
+        expect(screen.getByDisplayValue("1000")).toBeInTheDocument();
       });
     });
 
@@ -188,6 +193,33 @@ describe("Settings View", () => {
           expect.objectContaining({
             ...mockSettings,
             indexName: "new-index",
+          })
+        );
+      });
+    });
+
+    it("sends updated fileSearchLimit", async () => {
+      const ipc = createMockIpc({
+        sendRequest: vi.fn().mockResolvedValue(mockSettings),
+      });
+
+      renderWithIpc(<Settings />, ipc);
+
+      await waitFor(() => screen.getByLabelText("File Search Limit"));
+
+      const fileLimitInput = screen.getByLabelText("File Search Limit");
+      fireEvent.change(fileLimitInput, { target: { value: "2000" } });
+
+      const saveBtn = screen.getByText("Save All Settings");
+      fireEvent.click(saveBtn);
+
+      await waitFor(() => {
+        expect(ipc.sendRequest).toHaveBeenCalledWith(
+          UPDATE_VSCODE_SETTINGS_METHOD,
+          "webview-mgmt",
+          expect.objectContaining({
+            ...mockSettings,
+            fileSearchLimit: 2000
           })
         );
       });

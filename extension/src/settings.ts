@@ -38,6 +38,7 @@ export class SettingsManager {
       // Search settings
       searchLimit: config.get<number>("searchLimit", 10),
       searchThreshold: config.get<number>("searchThreshold", 0.7),
+      fileSearchLimit: config.get<number>("indexingMaxFiles", 1000),
       includeQueryInCopy: config.get<boolean>("includeQueryInCopy", false),
       guidanceSearchLimit: config.get<number>("guidanceSearchLimit", 2),
       guidanceSearchThreshold: config.get<number>("guidanceSearchThreshold", 0.6),
@@ -181,6 +182,13 @@ export class SettingsManager {
       updates.push(
         Promise.resolve(
           config.update("searchThreshold", settings.searchThreshold)
+        )
+      );
+    }
+    if (settings.fileSearchLimit !== undefined) {
+      updates.push(
+        Promise.resolve(
+          config.update("indexingMaxFiles", settings.fileSearchLimit)
         )
       );
     }
