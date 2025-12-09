@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type * as vscode from 'vscode';
+// Removed unused type import: import type * as vscode from 'vscode'; 
 import { ClipboardManager } from './ClipboardManager.js';
 import { ClipboardService } from './ClipboardService.js';
 import { XmlParser } from './XmlParser.js';
@@ -20,7 +20,7 @@ const mockWebviewController = {
     sendToWebview: vi.fn(),
 } as unknown as WebviewController;
 
-// Mock vscode.window
+// Mock vscode.window globally since the test environment sets up a global vscode mock
 vi.mock('vscode', () => ({
     window: {
         setStatusBarMessage: vi.fn(),
@@ -35,8 +35,20 @@ vi.mock('vscode', () => ({
     Uri: {
         file: vi.fn(),
         joinPath: vi.fn(),
-    }
+    },
+    // Need to export the mocks to be accessible globally
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    __esModule: true,
+    // Add the mocked objects needed for the global export
+    window: {
+        setStatusBarMessage: vi.fn(),
+        showInformationMessage: vi.fn(),
+        showWarningMessage: vi.fn(),
+    },
 }));
+
+// Import the global vscode mock for type safety and usage
+import * as vscode from 'vscode';
 
 describe('ClipboardManager', () => {
     let clipboardManager: ClipboardManager;
@@ -54,7 +66,9 @@ describe('ClipboardManager', () => {
         clipboardManager.startMonitoring(5);
         
         expect(mockClipboardService.setCaptureAll).toHaveBeenCalledWith(true);
-        expect(vi.mocked(require('vscode').window.setStatusBarMessage)).toHaveBeenCalledWith(
+        
+        // [FIX] Use the globally defined vscode mock directly
+        expect(vi.mocked(vscode.window.setStatusBarMessage)).toHaveBeenCalledWith(
             expect.stringContaining('Capturing all'),
             expect.any(Number)
         );
@@ -63,7 +77,9 @@ describe('ClipboardManager', () => {
     it('should disable capture-all when monitoring stops', () => {
         // First start it
         clipboardManager.startMonitoring(5);
-        mockClipboardService.setCaptureAll.mockClear();
+        
+        // [FIX] Use vi.mocked to assert the type of the mock function and call mockClear
+        vi.mocked(mockClipboardService.setCaptureAll).mockClear();
 
         clipboardManager.stopMonitoring();
 
