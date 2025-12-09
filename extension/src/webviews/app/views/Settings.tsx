@@ -541,7 +541,7 @@ export default function Settings() {
                   marginTop: "8px",
                 }}
               >
-                <StatusIcon status={testResult?.pineconeStatus} />
+                <StatusIcon status={testResult?.qdrantStatus} />
               </div>
             </div>
           )}
@@ -611,7 +611,7 @@ export default function Settings() {
                   marginTop: "8px",
                 }}
               >
-                <StatusIcon status={testResult?.qdrantStatus} />
+                <StatusIcon status={testResult?.pineconeStatus} />
               </div>
             </div>
           )}
