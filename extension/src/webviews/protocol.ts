@@ -124,6 +124,7 @@ export interface VSCodeSettings {
   embeddingDimension: number;
   searchLimit: number;
   searchThreshold: number;
+  fileSearchLimit: number;
   includeQueryInCopy: boolean;
 
   // New Settings

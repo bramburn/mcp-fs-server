@@ -171,6 +171,7 @@ export default function Settings() {
     embeddingDimension: 768,
     searchLimit: 10,
     searchThreshold: 0.7,
+    fileSearchLimit: 1000,
     includeQueryInCopy: false,
     clipboardMonitorDuration: 5,
     guidanceSearchLimit: 2,
@@ -813,6 +814,20 @@ export default function Settings() {
                 updateSetting("searchLimit", parseInt(d.value))
               }
             />
+          </Field>
+
+          <Field label="File Search Limit">
+            <Input
+              type="number"
+              min={0}
+              value={settings.fileSearchLimit?.toString() ?? "1000"}
+              onChange={(_, d) =>
+                updateSetting("fileSearchLimit", parseInt(d.value))
+              }
+              placeholder="1000"
+              title="0 means unlimited"
+            />
+            <Caption1>Limit the number of files indexed (0 = unlimited).</Caption1>
           </Field>
 
           <Card>
