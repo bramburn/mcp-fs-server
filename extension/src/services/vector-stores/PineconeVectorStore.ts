@@ -50,8 +50,6 @@ export class PineconeVectorStore implements IVectorStore {
         });
       }
 
-      // Pinecone uses the index name directly, no need to create
-      // Just verify we can connect to the index
       const baseUrl = this.host.startsWith("http")
         ? this.host
         : `https://${this.host}`;
@@ -100,24 +98,13 @@ export class PineconeVectorStore implements IVectorStore {
         "ERROR"
       );
 
-      if (
-        error.message.includes("ECONNRESET") ||
-        error.message.includes("connection reset") ||
-        error.message.includes("network") ||
-        error.message.includes("fetch")
-      ) {
-        this.logger.log(
-          `[VECTOR_STORE] NETWORK ERROR in ensureCollection - Type: ${error.name}, Message: ${error.message}`,
-          "FATAL"
-        );
-      }
-
       throw e;
     }
   }
 
   async upsertPoints(
     collectionName: string,
+    // Fix: Explicitly define the type here to include the new fields
     points: Array<{
       id: string;
       vector: number[];
@@ -128,6 +115,8 @@ export class PineconeVectorStore implements IVectorStore {
         lineEnd: number;
         type?: 'file' | 'guidance';
         guidanceId?: string;
+        repoId?: string;
+        commit?: string;
       };
     }>,
     token?: vscode.CancellationToken
@@ -163,7 +152,10 @@ export class PineconeVectorStore implements IVectorStore {
           lineStart: point.payload.lineStart,
           lineEnd: point.payload.lineEnd,
           type: point.payload.type,
-          guidanceId: point.payload.guidanceId
+          guidanceId: point.payload.guidanceId,
+          // Map new fields safely
+          repoId: point.payload.repoId,
+          commit: point.payload.commit
         },
       }));
 
@@ -219,18 +211,6 @@ export class PineconeVectorStore implements IVectorStore {
         "ERROR"
       );
 
-      if (
-        error.message.includes("ECONNRESET") ||
-        error.message.includes("connection reset") ||
-        error.message.includes("network") ||
-        error.message.includes("fetch")
-      ) {
-        this.logger.log(
-          `[VECTOR_STORE] NETWORK ERROR in upsertPoints - Type: ${error.name}, Message: ${error.message}`,
-          "FATAL"
-        );
-      }
-
       throw e;
     }
   }
@@ -240,7 +220,7 @@ export class PineconeVectorStore implements IVectorStore {
     vector: number[],
     limit: number,
     token?: vscode.CancellationToken,
-    filter?: any
+    filter?: Record<string, unknown> // Fix: Use Record<string, unknown> instead of 'any'
   ): Promise<SearchResultItem[]> {
     if (token?.isCancellationRequested) {
       throw new Error("Search cancelled");
@@ -265,7 +245,16 @@ export class PineconeVectorStore implements IVectorStore {
         ? this.host
         : `https://${this.host}`;
 
-      const body: any = {
+      // Fix: Define the body type explicitly to avoid 'any'
+      interface SearchBody {
+          vector: number[];
+          topK: number;
+          includeMetadata: boolean;
+          namespace: string;
+          filter?: Record<string, unknown>;
+      }
+
+      const body: SearchBody = {
         vector: vector,
         topK: limit,
         includeMetadata: true,
@@ -345,18 +334,6 @@ export class PineconeVectorStore implements IVectorStore {
         `[VECTOR_STORE] Pinecone search failed after ${duration}ms:`,
         "ERROR"
       );
-
-      if (
-        error.message.includes("ECONNRESET") ||
-        error.message.includes("connection reset") ||
-        error.message.includes("network") ||
-        error.message.includes("fetch")
-      ) {
-        this.logger.log(
-          `[VECTOR_STORE] NETWORK ERROR in search - Type: ${error.name}, Message: ${error.message}`,
-          "FATAL"
-        );
-      }
 
       throw e;
     }

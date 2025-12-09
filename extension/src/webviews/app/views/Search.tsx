@@ -24,6 +24,7 @@ import type {
   FileSnippetResult,
   SearchRequestParams,
   SearchResponseParams,
+  IndexStatus // Import the type
 } from "../../protocol.js";
 import {
   COPY_RESULTS_METHOD,
@@ -32,6 +33,7 @@ import {
   type GetSearchSettingsResponse,
   SEARCH_METHOD,
   START_INDEX_METHOD,
+  INDEX_STATUS_METHOD // Import the method for polling
 } from "../../protocol.js";
 import SnippetList from "../components/SnippetList.js";
 import { useIpc } from "../contexts/ipc.js";
@@ -89,19 +91,19 @@ const useStyles = makeStyles({
     ...shorthands.borderTop("1px", "solid", tokens.colorNeutralStroke1),
     ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke1),
   },
+  // Added missing toggleGroup style
   toggleGroup: {
     display: "flex",
-    backgroundColor: tokens.colorNeutralBackground2,
-    ...shorthands.borderRadius(tokens.borderRadiusMedium),
-    ...shorthands.padding("2px"),
-    ...shorthands.gap("2px"),
+    flexDirection: "row",
+    ...shorthands.gap("4px"),
   },
+  // Added missing statusRow style
   statusRow: {
     display: "flex",
     alignItems: "center",
     justifyContent: "space-between",
-    ...shorthands.padding("10px", "24px"),
-    backgroundColor: tokens.colorNeutralBackground2,
+    ...shorthands.padding("8px", "24px"),
+    backgroundColor: tokens.colorNeutralBackground1,
     ...shorthands.borderBottom("1px", "solid", tokens.colorNeutralStroke1),
   },
   statusText: {
@@ -144,8 +146,10 @@ export default function Search() {
   const styles = useStyles();
   const ipc = useIpc();
 
-  const indexStatus = useAppStore((state) => state.indexStatus);
+  // Cast state to specific type
+  const indexStatus = useAppStore((state) => state.indexStatus) as IndexStatus; 
   const indexStats = useAppStore((state) => state.indexStats);
+  
   // const setView = useAppStore((state) => state.setView); // Retained but not used for navigation
 
   const [searchInput, setSearchInput] = useState("");
@@ -206,6 +210,12 @@ export default function Search() {
 
     ipc.onNotification(DID_CHANGE_CONFIG_NOTIFICATION, handleConfigChange);
   }, [ipc, loadSearchSettings]);
+
+  // Poll status on mount
+  useEffect(() => {
+      // Send a command to refresh status specifically when view loads
+      ipc.sendCommand(INDEX_STATUS_METHOD, "qdrantIndex", {});
+  }, [ipc]);
 
   const handleCopyContext = useCallback(() => {
     if (!results.length) return;
@@ -281,9 +291,25 @@ export default function Search() {
   }, [ipc]);
 
   const getStatusColor = () => {
-    if (indexStatus === "ready") return tokens.colorPaletteGreenBackground3;
-    if (indexStatus === "indexing") return tokens.colorPaletteYellowBackground3;
-    return tokens.colorPaletteRedBackground3;
+    switch (indexStatus) {
+        case "ready": return tokens.colorPaletteGreenBackground3;
+        case "stale": return tokens.colorPaletteYellowBackground3; // Yellow for stale
+        case "indexing": return tokens.colorPaletteBlueBackground2; // Use background 2
+        case "notIndexed": return tokens.colorPaletteRedBackground3; // Red for not indexed
+        case "error": return tokens.colorPaletteRedBackground3;
+        default: return tokens.colorNeutralBackground3;
+    }
+  };
+
+  const getStatusText = () => {
+      switch (indexStatus) {
+          case "ready": return "Index Ready";
+          case "stale": return "Index Stale (New Commits)";
+          case "indexing": return "Indexing...";
+          case "notIndexed": return "Not Indexed";
+          case "error": return "Index Error";
+          default: return "Unknown";
+      }
   };
 
   // 1. Handle No Workspace State
@@ -394,7 +420,9 @@ export default function Search() {
                 checked={copyMode === "files"}
                 onClick={() => setCopyMode("files")}
                 icon={<DocumentCopyRegular fontSize={16} />}
-              />
+              >
+                  Files
+              </ToggleButton>
             </Tooltip>
             <Tooltip content="Copy snippets" relationship="label">
               <ToggleButton
@@ -403,7 +431,9 @@ export default function Search() {
                 checked={copyMode === "snippets"}
                 onClick={() => setCopyMode("snippets")}
                 icon={<CutRegular fontSize={16} />}
-              />
+              >
+                  Snippets
+              </ToggleButton>
             </Tooltip>
           </div>
 
@@ -427,9 +457,9 @@ export default function Search() {
             className={styles.dot}
             style={{ backgroundColor: getStatusColor() }}
           />
-          <Text>
-            {indexStatus === "indexing" ? "Indexing..." : "Index Ready"}
-          </Text>
+          <Text>{getStatusText()}</Text>
+          
+          {/* Show vector count if available */}
           {indexStats?.vectorCount !== undefined && (
             <Text size={100} style={{ opacity: 0.7 }}>
               ({indexStats.vectorCount} vectors)
@@ -439,12 +469,12 @@ export default function Search() {
 
         <Button
           size="small"
-          appearance="subtle"
+          appearance={indexStatus === 'stale' || indexStatus === 'notIndexed' ? "primary" : "subtle"} // Highlight if action needed
           icon={<ArrowRepeatAllRegular />}
           disabled={indexStatus === "indexing"}
           onClick={handleIndex}
         >
-          Re-Index
+          {indexStatus === 'notIndexed' ? "Start Indexing" : "Re-Index"}
         </Button>
       </div>
 

@@ -3,6 +3,13 @@ import type * as vscodeTypes from 'vscode';
 
 // MOCK VS CODE API
 vi.mock('vscode', () => {
+    // Define a proper mock WorkspaceFolder here, as it's used by getWorkspaceFolder
+    const mockWorkspaceFolder: vscodeTypes.WorkspaceFolder = {
+        uri: { fsPath: '/test/workspace' } as vscodeTypes.Uri, // Cast to Uri
+        name: 'test-workspace',
+        index: 0,
+    };
+
     return {
         Uri: {
             file: (path: string) => ({ fsPath: path, path, scheme: 'file', toString: () => path }),
@@ -14,7 +21,17 @@ vi.mock('vscode', () => {
             fs: {
                 stat: vi.fn(),
                 readFile: vi.fn()
-            }
+            },
+            workspaceFolders: [mockWorkspaceFolder], // Mock workspaceFolders
+            getWorkspaceFolder: vi.fn((uri: vscodeTypes.Uri) => { // Mock getWorkspaceFolder
+                if (uri.fsPath.startsWith(mockWorkspaceFolder.uri.fsPath)) {
+                    return mockWorkspaceFolder;
+                }
+                return undefined;
+            }),
+            asRelativePath: vi.fn((uri: vscodeTypes.Uri) => { // Mock asRelativePath
+                return uri.fsPath.replace(mockWorkspaceFolder.uri.fsPath + '/', '');
+            })
         },
         Range: vi.fn(),
         Position: vi.fn(),
@@ -27,7 +44,7 @@ vi.mock('vscode', () => {
 
 import * as vscode from 'vscode';
 import { IndexingService } from '../../services/IndexingService.js';
-import { EditHandler } from './EditHandler.js';
+import { EditHandler, isMatchWithinLines } from './EditHandler.js'; // Import isMatchWithinLines
 import { ParsedAction } from '../protocol.js';
 
 // Mock the IndexingService
@@ -75,8 +92,7 @@ const mockDocument = {
 } as unknown as vscode.TextDocument;
 
 
-// Access the private helper functions for unit testing (requires type casting)
-const { isMatchWithinLines } = new (EditHandler as any)(mockIndexingService).__proto__;
+
 
 
 describe('EditHandler Line Ambiguity Resolution Logic', () => {

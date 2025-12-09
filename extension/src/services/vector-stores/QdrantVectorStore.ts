@@ -118,6 +118,8 @@ export class QdrantVectorStore implements IVectorStore {
         lineEnd: number;
         type?: 'file' | 'guidance';
         guidanceId?: string;
+        repoId?: string;
+        commit?: string;
       };
     }>,
     token?: vscode.CancellationToken

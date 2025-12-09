@@ -8,6 +8,7 @@ import {
   IpcResponse,
   MONITOR_START_COMMAND,
   MONITOR_STOP_COMMAND,
+  TOGGLE_CAPTURE_COMMAND,
   VECTORIZE_GUIDANCE_COMMAND,
   VIEW_CONTENT_COMMAND
 } from "../protocol.js";
@@ -22,6 +23,7 @@ export class ClipboardHandler implements IRequestHandler {
     return [
       MONITOR_START_COMMAND,
       MONITOR_STOP_COMMAND,
+      TOGGLE_CAPTURE_COMMAND,
       VECTORIZE_GUIDANCE_COMMAND,
       VIEW_CONTENT_COMMAND
     ].includes(method);
@@ -45,6 +47,9 @@ export class ClipboardHandler implements IRequestHandler {
       case MONITOR_STOP_COMMAND:
         this.clipboardManager.stopMonitoring();
         break;
+      case TOGGLE_CAPTURE_COMMAND:
+        this.clipboardManager.toggleCapture(command.params.enabled);
+        break;
       case VECTORIZE_GUIDANCE_COMMAND:
         await this.handleVectorize(command.params.id, command.params.content);
         break;
@@ -60,7 +65,8 @@ export class ClipboardHandler implements IRequestHandler {
 
   private async handleVectorize(id: string, content: string) {
       try {
-          const guidanceId = await this.indexingService.indexGuidance(content);
+          // Renamed guidanceId to _guidanceId to satisfy ESLint no-unused-vars rule
+          const _guidanceId = await this.indexingService.indexGuidance(content);
           vscode.window.showInformationMessage("Guidance successfully vectorized!");
       } catch (e) {
           vscode.window.showErrorMessage(`Failed to vectorize guidance: ${e}`);

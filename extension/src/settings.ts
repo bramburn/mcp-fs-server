@@ -1,7 +1,5 @@
-// File: extension/src/settings.ts
-
 import * as vscode from "vscode";
-import { type VSCodeSettings } from "./webviews/protocol.js";
+import { type VSCodeSettings, type IndexStateMap, type RepoIndexState } from "./webviews/protocol.js";
 
 export class SettingsManager {
   private static readonly SECTION_ID = "semanticSearch";
@@ -47,6 +45,25 @@ export class SettingsManager {
       // Clipboard Settings
       clipboardMonitorDuration: config.get<number>("clipboardMonitorDuration", 5)
     };
+  }
+
+  // --- New Methods for Repo State ---
+
+  static getRepoIndexStates(): IndexStateMap {
+    const config = vscode.workspace.getConfiguration(this.SECTION_ID);
+    return config.get<IndexStateMap>("indexInfoByRepo", {});
+  }
+
+  static async updateRepoIndexState(repoId: string, state: RepoIndexState): Promise<void> {
+    const config = vscode.workspace.getConfiguration(this.SECTION_ID);
+    const currentMap = config.get<IndexStateMap>("indexInfoByRepo", {});
+    
+    const updatedMap = {
+        ...currentMap,
+        [repoId]: state
+    };
+
+    await config.update("indexInfoByRepo", updatedMap, vscode.ConfigurationTarget.Global);
   }
 
   // Update settings in VS Code configuration

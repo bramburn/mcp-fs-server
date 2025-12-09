@@ -49,13 +49,36 @@ const mockSettings: VSCodeSettings = {
   guidanceSearchThreshold: 0.6
 };
 
+
+
+// Mock GitProvider
+const mockGitProvider = {
+    getLastCommit: vi.fn().mockResolvedValue("commit-123"),
+    getRemoteUrl: vi.fn().mockResolvedValue("https://github.com/test/repo.git")
+};
+
+// Define a proper mock WorkspaceFolder BEFORE vi.mock("vscode")
+const mockWorkspaceFolder: vscodeTypes.WorkspaceFolder = {
+    uri: vscode.Uri.file("/test/workspace"), // Use the actual vscode mock
+    name: "test-workspace",
+    index: 0,
+};
+
 // Mock SettingsManager directly since the IndexingService should rely on it now
 vi.mock("../settings.js", () => ({
   SettingsManager: {
     getSettings: vi.fn(() => mockSettings),
     updateSettings: vi.fn(),
+    updateRepoIndexState: vi.fn(), // Mock the new method
+    getRepoIndexStates: vi.fn(() => ({})),
   },
 }));
+
+// Mock WorkspaceManager to provide Git data
+const mockWorkspaceManager = {
+    getActiveWorkspaceFolder: vi.fn().mockReturnValue(mockWorkspaceFolder),
+    gitProvider: mockGitProvider
+};
 
 // Mock shared code splitter (must match the actual import specifier)
 vi.mock("../shared/code-splitter.js", () => ({
@@ -100,6 +123,28 @@ vi.mock("vscode", () => {
     dispose = vi.fn();
   };
 
+  // Define a basic Uri mock
+  const mockUri = {
+    file: (path: string) => ({
+      fsPath: path,
+      scheme: "file",
+      path: path,
+      query: "",
+      fragment: "",
+      with: vi.fn(),
+      toString: vi.fn(() => path),
+    }),
+    joinPath: vi.fn((base: { fsPath: string }, ...segments: string[]) => ({
+      fsPath: [base.fsPath, ...segments].join("/"),
+      scheme: "file",
+      path: [base.fsPath, ...segments].join("/"),
+      query: "",
+      fragment: "",
+      with: vi.fn(),
+      toString: vi.fn(() => [base.fsPath, ...segments].join("/")),
+    })),
+  };
+
   const mockVscode = {
     workspace: {
       fs: {
@@ -116,13 +161,7 @@ vi.mock("vscode", () => {
         }
         return pathOrUri.fsPath.replace("/test/workspace/", "");
       }),
-      workspaceFolders: [
-        {
-          uri: { fsPath: "/test/workspace" },
-          name: "test-workspace",
-          index: 0,
-        },
-      ],
+      workspaceFolders: [mockWorkspaceFolder], // Use the defined mockWorkspaceFolder
       onDidChangeConfiguration: mockOnDidChangeConfiguration,
     },
     window: {
@@ -132,26 +171,7 @@ vi.mock("vscode", () => {
       showWarningMessage: vi.fn(),
       setStatusBarMessage: vi.fn(),
     },
-    Uri: {
-      joinPath: vi.fn((base: vscodeTypes.Uri, ...segments: string[]) => ({
-        fsPath: [base.fsPath, ...segments].join("/"),
-        scheme: "file",
-        path: [base.fsPath, ...segments].join("/"),
-        query: "",
-        fragment: "",
-        with: vi.fn(),
-        toString: vi.fn(() => [base.fsPath, ...segments].join("/")),
-      })),
-      file: vi.fn((path: string) => ({
-        fsPath: path,
-        scheme: "file",
-        path: path,
-        query: "",
-        fragment: "",
-        with: vi.fn(),
-        toString: vi.fn(() => path),
-      })),
-    },
+    Uri: mockUri, // Use the new mockUri
     RelativePattern: vi.fn(),
     CancellationTokenSource:
       MockCancellationTokenSource as unknown as vscodeTypes.CancellationTokenSource,
@@ -210,7 +230,8 @@ describe("IndexingService", () => {
       mockConfigService,
       mockContext,
       mockAnalyticsService as AnalyticsService,
-      mockLogger
+      mockLogger,
+      mockWorkspaceManager as any // Inject mock
     );
 
     mockQdrantClient = {
@@ -336,6 +357,38 @@ describe("IndexingService", () => {
         expect.stringContaining("Indexed 0 files successfully")
       );
       expect(indexingService.isIndexing).toBe(false);
+    });
+
+    test("should persist RepoIndexState after successful indexing", async () => {
+        vi.spyOn(mockConfigService, "config", "get").mockReturnValue({
+          indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
+          search: { limit: 10, threshold: 0.7, includeQueryInCopy: false, guidanceLimit: 2, guidanceThreshold: 0.6 },
+          clipboard: { monitorDuration: 5 },
+          general: { trace: false },
+          qdrantConfig: {
+            active_vector_db: "qdrant",
+            active_embedding_provider: "ollama",
+            index_info: { name: "test-index", embedding_dimension: 768 },
+            qdrant_config: { url: "http://localhost:6333", api_key: "test-key" },
+            ollama_config: { base_url: "http://localhost:11434", model: "nomic-embed-text" }
+          },
+          semanticSearch: { pineconeHost: "" }
+        });
+
+        // Mock prerequisites like files found, client initialized
+        vi.mocked(vscode.workspace.findFiles).mockResolvedValueOnce([vscode.Uri.file("/ws/a.ts")]);
+        (mockQdrantClient.getCollections as Mock).mockResolvedValue({ collections: [] });
+        
+        await indexingService.startIndexing();
+
+        // Verify updateRepoIndexState was called
+        expect(SettingsManager.updateRepoIndexState).toHaveBeenCalledWith(
+            expect.any(String), // repoId (md5)
+            expect.objectContaining({
+                lastIndexedCommit: "commit-123",
+                vectorCount: expect.any(Number)
+            })
+        );
     });
   });
 

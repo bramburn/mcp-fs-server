@@ -79,6 +79,20 @@ export class ClipboardService implements vscode.Disposable {
     }
   }
 
+  /**
+   * Sets the "Capture All" mode in the Rust sidecar.
+   * If enabled, the monitor will emit all clipboard changes, not just XML triggers.
+   */
+  public setCaptureAll(enabled: boolean): void {
+    if (this.process && this.process.stdin.writable) {
+        const command = { command: "set_capture_all", value: enabled };
+        this.process.stdin.write(JSON.stringify(command) + "\n");
+        this.outputChannel.appendLine(`[CMD] Sent set_capture_all=${enabled} to clipboard-monitor`);
+    } else {
+        this.outputChannel.appendLine("[WARN] Cannot set capture mode: Process not running or stdin not writable");
+    }
+  }
+
   private handleStdout = async (data: string) => {
     for (const rawLine of data.split(/\r?\n/)) {
       const line = rawLine.trim();

@@ -15,6 +15,10 @@ use protocol::{OutputMessage, InputCommand};
 /// Determines the polling state: true for active, false for paused.
 static IS_MONITORING_ACTIVE: Lazy<Arc<Mutex<bool>>> = Lazy::new(|| Arc::new(Mutex::new(true)));
 
+/// Determines if we should capture all clipboard content or just triggers.
+/// Default is false (only triggers).
+static CAPTURE_ALL: Lazy<Arc<Mutex<bool>>> = Lazy::new(|| Arc::new(Mutex::new(false)));
+
 /// Regex for robustly detecting any qdrant XML command, capturing the entire tag block.
 /// (?s) enables dotall mode so that '.' matches newlines.
 const XML_COMMAND_REGEX: &str = r"(?s)(<qdrant-(file|search|read).*?>(.*?)</qdrant-\2>|<qdrant-(file|search|read).*?/>)";
@@ -79,17 +83,18 @@ fn input_listener() {
             Ok(json_line) => {
                 match serde_json::from_str::<InputCommand>(&json_line) {
                     Ok(cmd) => {
-                        let mut monitoring = IS_MONITORING_ACTIVE.lock().unwrap();
                         match cmd {
                             InputCommand::Pause => {
+                                let mut monitoring = IS_MONITORING_ACTIVE.lock().unwrap();
                                 *monitoring = false;
-                                // Optional: Send confirmation back to TS
-                                // let _ = send_json(&OutputMessage::Ready);
                             }
                             InputCommand::Resume => {
+                                let mut monitoring = IS_MONITORING_ACTIVE.lock().unwrap();
                                 *monitoring = true;
-                                // Optional: Send confirmation back to TS
-                                // let _ = send_json(&OutputMessage::Ready);
+                            }
+                            InputCommand::SetCaptureAll { value } => {
+                                let mut capture_all = CAPTURE_ALL.lock().unwrap();
+                                *capture_all = value;
                             }
                         }
                     }
@@ -143,11 +148,15 @@ fn main() -> Result<()> {
             Ok(content) => {
                 let (update_msg, trigger_msg, new_hash) = process_clipboard_content(content, &last_hash);
 
-                if let Some(msg) = update_msg {
-                    if let Err(_) = send_json(&msg) { break; }
+                // Only send standard updates if CAPTURE_ALL is enabled
+                // Triggers (XML) are always sent if found.
+                if *CAPTURE_ALL.lock().unwrap() {
+                    if let Some(msg) = update_msg {
+                        if let Err(_) = send_json(&msg) { break; }
+                    }
                 }
 
-                // If a trigger was found (XML commands), send it immediately after the update
+                // If a trigger was found (XML commands), send it immediately
                 if let Some(msg) = trigger_msg {
                     if let Err(_) = send_json(&msg) { break; }
                 }

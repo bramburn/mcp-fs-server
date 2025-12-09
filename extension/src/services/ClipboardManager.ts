@@ -36,14 +36,30 @@ export class ClipboardManager implements vscode.Disposable {
             this.clipboardService.onTriggerXml((payloads) => this.handleXmlTrigger(payloads))
         );
 
-        // Listen for general clipboard updates (only active when monitoring is enabled)
+        // Listen for general clipboard updates
         this.disposables.push(
             this.clipboardService.onClipboardUpdate((content) => this.handleClipboardUpdate(content))
         );
     }
 
+    /**
+     * Toggles the "Capture All" mode on the Rust sidecar.
+     * When enabled, the monitor sends all clipboard content.
+     * When disabled, it only sends XML triggers.
+     */
+    public toggleCapture(enabled: boolean) {
+        this.clipboardService.setCaptureAll(enabled);
+        vscode.window.setStatusBarMessage(
+            enabled ? "Clipboard: Capturing all clippings" : "Clipboard: Capturing only automations", 
+            3000
+        );
+    }
+
     public startMonitoring(durationMinutes: number) {
         this.isMonitoring = true;
+        
+        // Enable capture on the Rust side
+        this.toggleCapture(true);
 
         // Clear existing timeout if any
         if (this.monitorTimeout) {
@@ -62,6 +78,10 @@ export class ClipboardManager implements vscode.Disposable {
         if (!this.isMonitoring) return;
 
         this.isMonitoring = false;
+        
+        // Disable capture on the Rust side (revert to default)
+        this.toggleCapture(false);
+
         if (this.monitorTimeout) {
             clearTimeout(this.monitorTimeout);
             this.monitorTimeout = null;
@@ -82,7 +102,9 @@ export class ClipboardManager implements vscode.Disposable {
     }
 
     private async handleClipboardUpdate(content: string) {
-        if (!this.isMonitoring) return;
+        // NOTE: We no longer check `this.isMonitoring` here because the filtering 
+        // is now handled efficiently by the Rust binary. If we receive an event here, 
+        // it means capturing is enabled.
 
         // Create a history item for the plain text content
         const historyItem: ClipboardHistoryItem = {

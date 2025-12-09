@@ -35,6 +35,9 @@ export interface IVectorStore {
         lineEnd: number;
         type?: 'file' | 'guidance';
         guidanceId?: string;
+        // New fields
+        repoId?: string;
+        commit?: string;
       };
     }>,
     token?: vscode.CancellationToken

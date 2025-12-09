@@ -14,11 +14,20 @@ import {
 /**
  * Helper to determine if a character index range (a match) is within a user-specified line range.
  */
-function isMatchWithinLines(document: vscode.TextDocument, index: number, matchLength: number, linesInput: string): boolean {
+export function isMatchWithinLines(document: vscode.TextDocument, index: number, matchLength: number, linesInput: string): boolean {
     const startPos = document.positionAt(index);
     const endPos = document.positionAt(index + matchLength);
+    
     // Use the 1-based line number of the start of the match
-    const targetStartLine = startPos.line + 1; 
+    const targetStartLine = startPos.line + 1;
+    
+    // Calculate 1-based end line. 
+    // If the match ends exactly at character 0 of a line (e.g. ends with a newline),
+    // it effectively belongs to the previous line for the purpose of "what lines does this block cover".
+    let targetEndLine = endPos.line + 1;
+    if (endPos.character === 0 && targetEndLine > targetStartLine) {
+        targetEndLine--;
+    }
     
     // Parse the input string "12, 45-50, 60" into a set of included line numbers/ranges
     const parts = linesInput.split(',').map(p => p.trim()).filter(p => p.length > 0);
@@ -27,16 +36,16 @@ function isMatchWithinLines(document: vscode.TextDocument, index: number, matchL
         if (part.includes('-')) {
             // Handle range "45-50"
             const [start, end] = part.split('-').map(Number);
-            if (targetStartLine >= start && targetStartLine <= end) {
+            // If the match *overlaps* with the requested range
+            if (Math.max(targetStartLine, start) <= Math.min(targetEndLine, end)) {
                 return true;
             }
         } else {
             // Handle single line "12"
             const singleLine = Number(part);
             
-            // We check if the match starts or ends on the specified line, 
-            // ensuring multiline matches spanning the target line are included.
-            if (targetStartLine <= singleLine && endPos.line + 1 >= singleLine) {
+            // Check if the single line is contained within the match's span
+            if (singleLine >= targetStartLine && singleLine <= targetEndLine) {
                  return true;
             }
         }
@@ -68,6 +77,17 @@ export class EditHandler implements IRequestHandler {
     try {
       if (command.method === WEBVIEW_ACTION_IMPLEMENT) {
         await this.applyEdit(action);
+        // Notify the webview that the action was implemented
+        if (action.id && action.path) {
+             context.postMessage({
+                 kind: "notification",
+                 id: crypto.randomUUID(),
+                 scope: "debugger",
+                 method: "clipboard/action-status-update",
+                 timestamp: Date.now(),
+                 params: { actionId: action.id, status: 'implemented' }
+             });
+        }
         vscode.window.showInformationMessage(
           `Successfully applied changes to ${action.path}`
         );
@@ -168,7 +188,9 @@ export class EditHandler implements IRequestHandler {
     const workspaceEdit = new vscode.WorkspaceEdit();
 
     // Use finalIndices (potentially multiple if multiLineApprove is true)
-    for (const index of finalIndices) {
+    // NOTE: Process matches in reverse order to avoid index shifts from replacements
+    for (let i = finalIndices.length - 1; i >= 0; i--) {
+        const index = finalIndices[i];
         const startPos = document.positionAt(index);
         const endPos = document.positionAt(index + normalizedSearch.length);
         const range = new vscode.Range(startPos, endPos);
@@ -197,6 +219,7 @@ export class EditHandler implements IRequestHandler {
       return [];
     }
 
+    // Ensure initialization is run without the folder param, using global config.
     const isIndexed = await this.indexingService.initializeForSearch(
       workspaceFolder
     );

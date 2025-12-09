@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { AnalyticsService } from "../../services/AnalyticsService.js";
 import { ClipboardService } from "../../services/ClipboardService.js";
 import { ILogger } from "../../services/LoggerService.js";
-import { IpcContext, IRequestHandler } from "../ipc/IpcRouter.js"; // Added .js extension
+import { IpcContext, IRequestHandler } from "../ipc/IpcRouter.js";
 import {
   COPY_RESULTS_METHOD,
   CopyResultsParams,
@@ -14,7 +14,7 @@ import {
   IpcResponse,
   OPEN_FILE_METHOD,
   OpenFileParams,
-} from "../protocol.js"; // Added .js extension
+} from "../protocol.js";
 
 export class FileHandler implements IRequestHandler {
   constructor(
@@ -96,13 +96,55 @@ export class FileHandler implements IRequestHandler {
       byUri.set(r.uri, arr);
     }
 
+    // Check OS platform [cite: 1]
+    const isWindows = process.platform === "win32";
+
     if (mode === "files") {
-      const filePaths = Array.from(byUri.keys()).map(
-        (u) => vscode.Uri.parse(u).fsPath
-      );
-      await this.clipboardService.copyFilesToClipboard(filePaths);
+      if (isWindows) {
+        // Windows: Use binary clipboard copier (Rust) to copy actual file objects
+        const filePaths = Array.from(byUri.keys()).map(
+          (u) => vscode.Uri.parse(u).fsPath
+        );
+        await this.clipboardService.copyFilesToClipboard(filePaths);
+        vscode.window.setStatusBarMessage("Copied files to clipboard", 2000);
+      } else {
+        // Non-Windows (Mac/Linux): Copy full file contents as text
+        // This is often more useful on these platforms for pasting into LLMs/Chat
+        let buffer = "";
+        if (includeQuery && query) buffer += `Instruction: ${query}\n\n`;
+
+        for (const [uriString] of byUri) {
+          try {
+            const uri = vscode.Uri.parse(uriString);
+            
+            // Read the full document
+            const doc = await vscode.workspace.openTextDocument(uri);
+            const content = doc.getText();
+            
+            const rel = vscode.workspace.asRelativePath(uri, false);
+            const extension = rel.split(".").pop()?.toLowerCase();
+            const language = extension
+              ? this.getLanguageFromExtension(extension)
+              : "text";
+
+            buffer += `// File: ${rel}\n`;
+            buffer += `\`\`\`${language}\n`;
+            buffer += `${content}\n`;
+            buffer += `\`\`\`\n\n`;
+          } catch (_e) { // Renamed e to _e to suppress unused variable error
+            this.logger.log(`Failed to read file for copy: ${uriString}`, "ERROR");
+            buffer += `// File: ${uriString} (Error reading content)\n\n`;
+          }
+        }
+
+        await vscode.env.clipboard.writeText(buffer);
+        vscode.window.setStatusBarMessage(
+          `Copied ${byUri.size} file contents to clipboard`,
+          2000
+        );
+      }
     } else {
-      // Snippet mode
+      // Snippet mode: Standard behavior for all platforms
       let buffer = "";
       if (includeQuery && query) buffer += `Instruction: ${query}\n\n`;
 
@@ -124,17 +166,18 @@ export class FileHandler implements IRequestHandler {
         }
       }
       await vscode.env.clipboard.writeText(buffer);
-      vscode.window.setStatusBarMessage("Copied to clipboard", 2000);
+      vscode.window.setStatusBarMessage("Copied snippets to clipboard", 2000);
     }
 
     this.analyticsService.trackEvent("results_copied", {
       mode,
       count: results.length,
+      platform: process.platform,
     });
   }
 
   /**
-   * Helper method (moved from WebviewController) to get language from file extension for syntax highlighting
+   * Helper method to get language from file extension for syntax highlighting
    */
   private getLanguageFromExtension(extension: string): string {
     const languageMap: { [key: string]: string } = {

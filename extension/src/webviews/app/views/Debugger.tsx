@@ -9,7 +9,8 @@ import {
   Tab,
   TabList,
   SelectTabData,
-  SelectTabEvent
+  SelectTabEvent,
+  Switch
 } from "@fluentui/react-components";
 import {
   ArrowClockwiseRegular,
@@ -31,6 +32,7 @@ import {
   type DebugAnalyzeResponse,
   MONITOR_START_COMMAND,
   MONITOR_STOP_COMMAND,
+  TOGGLE_CAPTURE_COMMAND,
   VECTORIZE_GUIDANCE_COMMAND,
   VIEW_CONTENT_COMMAND,
   GET_VSCODE_SETTINGS_METHOD,
@@ -114,6 +116,16 @@ const useStyles = makeStyles({
       fontFamily: 'monospace',
       fontWeight: 'bold',
       color: tokens.colorBrandForeground1
+  },
+  toggleContainer: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '12px',
+      marginBottom: '8px',
+      backgroundColor: tokens.colorNeutralBackground1,
+      padding: '8px',
+      borderRadius: tokens.borderRadiusMedium,
+      border: `1px solid ${tokens.colorNeutralStroke1}`
   }
 });
 
@@ -144,6 +156,9 @@ export default function Debugger() {
   const [timeRemaining, setTimeRemaining] = useState<string>("");
   const timerRef = useRef<number | undefined>(undefined);
   const [monitorDuration, setMonitorDuration] = useState(5); // Default
+  
+  // Capture All Toggle State
+  const [captureAll, setCaptureAll] = useState(false);
 
   // Load monitor settings
   useEffect(() => {
@@ -230,6 +245,11 @@ export default function Debugger() {
           setIsMonitoring(true);
           setMonitorEndTime(Date.now() + monitorDuration * 60 * 1000);
       }
+  };
+
+  const handleCaptureAllToggle = (checked: boolean) => {
+      setCaptureAll(checked);
+      ipc.sendCommand(TOGGLE_CAPTURE_COMMAND, 'debugger', { enabled: checked });
   };
 
   const handleVectorize = (id: string, content: string) => {
@@ -357,17 +377,7 @@ export default function Debugger() {
           <div className={styles.section} style={{ flexGrow: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
              <div className={styles.sectionTitle} style={{ justifyContent: 'space-between', marginBottom: '12px' }}>
                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                    <Button
-                        appearance={isMonitoring ? "primary" : "secondary"}
-                        icon={isMonitoring ? <StopRegular /> : <PlayRegular />}
-                        onClick={toggleMonitor}
-                        style={{ backgroundColor: isMonitoring ? tokens.colorPaletteRedBackground3 : undefined }}
-                    >
-                        {isMonitoring ? "Stop Monitoring" : "Start Monitoring"}
-                    </Button>
-                    {isMonitoring && (
-                        <Text className={styles.timerBadge}>{timeRemaining}</Text>
-                    )}
+                    <Text weight="semibold">Clipboard History</Text>
                  </div>
 
                  <Button
@@ -380,10 +390,32 @@ export default function Debugger() {
                  />
              </div>
 
+             <div className={styles.toggleContainer}>
+                 <Switch 
+                    checked={captureAll}
+                    onChange={(_, data) => handleCaptureAllToggle(data.checked)}
+                    label="Capture All History (Text)"
+                 />
+                 <div style={{ borderLeft: `1px solid ${tokens.colorNeutralStroke1}`, height: '24px', margin: '0 8px' }}></div>
+                 
+                 <Button
+                    appearance={isMonitoring ? "primary" : "secondary"}
+                    size="small"
+                    icon={isMonitoring ? <StopRegular /> : <PlayRegular />}
+                    onClick={toggleMonitor}
+                    style={{ backgroundColor: isMonitoring ? tokens.colorPaletteRedBackground3 : undefined }}
+                 >
+                    {isMonitoring ? "Stop Session" : "Start Session"}
+                 </Button>
+                 {isMonitoring && (
+                    <Text className={styles.timerBadge}>{timeRemaining}</Text>
+                 )}
+             </div>
+
              <div className={styles.historyList} style={{ overflowY: 'auto' }}>
                  {clipboardHistory.length === 0 && (
                      <Text align="center" style={{ padding: '20px', opacity: 0.5 }}>
-                         Clipboard history is empty. Start monitoring to capture items.
+                         Clipboard history is empty. <br/> Enable "Capture All History" or copy automation tags.
                      </Text>
                  )}
                  {clipboardHistory.map(item => (

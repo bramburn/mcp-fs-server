@@ -1,5 +1,6 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 import * as vscode from "vscode";
+import * as crypto from "crypto";
 import { QdrantOllamaConfig } from "../webviews/protocol.js";
 import { AnalyticsService } from "./AnalyticsService.js";
 import { ConfigService } from "./ConfigService.js";
@@ -8,6 +9,8 @@ import { ILogger } from "./LoggerService.js";
 // when packaged and installed in VS Code. The previous bare "shared" import
 // relied on TS path aliases and failed in extension host.
 import { CodeSplitter } from "../shared/code-splitter.js";
+import { WorkspaceManager } from "./WorkspaceManager.js"; // Import WorkspaceManager
+import { SettingsManager } from "../settings.js"; // Import SettingsManager
 
 // Import types
 import {
@@ -64,9 +67,37 @@ export class IndexingService implements vscode.Disposable {
     private readonly _configService: ConfigService,
     private readonly _context: vscode.ExtensionContext,
     private readonly _analyticsService: AnalyticsService,
-    private readonly _logger: ILogger
+    private readonly _logger: ILogger,
+    // Inject WorkspaceManager to access GitProvider
+    private readonly _workspaceManager: WorkspaceManager 
   ) {
     this._splitter = new CodeSplitter();
+  }
+
+  /**
+   * Generates a stable deterministic ID for a repository.
+   */
+  public async getRepoId(folder: vscode.WorkspaceFolder): Promise<string> {
+    const gitProvider = this._workspaceManager.gitProvider;
+    let key = folder.uri.fsPath;
+
+    if (gitProvider) {
+        const remote = await gitProvider.getRemoteUrl(folder.uri.fsPath);
+        if (remote) {
+            // Normalize remote (remove .git, trim whitespace)
+            key = remote.trim().replace(/\.git$/, "");
+        }
+    }
+
+    return crypto.createHash("md5").update(key).digest("hex");
+  }
+
+  /**
+   * Retrieves the stored index state for a specific repo ID.
+   */
+  public getRepoIndexState(repoId: string) {
+      const states = SettingsManager.getRepoIndexStates();
+      return states[repoId];
   }
 
   /**
@@ -334,7 +365,7 @@ export class IndexingService implements vscode.Disposable {
       });
 
       // Get active workspace folder if not provided
-      const workspaceFolder = folder || this.getActiveWorkspaceFolder();
+      const workspaceFolder = folder || this._workspaceManager.getActiveWorkspaceFolder();
       if (!workspaceFolder) {
         throw new Error("No active workspace folder found");
       }
@@ -342,6 +373,14 @@ export class IndexingService implements vscode.Disposable {
       this._logger.log(
         `[INDEXING] Workspace: ${workspaceFolder.name} (${workspaceFolder.uri.fsPath})`
       );
+
+      // 1. Compute Repo Identity
+      const repoId = await this.getRepoId(workspaceFolder);
+      const gitProvider = this._workspaceManager.gitProvider;
+      // Get last commit, or use "HEAD" if Git provider is not available or no commits
+      const currentCommit = (await gitProvider?.getLastCommit(workspaceFolder.uri.fsPath)) || "HEAD";
+
+      this._logger.log(`[INDEXING] RepoID: ${repoId}, Commit: ${currentCommit}`);
 
       // --- CRITICAL CHANGE: Load config directly from ConfigService ---
       const config = this._configService.config.qdrantConfig;
@@ -523,7 +562,7 @@ export class IndexingService implements vscode.Disposable {
             const content = await vscode.workspace.fs.readFile(fileUri);
             const text = new TextDecoder().decode(content);
 
-            await this.indexFile(collectionName, relativePath, text, token);
+            await this.indexFile(collectionName, relativePath, text, token, repoId, currentCommit);
             processedCount++;
 
             this.notifyProgress({
@@ -565,6 +604,14 @@ export class IndexingService implements vscode.Disposable {
 
       // Only show success message if not cancelled
       if (!wasCancelled && !token.isCancellationRequested) {
+        // 2. Persist Index State on Success
+        await SettingsManager.updateRepoIndexState(repoId, {
+            repoId,
+            lastIndexedCommit: currentCommit,
+            lastIndexedAt: Date.now(),
+            vectorCount: processedCount // Approximation, ideally query DB or get actual count from store
+        });
+
         this.notifyProgress({
           current: processedCount,
           total: files.length,
@@ -822,7 +869,9 @@ export class IndexingService implements vscode.Disposable {
     collectionName: string,
     filePath: string,
     content: string,
-    token: vscode.CancellationToken
+    token: vscode.CancellationToken,
+    repoId: string,     // NEW
+    commit: string      // NEW
   ): Promise<void> {
     // Check for cancellation
     if (token.isCancellationRequested) {
@@ -857,6 +906,9 @@ export class IndexingService implements vscode.Disposable {
             lineStart: number;
             lineEnd: number;
             type: "file";
+            // Add metadata
+            repoId?: string;
+            commit?: string;
         }
     }> = [];
     let embeddingCount = 0;
@@ -885,7 +937,10 @@ export class IndexingService implements vscode.Disposable {
           content: chunk.content,
           lineStart: chunk.lineStart,
           lineEnd: chunk.lineEnd,
-          type: 'file' // Explicitly set type to "file"
+          type: 'file', // Explicitly set type to "file"
+          // Add metadata
+          repoId: repoId,
+          commit: commit
         },
       });
     }

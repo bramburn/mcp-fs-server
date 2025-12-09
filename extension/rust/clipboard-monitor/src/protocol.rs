@@ -28,6 +28,9 @@ pub enum InputCommand {
     Pause,
     /// Command to resume the clipboard polling loop.
     Resume,
+    /// Command to enable/disable capturing of all clipboard content.
+    /// If false (default), only XML triggers are sent.
+    SetCaptureAll { value: bool },
 }
 
 #[cfg(test)]

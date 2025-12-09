@@ -55,7 +55,8 @@ export class Container implements vscode.Disposable {
       this.configService,
       context,
       this.analyticsService,
-      this.logger
+      this.logger,
+      this.workspaceManager 
     );
     this.clipboardService = new ClipboardService(context, outputChannel);
 

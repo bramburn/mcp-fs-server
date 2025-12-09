@@ -41,6 +41,17 @@ export interface IpcNotification<T> extends IpcBaseMessage {
   params: T;
 }
 
+// --- New Data Structures ---
+
+export interface RepoIndexState {
+  repoId: string;
+  lastIndexedCommit: string | null;
+  lastIndexedAt: number; // epoch millis
+  vectorCount: number;
+}
+
+export type IndexStateMap = Record<string, RepoIndexState>;
+
 // --- Combined Discriminated Union for easy dispatching ---
 export type IpcMessage =
   | IpcCommand<any>
@@ -171,13 +182,17 @@ export interface SearchResponseParams {
 }
 export const SEARCH_METHOD = "search";
 
-// 2. Index Status Notification
+// 2. Index Status Notification (Updated)
+export type IndexStatus = "ready" | "indexing" | "error" | "no_workspace" | "notIndexed" | "stale";
+
 export interface IndexStatusParams {
-  status: "ready" | "indexing" | "error" | "no_workspace";
+  status: IndexStatus;
   message?: string;
   progress?: number;
   stats?: {
     vectorCount: number;
+    lastCommit?: string | null; // Added
+    repoId?: string;            // Added
   };
 }
 export const INDEX_STATUS_METHOD = "index/status";
@@ -308,5 +323,6 @@ export const WEBVIEW_ACTION_IMPLEMENT = 'webview/implement-edit';
 // 19. Monitoring & Vectorization
 export const MONITOR_START_COMMAND = 'clipboard/monitor-start';
 export const MONITOR_STOP_COMMAND = 'clipboard/monitor-stop';
+export const TOGGLE_CAPTURE_COMMAND = 'clipboard/toggle-capture'; // New command
 export const VECTORIZE_GUIDANCE_COMMAND = 'clipboard/vectorize-guidance';
 export const VIEW_CONTENT_COMMAND = 'clipboard/view-content';
