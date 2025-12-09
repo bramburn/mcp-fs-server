@@ -44,7 +44,7 @@ export const useAppStore = create<AppState>((set) => ({
   searchResults: [],
   setSearchResults: (results: any[]) => set({ searchResults: results }),
   
-  indexStatus: "ready",
+  indexStatus: "notIndexed",
   setIndexStatus: (status: string) => set({ indexStatus: status }),
   
   indexProgress: 0,

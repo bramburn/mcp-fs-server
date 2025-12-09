@@ -85,6 +85,7 @@ export class IndexHandler implements IRequestHandler {
       let status: IndexStatus = "notIndexed";
       let vectorCount = 0;
 
+      // Only consider "ready" or "stale" if we have a valid stored state with vectors
       if (storedState) {
           vectorCount = storedState.vectorCount;
           
@@ -95,6 +96,9 @@ export class IndexHandler implements IRequestHandler {
                   status = "ready";
               }
           }
+      } else {
+          // Explicitly ensure status is notIndexed if no state exists
+          status = "notIndexed";
       }
 
       // Optional: Get live stats from DB if we want to double check
