@@ -58,7 +58,8 @@ export class ClipboardManager implements vscode.Disposable {
     public startMonitoring(durationMinutes: number) {
         this.isMonitoring = true;
         
-        // Enable capture on the Rust side
+        // [MODIFIED] Start enables capture-all so that plain text clipboard updates populate the clipboard history.
+        // This ensures the Rust sidecar sends ClipboardUpdate events for all copies, not just XML.
         this.toggleCapture(true);
 
         // Clear existing timeout if any
@@ -79,7 +80,7 @@ export class ClipboardManager implements vscode.Disposable {
 
         this.isMonitoring = false;
         
-        // Disable capture on the Rust side (revert to default)
+        // Disable capture on the Rust side (revert to default) to stop sending plain text
         this.toggleCapture(false);
 
         if (this.monitorTimeout) {
@@ -103,8 +104,8 @@ export class ClipboardManager implements vscode.Disposable {
 
     private async handleClipboardUpdate(content: string) {
         // NOTE: We no longer check `this.isMonitoring` here because the filtering 
-        // is now handled efficiently by the Rust binary. If we receive an event here, 
-        // it means capturing is enabled.
+        // is now handled efficiently by the Rust binary via setCaptureAll. 
+        // If we receive an event here, it means capturing is enabled.
 
         // Create a history item for the plain text content
         const historyItem: ClipboardHistoryItem = {
@@ -180,7 +181,6 @@ export class ClipboardManager implements vscode.Disposable {
             // --- Phase 4 Feature: Safety Guardrails ---
             const isSensitive = SENSITIVE_FILE_BLOCKLIST.some(pattern => {
                 // Check if the path matches any sensitive glob pattern
-                // Use non-null assertion (!) here since we checked action.path above
                 const match = vscode.workspace.asRelativePath(action.path!).match(new RegExp(pattern.replace(/\*\*/g, '.*').replace(/\*/g, '[^/]*')));
                 return match !== null;
             });
@@ -192,7 +192,6 @@ export class ClipboardManager implements vscode.Disposable {
                     errorDetails: 'Access Denied: This file path is restricted for security.' 
                 };
             }
-            // ----------------------------------------
             
             // Resolve path relative to workspace root
             const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -200,24 +199,19 @@ export class ClipboardManager implements vscode.Disposable {
                 return { ...action, status: 'error', errorDetails: 'No workspace open.' };
             }
 
-            // Note: Absolute path is primarily for the FS API, security checks use relative path above.
             const rootPath = workspaceFolders[0].uri.fsPath;
             const absolutePath = path.join(rootPath, action.path);
 
-            // Security Check: Prevent accessing parent directories or absolute paths (redundant, but good practice)
             if (action.path.includes('..') || path.isAbsolute(action.path)) {
                  return { ...action, status: 'error', errorDetails: 'Invalid relative path.' };
             }
 
-            // Check if file exists (only if action is NOT 'create', or if 'read')
             if (action.type === 'read' || (action.type === 'file' && action.action === 'replace')) {
                 try {
                     await vscode.workspace.fs.stat(vscode.Uri.file(absolutePath));
-                    // File exists, action is valid
                     return { ...action, status: 'ready' };
                 // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                } catch (_error) { // Use _error to denote unused variable
-                    // File does not exist
+                } catch (_error) { 
                     return { 
                         ...action, 
                         status: 'error', 

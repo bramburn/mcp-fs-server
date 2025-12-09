@@ -196,6 +196,7 @@ export default function Debugger() {
         setIsMonitoring(false);
         setMonitorEndTime(null);
         setTimeRemaining("");
+        setCaptureAll(false); // [MODIFIED] Sync UI toggle to off
         if (timerRef.current) clearInterval(timerRef.current);
     });
   }, [fetchAnalysis, ipc]);
@@ -239,11 +240,13 @@ export default function Debugger() {
           ipc.sendCommand(MONITOR_STOP_COMMAND, 'debugger', {});
           setIsMonitoring(false);
           setMonitorEndTime(null);
+          setCaptureAll(false); // [MODIFIED] Sync UI toggle
       } else {
           // Start
           ipc.sendCommand(MONITOR_START_COMMAND, 'debugger', { duration: monitorDuration });
           setIsMonitoring(true);
           setMonitorEndTime(Date.now() + monitorDuration * 60 * 1000);
+          setCaptureAll(true); // [MODIFIED] Sync UI toggle to indicate capture is active
       }
   };
 
