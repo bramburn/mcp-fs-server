@@ -134,24 +134,85 @@ export class ClipboardService implements vscode.Disposable {
     }
   }
 
-  // ... (copyFilesToClipboard, getBinaryPath kept as is from previous version)
+  /**
+   * Copies the specified files to the system clipboard.
+   * Uses the `clipboard-files` helper binary.
+   */
   public async copyFilesToClipboard(filePaths: string[]): Promise<void> {
     if (!filePaths.length) return;
+    
+    // De-duplicate paths
     const uniqueFilePaths = [...new Set(filePaths)];
+
+    // FILTER: Ensure all files exist before sending to binary
+    // This prevents one missing temporary file (like in .next/) from failing the whole batch
+    const validPaths: string[] = [];
+    for (const p of uniqueFilePaths) {
+        if (fs.existsSync(p)) {
+            validPaths.push(p);
+        } else {
+            this.outputChannel.appendLine(`[CLIPBOARD] Skipping missing file: ${p}`);
+        }
+    }
+
+    if (validPaths.length === 0) {
+        this.outputChannel.appendLine(`[CLIPBOARD] No valid files found to copy.`);
+        return;
+    }
+
     const binPath = this.getBinaryPath("clipboard-files");
-    if (!binPath) return;
+    
+    if (!binPath) {
+        const msg = "Error: clipboard-files binary not found";
+        this.outputChannel.appendLine(msg);
+        throw new Error(msg);
+    }
+
+    this.outputChannel.appendLine(`[CLIPBOARD] Copying ${validPaths.length} files...`);
 
     return new Promise((resolve, reject) => {
-      const proc = spawn(binPath, uniqueFilePaths, {
+      // Spawn binary. We use stdin to pass the JSON payload to avoid CLI argument length limits.
+      // We pass [] as args so the Rust binary enters its "read from stdin" mode.
+      const proc = spawn(binPath, [], {
         cwd: path.dirname(binPath),
         env: { ...process.env },
         shell: os.platform() === "win32",
-        stdio: ["ignore", "pipe", "pipe"],
+        stdio: ["pipe", "pipe", "pipe"], 
       });
+
+      // Capture stderr to debug failures (like "file not found")
+      proc.stderr.on('data', (data) => {
+          this.outputChannel.appendLine(`[clipboard-files stderr]: ${data.toString()}`);
+      });
+
+      proc.on("error", (err) => {
+        this.outputChannel.appendLine(`[clipboard-files error]: ${err.message}`);
+        reject(err);
+      });
+
       proc.on("exit", (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`clipboard-files exited with ${code}`));
+        if (code === 0) {
+            this.outputChannel.appendLine(`[CLIPBOARD] Success! Files copied.`);
+            resolve();
+        } else {
+            const msg = `clipboard-files exited with code ${code}`;
+            this.outputChannel.appendLine(`[ERROR] ${msg}`);
+            reject(new Error(msg));
+        }
       });
+
+      // Send the JSON payload to the binary via stdin
+      try {
+          // Use validPaths instead of uniqueFilePaths
+          const payload = JSON.stringify({ files: validPaths });
+          proc.stdin.write(payload);
+          proc.stdin.end();
+      } catch (e) {
+          const msg = `Failed to write to clipboard-files stdin: ${e}`;
+          this.outputChannel.appendLine(`[ERROR] ${msg}`);
+          proc.kill(); // Ensure it doesn't hang
+          reject(new Error(msg));
+      }
     });
   }
 

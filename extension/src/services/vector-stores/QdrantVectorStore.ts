@@ -190,6 +190,7 @@ export class QdrantVectorStore implements IVectorStore {
     vector: number[],
     limit: number,
     token?: vscode.CancellationToken,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     filter?: any
   ): Promise<SearchResultItem[]> {
     if (token?.isCancellationRequested) {
