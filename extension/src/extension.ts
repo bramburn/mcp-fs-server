@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { QdrantOllamaConfig } from "../webviews/protocol.js";
+import { QdrantOllamaConfig } from "./webviews/protocol.js";
 
 /**
  * Configuration paths for VS Code settings
