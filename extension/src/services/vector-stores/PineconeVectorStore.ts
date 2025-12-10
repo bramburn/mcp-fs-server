@@ -262,7 +262,7 @@ export class PineconeVectorStore implements IVectorStore {
       };
 
       if (filter) {
-          body.filter = filter;
+          body.filter = this.translateFilter(filter);
       }
 
       const searchResponse = await fetch(
@@ -337,5 +337,43 @@ export class PineconeVectorStore implements IVectorStore {
 
       throw e;
     }
+  }
+
+  /**
+   * Translates Qdrant-style filters to Pinecone syntax
+   */
+  private translateFilter(filter: Record<string, any>): Record<string, any> {
+    // Pinecone filter accumulator
+    const pineconeFilter: Record<string, any> = {};
+
+    // 1. Handle "must_not" (Qdrant) -> "$ne" (Pinecone)
+    // Expecting: { must_not: [ { key: "type", match: { value: "guidance" } } ] }
+    if (filter.must_not && Array.isArray(filter.must_not)) {
+      for (const condition of filter.must_not) {
+         if (condition.key && condition.match && condition.match.value !== undefined) {
+             // Pinecone: { "type": { "$ne": "guidance" } }
+             pineconeFilter[condition.key] = { $ne: condition.match.value };
+         }
+      }
+    }
+
+    // 2. Handle "must" (Qdrant) -> Direct match (Pinecone)
+    // Expecting: { must: [ { key: "type", match: { value: "guidance" } } ] }
+    if (filter.must && Array.isArray(filter.must)) {
+      for (const condition of filter.must) {
+          if (condition.key && condition.match && condition.match.value !== undefined) {
+              // Pinecone: { "type": "guidance" } (implicit equality)
+              // or { "type": { "$eq": "guidance" } }
+              pineconeFilter[condition.key] = { $eq: condition.match.value };
+          }
+      }
+    }
+
+    // If no translation logic matched, return original (fallback)
+    if (Object.keys(pineconeFilter).length === 0) {
+        return filter;
+    }
+
+    return pineconeFilter;
   }
 }
