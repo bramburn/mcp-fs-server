@@ -96,8 +96,9 @@ export class QdrantVectorStore implements IVectorStore {
         error.message.includes("network") ||
         error.message.includes("fetch")
       ) {
+        const advice = "Ensure Qdrant is reachable at the configured URL. If using a remote server, check your VPN or internet connection.";
         this.logger.log(
-          `[VECTOR_STORE] NETWORK ERROR in ensureCollection - Type: ${error.name}, Message: ${error.message}`,
+          `[VECTOR_STORE] NETWORK ERROR in ensureCollection - Type: ${error.name}, Message: ${error.message}. ${advice}`,
           "FATAL"
         );
       }
@@ -254,8 +255,10 @@ export class QdrantVectorStore implements IVectorStore {
         error.message.includes("network") ||
         error.message.includes("fetch")
       ) {
+        // FIX: Add advice for troubleshooting connection issues
+        const advice = "Ensure Qdrant is reachable at the configured URL. If using a remote server, check your VPN or internet connection.";
         this.logger.log(
-          `[VECTOR_STORE] NETWORK ERROR in search - Type: ${error.name}, Message: ${error.message}`,
+          `[VECTOR_STORE] NETWORK ERROR in search - Type: ${error.name}, Message: ${error.message}. ${advice}`,
           "FATAL"
         );
       }
