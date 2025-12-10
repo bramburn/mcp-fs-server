@@ -48,6 +48,6 @@ mod tests {
         };
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains(r#""type":"trigger_xml""#));
-        assert!(json.contains(r#""xml_payloads":""#));
+        assert!(json.contains(r#""xml_payloads":["#));
     }
 }

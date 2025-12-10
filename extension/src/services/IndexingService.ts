@@ -1232,10 +1232,10 @@ export class IndexingService implements vscode.Disposable {
       return this._connectionPool.get(clientKey)!;
     }
 
-    // Create new client if not in pool
+    // FIX: Pass undefined if apiKey is empty string to prevent auth errors with some clients
     const client = new QdrantClient({
       url,
-      apiKey,
+      apiKey: apiKey || undefined,
     });
 
     // Add to pool if space available
