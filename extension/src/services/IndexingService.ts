@@ -1,6 +1,6 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
-import * as vscode from "vscode";
 import * as crypto from "crypto";
+import * as vscode from "vscode";
 import { QdrantOllamaConfig } from "../webviews/protocol.js";
 import { AnalyticsService } from "./AnalyticsService.js";
 import { ConfigService } from "./ConfigService.js";
@@ -8,9 +8,9 @@ import { ILogger } from "./LoggerService.js";
 // Use a relative import so compiled extension can resolve this at runtime
 // when packaged and installed in VS Code. The previous bare "shared" import
 // relied on TS path aliases and failed in extension host.
+import { SettingsManager } from "../settings.js"; // Import SettingsManager
 import { CodeSplitter } from "../shared/code-splitter.js";
 import { WorkspaceManager } from "./WorkspaceManager.js"; // Import WorkspaceManager
-import { SettingsManager } from "../settings.js"; // Import SettingsManager
 
 // Import types
 import {
@@ -69,7 +69,7 @@ export class IndexingService implements vscode.Disposable {
     private readonly _analyticsService: AnalyticsService,
     private readonly _logger: ILogger,
     // Inject WorkspaceManager to access GitProvider
-    private readonly _workspaceManager: WorkspaceManager 
+    private readonly _workspaceManager: WorkspaceManager
   ) {
     this._splitter = new CodeSplitter();
   }
@@ -82,11 +82,11 @@ export class IndexingService implements vscode.Disposable {
     let key = folder.uri.fsPath;
 
     if (gitProvider) {
-        const remote = await gitProvider.getRemoteUrl(folder.uri.fsPath);
-        if (remote) {
-            // Normalize remote (remove .git, trim whitespace)
-            key = remote.trim().replace(/\.git$/, "");
-        }
+      const remote = await gitProvider.getRemoteUrl(folder.uri.fsPath);
+      if (remote) {
+        // Normalize remote (remove .git, trim whitespace)
+        key = remote.trim().replace(/\.git$/, "");
+      }
     }
 
     return crypto.createHash("md5").update(key).digest("hex");
@@ -96,8 +96,8 @@ export class IndexingService implements vscode.Disposable {
    * Retrieves the stored index state for a specific repo ID.
    */
   public getRepoIndexState(repoId: string) {
-      const states = SettingsManager.getRepoIndexStates();
-      return states[repoId];
+    const states = SettingsManager.getRepoIndexStates();
+    return states[repoId];
   }
 
   /**
@@ -365,7 +365,8 @@ export class IndexingService implements vscode.Disposable {
       });
 
       // Get active workspace folder if not provided
-      const workspaceFolder = folder || this._workspaceManager.getActiveWorkspaceFolder();
+      const workspaceFolder =
+        folder || this._workspaceManager.getActiveWorkspaceFolder();
       if (!workspaceFolder) {
         throw new Error("No active workspace folder found");
       }
@@ -378,9 +379,13 @@ export class IndexingService implements vscode.Disposable {
       const repoId = await this.getRepoId(workspaceFolder);
       const gitProvider = this._workspaceManager.gitProvider;
       // Get last commit, or use "HEAD" if Git provider is not available or no commits
-      const currentCommit = (await gitProvider?.getLastCommit(workspaceFolder.uri.fsPath)) || "HEAD";
+      const currentCommit =
+        (await gitProvider?.getLastCommit(workspaceFolder.uri.fsPath)) ||
+        "HEAD";
 
-      this._logger.log(`[INDEXING] RepoID: ${repoId}, Commit: ${currentCommit}`);
+      this._logger.log(
+        `[INDEXING] RepoID: ${repoId}, Commit: ${currentCommit}`
+      );
 
       // --- CRITICAL CHANGE: Load config directly from ConfigService ---
       const config = this._configService.config.qdrantConfig;
@@ -390,7 +395,9 @@ export class IndexingService implements vscode.Disposable {
         );
       }
 
-      this._logger.log(`[INDEXING] Configuration loaded successfully from VS Code settings`);
+      this._logger.log(
+        `[INDEXING] Configuration loaded successfully from VS Code settings`
+      );
       this._logger.log(`[INDEXING] Vector DB: ${config.active_vector_db}`);
       this._logger.log(
         `[INDEXING] Embedding Provider: ${config.active_embedding_provider}`
@@ -567,7 +574,14 @@ export class IndexingService implements vscode.Disposable {
             const content = await vscode.workspace.fs.readFile(fileUri);
             const text = new TextDecoder().decode(content);
 
-            await this.indexFile(collectionName, relativePath, text, token, repoId, currentCommit);
+            await this.indexFile(
+              collectionName,
+              relativePath,
+              text,
+              token,
+              repoId,
+              currentCommit
+            );
             processedCount++;
 
             this.notifyProgress({
@@ -611,10 +625,10 @@ export class IndexingService implements vscode.Disposable {
       if (!wasCancelled && !token.isCancellationRequested) {
         // 2. Persist Index State on Success
         await SettingsManager.updateRepoIndexState(repoId, {
-            repoId,
-            lastIndexedCommit: currentCommit,
-            lastIndexedAt: Date.now(),
-            vectorCount: processedCount // Approximation, ideally query DB or get actual count from store
+          repoId,
+          lastIndexedCommit: currentCommit,
+          lastIndexedAt: Date.now(),
+          vectorCount: processedCount, // Approximation, ideally query DB or get actual count from store
         });
 
         this.notifyProgress({
@@ -782,17 +796,20 @@ export class IndexingService implements vscode.Disposable {
   /**
    * Indexes a guidance string (e.g., from clipboard).
    */
-  public async indexGuidance(content: string, token?: vscode.CancellationToken): Promise<string> {
+  public async indexGuidance(
+    content: string,
+    token?: vscode.CancellationToken
+  ): Promise<string> {
     if (!this._activeConfig || !this._vectorStore) {
-        // Attempt to auto-init if not ready (uses default workspace behavior)
-        if (!await this.initializeForSearch(this.getActiveWorkspaceFolder()!)) {
-             throw new Error("Indexing Service not initialized.");
-        }
+      // Attempt to auto-init if not ready (uses default workspace behavior)
+      if (!(await this.initializeForSearch(this.getActiveWorkspaceFolder()!))) {
+        throw new Error("Indexing Service not initialized.");
+      }
     }
 
     // Double check initialization
     if (!this._activeConfig || !this._vectorStore) {
-        throw new Error("Indexing Service initialization failed.");
+      throw new Error("Indexing Service initialization failed.");
     }
 
     // Check for cancellation
@@ -803,65 +820,71 @@ export class IndexingService implements vscode.Disposable {
     const collectionName = this._activeConfig.index_info?.name || "codebase";
     const guidanceId = crypto.randomUUID();
 
-    this._logger.log(`[INDEXING] Processing guidance item (${content.length} bytes)`);
+    this._logger.log(
+      `[INDEXING] Processing guidance item (${content.length} bytes)`
+    );
 
     // Use custom splitting logic for guidance: 10% overlap
-    const lines = content.split('\n');
+    const lines = content.split("\n");
     const CHUNK_SIZE = 50;
-    const OVERLAP = Math.ceil(CHUNK_SIZE * 0.10); // 10% overlap -> 5 lines
+    const OVERLAP = Math.ceil(CHUNK_SIZE * 0.1); // 10% overlap -> 5 lines
 
     const chunks = [];
-    for (let i = 0; i < lines.length; i += (CHUNK_SIZE - OVERLAP)) {
-        const end = Math.min(i + CHUNK_SIZE, lines.length);
-        const chunkLines = lines.slice(i, end);
-        const chunkText = chunkLines.join('\n').trim();
+    for (let i = 0; i < lines.length; i += CHUNK_SIZE - OVERLAP) {
+      const end = Math.min(i + CHUNK_SIZE, lines.length);
+      const chunkLines = lines.slice(i, end);
+      const chunkText = chunkLines.join("\n").trim();
 
-        if (chunkText.length > 0) {
-            chunks.push({
-                id: crypto.randomUUID(),
-                content: chunkText,
-                lineStart: i + 1,
-                lineEnd: end
-            });
-        }
+      if (chunkText.length > 0) {
+        chunks.push({
+          id: crypto.randomUUID(),
+          content: chunkText,
+          lineStart: i + 1,
+          lineEnd: end,
+        });
+      }
     }
 
     const points: Array<{
-        id: string;
-        vector: number[];
-        payload: {
-            filePath: string;
-            content: string;
-            lineStart: number;
-            lineEnd: number;
-            type: "guidance";
-            guidanceId: string;
-        }
+      id: string;
+      vector: number[];
+      payload: {
+        filePath: string;
+        content: string;
+        lineStart: number;
+        lineEnd: number;
+        type: "guidance";
+        guidanceId: string;
+        indexName?: string;
+      };
     }> = [];
 
     for (const chunk of chunks) {
-        if (token?.isCancellationRequested) throw new Error("Indexing cancelled");
+      if (token?.isCancellationRequested) throw new Error("Indexing cancelled");
 
-        const vector = await this.generateEmbedding(chunk.content, token);
-        if (vector) {
-            points.push({
-                id: chunk.id,
-                vector: vector,
-                payload: {
-                    filePath: "clipboard", // Special marker
-                    content: chunk.content,
-                    lineStart: chunk.lineStart,
-                    lineEnd: chunk.lineEnd,
-                    type: "guidance", // Explicitly typed as "guidance"
-                    guidanceId: guidanceId
-                }
-            });
-        }
+      const vector = await this.generateEmbedding(chunk.content, token);
+      if (vector) {
+        points.push({
+          id: chunk.id,
+          vector: vector,
+          payload: {
+            filePath: "clipboard", // Special marker
+            content: chunk.content,
+            lineStart: chunk.lineStart,
+            lineEnd: chunk.lineEnd,
+            type: "guidance", // Explicitly typed as "guidance"
+            guidanceId: guidanceId,
+            indexName: collectionName,
+          },
+        });
+      }
     }
 
     if (points.length > 0) {
-         await this._vectorStore.upsertPoints(collectionName, points, token);
-         this._logger.log(`[INDEXING] Indexed guidance item ${guidanceId} with ${points.length} chunks.`);
+      await this._vectorStore.upsertPoints(collectionName, points, token);
+      this._logger.log(
+        `[INDEXING] Indexed guidance item ${guidanceId} with ${points.length} chunks.`
+      );
     }
 
     return guidanceId;
@@ -875,8 +898,8 @@ export class IndexingService implements vscode.Disposable {
     filePath: string,
     content: string,
     token: vscode.CancellationToken,
-    repoId: string,     // NEW
-    commit: string      // NEW
+    repoId: string, // NEW
+    commit: string // NEW
   ): Promise<void> {
     // Check for cancellation
     if (token.isCancellationRequested) {
@@ -903,18 +926,19 @@ export class IndexingService implements vscode.Disposable {
     );
 
     const points: Array<{
-        id: string;
-        vector: number[];
-        payload: {
-            filePath: string;
-            content: string;
-            lineStart: number;
-            lineEnd: number;
-            type: "file";
-            // Add metadata
-            repoId?: string;
-            commit?: string;
-        }
+      id: string;
+      vector: number[];
+      payload: {
+        filePath: string;
+        content: string;
+        lineStart: number;
+        lineEnd: number;
+        type: "file";
+        // Add metadata
+        repoId?: string;
+        commit?: string;
+        indexName?: string;
+      };
     }> = [];
     let embeddingCount = 0;
 
@@ -942,10 +966,11 @@ export class IndexingService implements vscode.Disposable {
           content: chunk.content,
           lineStart: chunk.lineStart,
           lineEnd: chunk.lineEnd,
-          type: 'file', // Explicitly set type to "file"
+          type: "file", // Explicitly set type to "file"
           // Add metadata
           repoId: repoId,
-          commit: commit
+          commit: commit,
+          indexName: collectionName,
         },
       });
     }
@@ -1103,7 +1128,7 @@ export class IndexingService implements vscode.Disposable {
 
   public async search(
     query: string,
-    options?: { limit?: number, filter?: any }, // Added filter
+    options?: { limit?: number; filter?: any }, // Added filter
     token?: vscode.CancellationToken
   ): Promise<SearchResultItem[]> {
     if (!this._vectorStore || !this._activeConfig) {
@@ -1160,13 +1185,34 @@ export class IndexingService implements vscode.Disposable {
         `[SEARCH] Executing vector search with limit ${searchLimit}`
       );
 
-      // Pass filter to vector store (assumes vector store supports it, which Qdrant does)
+      // Build the indexName filter condition
+      const indexNameCondition = {
+        key: "indexName",
+        match: { value: collectionName },
+      };
+
+      // Normalize and merge must conditions
+      const baseFilter = options?.filter ?? {};
+      const mustFromBase = Array.isArray(baseFilter.must)
+        ? baseFilter.must
+        : baseFilter.must
+        ? [baseFilter.must]
+        : [];
+
+      const mergedFilter = {
+        ...baseFilter,
+        must: [indexNameCondition, ...mustFromBase],
+      };
+
+      this._logger.log(`[SEARCH] Applied indexName filter: ${collectionName}`);
+
+      // Pass merged filter to vector store (assumes vector store supports it, which Qdrant does)
       const results = await this._vectorStore.search(
         collectionName,
         vector,
         searchLimit,
         token,
-        options?.filter
+        mergedFilter
       );
 
       const searchDuration = Date.now() - searchStartTime;

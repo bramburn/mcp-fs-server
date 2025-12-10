@@ -1,4 +1,7 @@
 import * as vscode from "vscode";
+import * as fs from "fs";
+import * as os from "os";
+import * as path from "path";
 import { AnalyticsService } from "../../services/AnalyticsService.js";
 import { ClipboardService } from "../../services/ClipboardService.js";
 import { ILogger } from "../../services/LoggerService.js";
@@ -86,94 +89,69 @@ export class FileHandler implements IRequestHandler {
   }
 
   private async handleCopyResults(params: CopyResultsParams) {
-    const { mode, results, query, includeQuery } = params;
+    const { results } = params;
 
-    // Deduplicate logic
-    const byUri = new Map<string, FileSnippetResult[]>();
+    // 1. Deduplicate files based on URI
+    const uniqueUris = new Set<string>();
+    const filesToProcess: FileSnippetResult[] = [];
+    
     for (const r of results) {
-      const arr = byUri.get(r.uri) ?? [];
-      arr.push(r);
-      byUri.set(r.uri, arr);
+      if (!uniqueUris.has(r.uri)) {
+        uniqueUris.add(r.uri);
+        filesToProcess.push(r);
+      }
     }
 
-    // Check OS platform [cite: 1]
-    const isWindows = process.platform === "win32";
+    try {
+      // 2. Build the bundled content
+      // We use a simple string concatenation to ensure raw content is preserved
+      let bundleContent = "";
 
-    if (mode === "files") {
-      if (isWindows) {
-        // Windows: Use binary clipboard copier (Rust) to copy actual file objects
-        const filePaths = Array.from(byUri.keys()).map(
-          (u) => vscode.Uri.parse(u).fsPath
-        );
-        await this.clipboardService.copyFilesToClipboard(filePaths);
-        vscode.window.setStatusBarMessage("Copied files to clipboard", 2000);
-      } else {
-        // Non-Windows (Mac/Linux): Copy full file contents as text
-        // This is often more useful on these platforms for pasting into LLMs/Chat
-        let buffer = "";
-        if (includeQuery && query) buffer += `Instruction: ${query}\n\n`;
+      for (const file of filesToProcess) {
+        try {
+          const uri = vscode.Uri.parse(file.uri);
+          
+          // Read file content using VS Code API (handles remote/virtual files)
+          const data = await vscode.workspace.fs.readFile(uri);
+          const content = new TextDecoder().decode(data);
+          
+          // Get clean relative path for the attribute
+          const relativePath = vscode.workspace.asRelativePath(uri, false);
 
-        for (const [uriString] of byUri) {
-          try {
-            const uri = vscode.Uri.parse(uriString);
-            
-            // Read the full document
-            const doc = await vscode.workspace.openTextDocument(uri);
-            const content = doc.getText();
-            
-            const rel = vscode.workspace.asRelativePath(uri, false);
-            const extension = rel.split(".").pop()?.toLowerCase();
-            const language = extension
-              ? this.getLanguageFromExtension(extension)
-              : "text";
-
-            buffer += `// File: ${rel}\n`;
-            buffer += `\`\`\`${language}\n`;
-            buffer += `${content}\n`;
-            buffer += `\`\`\`\n\n`;
-          } catch (_e) { // Renamed e to _e to suppress unused variable error
-            this.logger.log(`Failed to read file for copy: ${uriString}`, "ERROR");
-            buffer += `// File: ${uriString} (Error reading content)\n\n`;
-          }
-        }
-
-        await vscode.env.clipboard.writeText(buffer);
-        vscode.window.setStatusBarMessage(
-          `Copied ${byUri.size} file contents to clipboard`,
-          2000
-        );
-      }
-    } else {
-      // Snippet mode: Standard behavior for all platforms
-      let buffer = "";
-      if (includeQuery && query) buffer += `Instruction: ${query}\n\n`;
-
-      for (const [uriString, snippets] of byUri) {
-        const uri = vscode.Uri.parse(uriString);
-        const rel = vscode.workspace.asRelativePath(uri, false);
-        buffer += `// File: ${rel}\n`;
-        for (const s of snippets) {
-          // Determine language based on file extension for better formatting
-          const extension = rel.split(".").pop()?.toLowerCase();
-          const language = extension
-            ? this.getLanguageFromExtension(extension)
-            : "text";
-
-          buffer += `// Lines ${s.lineStart}-${s.lineEnd}\n`;
-          buffer += `\`\`\`${language}\n`;
-          buffer += `${s.snippet ?? ""}\n`;
-          buffer += `\`\`\`\n\n`;
+          // 3. Append raw content wrapped in tags
+          // No XML escaping is performed on 'content' to preserve code integrity (&&, <, >)
+          bundleContent += `<file path="${relativePath}">\n${content}\n</file>\n\n`;
+        } catch (_e) {
+          this.logger.log(`Failed to read file for bundling: ${file.filePath}`, "ERROR");
+          bundleContent += `<file path="${file.filePath}">\n[Error reading file]\n</file>\n\n`;
         }
       }
-      await vscode.env.clipboard.writeText(buffer);
-      vscode.window.setStatusBarMessage("Copied snippets to clipboard", 2000);
+
+      // 4. Write to a temporary file
+      const tempDir = os.tmpdir();
+      // Use .txt or .xml extension so LLMs recognize it as text/code
+      const tempFilePath = path.join(tempDir, `context-bundle-${Date.now()}.txt`);
+      
+      await fs.promises.writeFile(tempFilePath, bundleContent, "utf8");
+
+      // 5. Use ClipboardService to put the file object on the clipboard
+      // This allows the user to paste it as a file attachment
+      await this.clipboardService.copyFilesToClipboard([tempFilePath]);
+
+      vscode.window.showInformationMessage(
+        `Bundled ${filesToProcess.length} files into context attachment.`
+      );
+
+      this.analyticsService.trackEvent("results_copied", {
+        mode: "bundle",
+        count: filesToProcess.length,
+        platform: process.platform,
+      });
+
+    } catch (err) {
+      this.logger.log(`Failed to bundle context: ${err}`, "ERROR");
+      vscode.window.showErrorMessage("Failed to create context bundle.");
     }
-
-    this.analyticsService.trackEvent("results_copied", {
-      mode,
-      count: results.length,
-      platform: process.platform,
-    });
   }
 
   /**

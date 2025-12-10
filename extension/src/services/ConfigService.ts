@@ -79,7 +79,7 @@ export class ConfigService implements vscode.Disposable {
    * e.g., "search.limit" -> "searchLimit"
    * e.g., "indexing.maxFiles" -> "indexingMaxFiles"
    */
-  private convertToFlatKey(key: string): string {
+  private toCamelCase(key: string): string {
     const parts = key.split(".");
     if (parts.length === 1) {
       return key; // Already flat
@@ -92,6 +92,24 @@ export class ConfigService implements vscode.Disposable {
         .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
         .join("")
     );
+  }
+
+  /**
+   * Convert nested semanticSearch keys to the actual flat VS Code keys.
+   * Examples:
+   *   "search.limit"                -> "searchLimit"
+   *   "search.threshold"            -> "searchThreshold"
+   *   "search.guidanceLimit"        -> "guidanceSearchLimit"
+   *   "search.guidanceThreshold"    -> "guidanceSearchThreshold"
+   */
+  private convertToFlatKey(key: string): string {
+    if (key === 'search.guidanceLimit') {
+      return 'guidanceSearchLimit';
+    }
+    if (key === 'search.guidanceThreshold') {
+      return 'guidanceSearchThreshold';
+    }
+    return this.toCamelCase(key);
   }
 
   private loadConfiguration(): void {
@@ -591,8 +609,8 @@ export class ConfigService implements vscode.Disposable {
     global: boolean = false
   ): Promise<void> {
     try {
-      // Convert nested key (e.g., "search.limit") to flat camelCase key (e.g., "searchLimit")
-      // This matches the new VS Code settings structure
+      // Convert nested key (e.g. "search.guidanceLimit") to the actual
+      // contributed VS Code setting key (e.g. "guidanceSearchLimit")
       const flatKey = this.convertToFlatKey(key);
       const fullKey = `${ConfigPath.GENERAL}.${flatKey}`;
       const config = vscode.workspace.getConfiguration();

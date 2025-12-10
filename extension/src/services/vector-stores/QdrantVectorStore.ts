@@ -1,8 +1,8 @@
 import { QdrantClient } from "@qdrant/js-client-rest";
 import * as vscode from "vscode";
-import { IVectorStore } from "./IVectorStore.js";
-import { SearchResultItem } from "../types.js";
 import { ILogger } from "../LoggerService.js";
+import { SearchResultItem } from "../types.js";
+import { IVectorStore } from "./IVectorStore.js";
 
 /**
  * Qdrant vector store implementation
@@ -96,7 +96,8 @@ export class QdrantVectorStore implements IVectorStore {
         error.message.includes("network") ||
         error.message.includes("fetch")
       ) {
-        const advice = "Ensure Qdrant is reachable at the configured URL. If using a remote server, check your VPN or internet connection.";
+        const advice =
+          "Ensure Qdrant is reachable at the configured URL. If using a remote server, check your VPN or internet connection.";
         this.logger.log(
           `[VECTOR_STORE] NETWORK ERROR in ensureCollection - Type: ${error.name}, Message: ${error.message}. ${advice}`,
           "FATAL"
@@ -117,10 +118,11 @@ export class QdrantVectorStore implements IVectorStore {
         content: string;
         lineStart: number;
         lineEnd: number;
-        type?: 'file' | 'guidance';
+        type?: "file" | "guidance";
         guidanceId?: string;
         repoId?: string;
         commit?: string;
+        indexName?: string;
       };
     }>,
     token?: vscode.CancellationToken
@@ -225,7 +227,7 @@ export class QdrantVectorStore implements IVectorStore {
       );
 
       // Cast to expected structure
-      
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const results: SearchResultItem[] = searchResult.map((hit: any) => ({
         id: hit.id,
@@ -257,7 +259,8 @@ export class QdrantVectorStore implements IVectorStore {
         error.message.includes("fetch")
       ) {
         // FIX: Add advice for troubleshooting connection issues
-        const advice = "Ensure Qdrant is reachable at the configured URL. If using a remote server, check your VPN or internet connection.";
+        const advice =
+          "Ensure Qdrant is reachable at the configured URL. If using a remote server, check your VPN or internet connection.";
         this.logger.log(
           `[VECTOR_STORE] NETWORK ERROR in search - Type: ${error.name}, Message: ${error.message}. ${advice}`,
           "FATAL"

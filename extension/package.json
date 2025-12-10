@@ -202,6 +202,20 @@
           "default": false,
           "description": "Whether to include the search query when copying results."
         },
+        "semanticSearch.guidanceSearchLimit": {
+          "type": "number",
+          "default": 2,
+          "minimum": 1,
+          "maximum": 50,
+          "description": "The maximum number of guidance results to return in search."
+        },
+        "semanticSearch.guidanceSearchThreshold": {
+          "type": "number",
+          "default": 0.6,
+          "minimum": 0,
+          "maximum": 1,
+          "description": "The minimum similarity score for guidance search results."
+        },
         "semanticSearch.indexInfoByRepo": {
           "type": "object",
           "default": {},

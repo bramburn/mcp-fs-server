@@ -33,11 +33,12 @@ export interface IVectorStore {
         content: string;
         lineStart: number;
         lineEnd: number;
-        type?: 'file' | 'guidance';
+        type?: "file" | "guidance";
         guidanceId?: string;
         // New fields
         repoId?: string;
         commit?: string;
+        indexName?: string;
       };
     }>,
     token?: vscode.CancellationToken

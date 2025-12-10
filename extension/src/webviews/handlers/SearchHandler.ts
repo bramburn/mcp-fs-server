@@ -241,32 +241,32 @@ export class SearchHandler implements IRequestHandler {
     const { limit, threshold, includeQueryInCopy, guidanceSearchLimit, guidanceSearchThreshold } = request.params;
 
     if (limit !== undefined) {
-      await this.configService.updateVSCodeSetting("searchLimit", limit, true);
+      await this.configService.updateVSCodeSetting("search.limit", limit, true);
     }
     if (threshold !== undefined) {
       await this.configService.updateVSCodeSetting(
-        "searchThreshold",
+        "search.threshold",
         threshold,
         true
       );
     }
     if (includeQueryInCopy !== undefined) {
       await this.configService.updateVSCodeSetting(
-        "includeQueryInCopy",
+        "search.includeQueryInCopy",
         includeQueryInCopy,
         true
       );
     }
     if (guidanceSearchLimit !== undefined) {
       await this.configService.updateVSCodeSetting(
-        "guidanceSearchLimit",
+        "search.guidanceLimit",
         guidanceSearchLimit,
         true
       );
     }
     if (guidanceSearchThreshold !== undefined) {
       await this.configService.updateVSCodeSetting(
-        "guidanceSearchThreshold",
+        "search.guidanceThreshold",
         guidanceSearchThreshold,
         true
       );

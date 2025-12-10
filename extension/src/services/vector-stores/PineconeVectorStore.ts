@@ -1,8 +1,8 @@
 import * as vscode from "vscode";
-import { IVectorStore } from "./IVectorStore.js";
-import { SearchResultItem } from "../types.js";
-import { ILogger } from "../LoggerService.js";
 import { truncateByBytes } from "../../utils/stringUtils.js";
+import { ILogger } from "../LoggerService.js";
+import { SearchResultItem } from "../types.js";
+import { IVectorStore } from "./IVectorStore.js";
 
 /**
  * Pinecone vector store implementation using new SDK
@@ -54,17 +54,14 @@ export class PineconeVectorStore implements IVectorStore {
       const baseUrl = this.host.startsWith("http")
         ? this.host
         : `https://${this.host}`;
-      const describeResponse = await fetch(
-        `${baseUrl}/describe_index_stats`,
-        {
-          method: "GET",
-          headers: {
-            "Api-Key": this.apiKey,
-            "Content-Type": "application/json",
-          },
-          signal: controller.signal,
-        }
-      );
+      const describeResponse = await fetch(`${baseUrl}/describe_index_stats`, {
+        method: "GET",
+        headers: {
+          "Api-Key": this.apiKey,
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+      });
 
       if (!describeResponse.ok) {
         const errorText = await describeResponse
@@ -114,10 +111,11 @@ export class PineconeVectorStore implements IVectorStore {
         content: string;
         lineStart: number;
         lineEnd: number;
-        type?: 'file' | 'guidance';
+        type?: "file" | "guidance";
         guidanceId?: string;
         repoId?: string;
         commit?: string;
+        indexName?: string;
       };
     }>,
     token?: vscode.CancellationToken
@@ -161,7 +159,8 @@ export class PineconeVectorStore implements IVectorStore {
             guidanceId: point.payload.guidanceId,
             // Map new fields safely
             repoId: point.payload.repoId,
-            commit: point.payload.commit
+            commit: point.payload.commit,
+            indexName: point.payload.indexName,
           },
         };
       });
@@ -169,21 +168,18 @@ export class PineconeVectorStore implements IVectorStore {
       const baseUrl = this.host.startsWith("http")
         ? this.host
         : `https://${this.host}`;
-      const upsertResponse = await fetch(
-        `${baseUrl}/vectors/upsert`,
-        {
-          method: "POST",
-          headers: {
-            "Api-Key": this.apiKey,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            vectors: pineconeVectors,
-            namespace: collectionName,
-          }),
-          signal: controller.signal,
-        }
-      );
+      const upsertResponse = await fetch(`${baseUrl}/vectors/upsert`, {
+        method: "POST",
+        headers: {
+          "Api-Key": this.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          vectors: pineconeVectors,
+          namespace: collectionName,
+        }),
+        signal: controller.signal,
+      });
 
       if (!upsertResponse.ok) {
         const errorText = await upsertResponse
@@ -254,11 +250,11 @@ export class PineconeVectorStore implements IVectorStore {
 
       // Fix: Define the body type explicitly to avoid 'any'
       interface SearchBody {
-          vector: number[];
-          topK: number;
-          includeMetadata: boolean;
-          namespace: string;
-          filter?: Record<string, unknown>;
+        vector: number[];
+        topK: number;
+        includeMetadata: boolean;
+        namespace: string;
+        filter?: Record<string, unknown>;
       }
 
       const body: SearchBody = {
@@ -269,21 +265,18 @@ export class PineconeVectorStore implements IVectorStore {
       };
 
       if (filter) {
-          body.filter = this.translateFilter(filter);
+        body.filter = this.translateFilter(filter);
       }
 
-      const searchResponse = await fetch(
-        `${baseUrl}/query`,
-        {
-          method: "POST",
-          headers: {
-            "Api-Key": this.apiKey,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify(body),
-          signal: controller.signal,
-        }
-      );
+      const searchResponse = await fetch(`${baseUrl}/query`, {
+        method: "POST",
+        headers: {
+          "Api-Key": this.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
 
       if (!searchResponse.ok) {
         const errorText = await searchResponse
@@ -307,7 +300,7 @@ export class PineconeVectorStore implements IVectorStore {
             content: string;
             lineStart: number;
             lineEnd: number;
-            type?: 'file' | 'guidance';
+            type?: "file" | "guidance";
             guidanceId?: string;
           };
         }>;
@@ -357,10 +350,14 @@ export class PineconeVectorStore implements IVectorStore {
     // Expecting: { must_not: [ { key: "type", match: { value: "guidance" } } ] }
     if (filter.must_not && Array.isArray(filter.must_not)) {
       for (const condition of filter.must_not) {
-         if (condition.key && condition.match && condition.match.value !== undefined) {
-             // Pinecone: { "type": { "$ne": "guidance" } }
-             pineconeFilter[condition.key] = { $ne: condition.match.value };
-         }
+        if (
+          condition.key &&
+          condition.match &&
+          condition.match.value !== undefined
+        ) {
+          // Pinecone: { "type": { "$ne": "guidance" } }
+          pineconeFilter[condition.key] = { $ne: condition.match.value };
+        }
       }
     }
 
@@ -368,17 +365,21 @@ export class PineconeVectorStore implements IVectorStore {
     // Expecting: { must: [ { key: "type", match: { value: "guidance" } } ] }
     if (filter.must && Array.isArray(filter.must)) {
       for (const condition of filter.must) {
-          if (condition.key && condition.match && condition.match.value !== undefined) {
-              // Pinecone: { "type": "guidance" } (implicit equality)
-              // or { "type": { "$eq": "guidance" } }
-              pineconeFilter[condition.key] = { $eq: condition.match.value };
-          }
+        if (
+          condition.key &&
+          condition.match &&
+          condition.match.value !== undefined
+        ) {
+          // Pinecone: { "type": "guidance" } (implicit equality)
+          // or { "type": { "$eq": "guidance" } }
+          pineconeFilter[condition.key] = { $eq: condition.match.value };
+        }
       }
     }
 
     // If no translation logic matched, return original (fallback)
     if (Object.keys(pineconeFilter).length === 0) {
-        return filter;
+      return filter;
     }
 
     return pineconeFilter;
