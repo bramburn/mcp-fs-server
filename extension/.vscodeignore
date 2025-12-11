@@ -35,4 +35,4 @@ bin/**
 resources/
 !resources/*.wasm
 rust/
-node_modules/
+# node_modules/

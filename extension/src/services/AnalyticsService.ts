@@ -1,4 +1,5 @@
 import { PostHog } from "posthog-node";
+
 import * as vscode from "vscode";
 
 export class AnalyticsService {
