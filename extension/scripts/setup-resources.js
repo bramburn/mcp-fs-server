@@ -52,6 +52,19 @@ try {
     copied++;
   }
 
+  // Copy sql-wasm.wasm from node_modules/sql.js/dist/
+  const sqlJsDistDir = resolve(extensionRoot, 'node_modules', 'sql.js', 'dist');
+  const sqlWasmSource = resolve(sqlJsDistDir, 'sql-wasm.wasm');
+  const sqlWasmDest = resolve(resourcesDir, 'sql-wasm.wasm');
+
+  try {
+    copyFileSync(sqlWasmSource, sqlWasmDest);
+    copied++;
+    console.log(`[qdrant-codesearch] Copied sql-wasm.wasm from sql.js`);
+  } catch (error) {
+    console.warn(`[qdrant-codesearch] Failed to copy sql-wasm.wasm: ${error.message}`);
+  }
+
   console.log(`[qdrant-codesearch] Copied ${copied} wasm file(s) into ${resourcesDir}`);
   console.log('[qdrant-codesearch] Resource setup complete.');
 } catch (error) {

@@ -18,7 +18,7 @@ import type { IEmbeddingProvider } from "./embedding-providers/IEmbeddingProvide
 import { IndexingService } from "./IndexingService.js";
 import { ILogger } from "./LoggerService.js";
 import type { IVectorStore } from "./vector-stores/IVectorStore.js";
-import { SettingsManager } from "../settings.js";
+import { IndexMetadataService } from "./IndexMetadataService.js";
 
 // Mock Qdrant client
 vi.mock("@qdrant/js-client-rest");
@@ -50,15 +50,23 @@ const mockSettings: VSCodeSettings = {
   fileSearchLimit: 100
 };
 
+// Mock IndexMetadataService for SQLite-based index metadata storage
+vi.mock("./IndexMetadataService.js", () => ({
+  IndexMetadataService: class MockIndexMetadataService {
+    init = vi.fn().mockResolvedValue(undefined);
+    update = vi.fn().mockResolvedValue(undefined);
+    get = vi.fn().mockReturnValue(null);
+    getAll = vi.fn().mockReturnValue([]);
+    remove = vi.fn().mockResolvedValue(undefined);
+    close = vi.fn().mockResolvedValue(undefined);
+  }
+}));
 
-
-// Mock SettingsManager directly since the IndexingService should rely on it now
+// Mock SettingsManager only for general settings
 vi.mock("../settings.js", () => ({
   SettingsManager: {
     getSettings: vi.fn(() => mockSettings),
     updateSettings: vi.fn(),
-    updateRepoIndexState: vi.fn(), // Mock the new method
-    getRepoIndexStates: vi.fn(() => ({})),
   },
 }));
 
@@ -226,12 +234,23 @@ describe("IndexingService", () => {
       gitProvider: mockGitProvider
     };
 
+    // Create mock IndexMetadataService instance
+    const mockIndexMetadataService = {
+      init: vi.fn().mockResolvedValue(undefined),
+      update: vi.fn().mockResolvedValue(undefined),
+      get: vi.fn().mockReturnValue(null),
+      getAll: vi.fn().mockReturnValue([]),
+      remove: vi.fn().mockResolvedValue(undefined),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+
     indexingService = new IndexingService(
       mockConfigService,
       mockContext,
       mockAnalyticsService as AnalyticsService,
       mockLogger,
-      mockWorkspaceManager as any // Inject mock
+      mockWorkspaceManager as any, // Inject mock
+      mockIndexMetadataService as any // Inject IndexMetadataService
     );
 
     mockQdrantClient = {
@@ -359,7 +378,7 @@ describe("IndexingService", () => {
       expect(indexingService.isIndexing).toBe(false);
     });
 
-    test("should persist RepoIndexState after successful indexing", async () => {
+    test("should persist repo index metadata after successful indexing", async () => {
         vi.spyOn(mockConfigService, "config", "get").mockReturnValue({
           indexing: { enabled: true, maxFiles: 500, excludePatterns: [], includeExtensions: ['ts', 'js'] },
           search: { limit: 10, threshold: 0.7, includeQueryInCopy: false, guidanceLimit: 2, guidanceThreshold: 0.6 },
@@ -378,16 +397,16 @@ describe("IndexingService", () => {
         // Mock prerequisites like files found, client initialized
         vi.mocked(vscode.workspace.findFiles).mockResolvedValueOnce([vscode.Uri.file("/ws/a.ts")]);
         (mockQdrantClient.getCollections as Mock).mockResolvedValue({ collections: [] });
-        
+
+        // Get the mocked IndexMetadataService instance from the IndexingService
+        const mockIndexMetadataService = indexingService["_indexMetadataService"];
+
         await indexingService.startIndexing();
 
-        // Verify updateRepoIndexState was called
-        expect(SettingsManager.updateRepoIndexState).toHaveBeenCalledWith(
-            expect.any(String), // repoId (md5)
-            expect.objectContaining({
-                lastIndexedCommit: "commit-123",
-                vectorCount: expect.any(Number)
-            })
+        // Verify IndexMetadataService.update was called
+        expect(mockIndexMetadataService.update).toHaveBeenCalledWith(
+            expect.any(String), // repoId
+            "commit-123" // current hash
         );
     });
   });

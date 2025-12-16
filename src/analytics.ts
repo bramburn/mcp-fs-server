@@ -41,12 +41,6 @@ export class AnalyticsService {
           flushInterval: 500, // Flush every 500ms for better responsiveness
           requestTimeout: 5000, // 5 second timeout for requests
           disableGeoip: false, // Allow geolocation for better analytics
-          persistence: "memory", // Use memory persistence for server
-          capturePageViews: false, // Disable automatic page views
-          capturePageLeave: false, // Disable automatic page leave tracking
-          loaded: (client) => {
-            console.log("[PostHog] Analytics client initialized successfully");
-          },
         }
       );
 

@@ -76,21 +76,23 @@ export class IndexHandler implements IRequestHandler {
 
       // 1. Calculate Repo Identity
       const repoId = await this.indexingService.getRepoId(folder);
-      const storedState = this.indexingService.getRepoIndexState(repoId);
-      
+      const storedMetadata = this.indexingService.getRepoIndexState(repoId);
+
       // 2. Get Current Git State
       const currentCommit = await this.workspaceManager.gitProvider?.getLastCommit(folder.uri.fsPath) || null;
 
       // 3. Determine Status
       let status: IndexStatus = "notIndexed";
       let vectorCount = 0;
+      let lastIndexedCommit = null;
 
-      // Only consider "ready" or "stale" if we have a valid stored state with vectors
-      if (storedState) {
-          vectorCount = storedState.vectorCount;
-          
-          if (vectorCount > 0) {
-              if (currentCommit && storedState.lastIndexedCommit !== currentCommit) {
+      // Use the new IndexMetadataService structure
+      if (storedMetadata) {
+          lastIndexedCommit = storedMetadata.lastHash;
+
+          // Check if we have an indexed state
+          if (storedMetadata.lastHash) {
+              if (currentCommit && storedMetadata.lastHash !== currentCommit) {
                   status = "stale";
               } else {
                   status = "ready";
@@ -101,6 +103,13 @@ export class IndexHandler implements IRequestHandler {
           status = "notIndexed";
       }
 
+      // Optional: Get live stats from vector store if needed
+      // For now, we'll indicate indexing without exact counts
+      if (status === "ready" || status === "stale") {
+          // Could query vector store for actual vector count here
+          vectorCount = -1; // -1 indicates indexed but count unknown
+      }
+
       // Optional: Get live stats from DB if we want to double check
       // const liveStats = await this.indexingService.getCollectionStats();
 
@@ -108,7 +117,7 @@ export class IndexHandler implements IRequestHandler {
         status: status,
         stats: {
             vectorCount: vectorCount,
-            lastCommit: storedState?.lastIndexedCommit,
+            lastCommit: lastIndexedCommit,
             repoId: repoId
         }
       });

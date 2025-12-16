@@ -21,10 +21,10 @@ export interface SearchResultItem {
  * Indexing progress information
  */
 export interface IndexingProgress {
-  current: number;
-  total: number;
+  current?: number;
+  total?: number;
   currentFile?: string;
-  status: "starting" | "indexing" | "completed" | "error" | "cancelled";
+  status: "starting" | "indexing" | "completed" | "ready" | "error" | "cancelled";
 }
 
 /**

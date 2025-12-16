@@ -48,25 +48,6 @@ export class SettingsManager {
     };
   }
 
-  // --- New Methods for Repo State ---
-
-  static getRepoIndexStates(): IndexStateMap {
-    const config = vscode.workspace.getConfiguration(this.SECTION_ID);
-    return config.get<IndexStateMap>("indexInfoByRepo", {});
-  }
-
-  static async updateRepoIndexState(repoId: string, state: RepoIndexState): Promise<void> {
-    const config = vscode.workspace.getConfiguration(this.SECTION_ID);
-    const currentMap = config.get<IndexStateMap>("indexInfoByRepo", {});
-    
-    const updatedMap = {
-        ...currentMap,
-        [repoId]: state
-    };
-
-    await config.update("indexInfoByRepo", updatedMap, vscode.ConfigurationTarget.Global);
-  }
-
   // Update settings in VS Code configuration
   static async updateSettings(
     settings: Partial<VSCodeSettings>

@@ -145,6 +145,28 @@ export class WebviewController
     }
     this._debugMonitor = new DebugMonitor(this._logger, context);
     this._disposables.push(this._debugMonitor);
+
+    // Listen to indexing service progress updates
+    const progressListener = (progress: any) => {
+      // Forward progress updates to webview
+      if (progress.status === 'ready' || progress.status === 'completed' ||
+          progress.status === 'error' || progress.status === 'cancelled') {
+        // Trigger index status refresh in the webview
+        context.postMessage({
+          kind: 'notification',
+          id: `progress-${Date.now()}`,
+          scope: 'qdrantIndex',
+          method: 'didChangeIndexStatus',
+          timestamp: Date.now(),
+          params: { status: progress.status }
+        });
+      }
+    };
+
+    this._indexingService.addProgressListener(progressListener);
+    this._disposables.push({
+      dispose: () => this._indexingService.removeProgressListener(progressListener)
+    });
   }
 
   private setupConfigListeners(context: IpcContext) {

@@ -3,6 +3,7 @@ import { AnalyticsService } from "../services/AnalyticsService.js";
 import { ClipboardService } from "../services/ClipboardService.js";
 import { ConfigService } from "../services/ConfigService.js";
 import { IndexingService } from "../services/IndexingService.js";
+import { IndexMetadataService } from "../services/IndexMetadataService.js";
 import { LoggerService } from "../services/LoggerService.js";
 import { WorkspaceManager } from "../services/WorkspaceManager.js";
 import { WebviewController } from "../webviews/WebviewController.js";
@@ -31,6 +32,7 @@ export class Container implements vscode.Disposable {
   readonly analyticsService: AnalyticsService;
   readonly workspaceManager: WorkspaceManager;
   readonly indexingService: IndexingService;
+  readonly indexMetadataService: IndexMetadataService;
   readonly statusBarItem: vscode.StatusBarItem;
   readonly clipboardService: ClipboardService;
   readonly webviewController: WebviewController;
@@ -51,12 +53,14 @@ export class Container implements vscode.Disposable {
       this.configService,
       this.logger
     );
+    this.indexMetadataService = new IndexMetadataService(context);
     this.indexingService = new IndexingService(
       this.configService,
       context,
       this.analyticsService,
       this.logger,
-      this.workspaceManager 
+      this.workspaceManager,
+      this.indexMetadataService
     );
     this.clipboardService = new ClipboardService(context, outputChannel);
 
@@ -98,6 +102,7 @@ export class Container implements vscode.Disposable {
     try {
       await Promise.all([
         this.workspaceManager.initialize(),
+        this.indexMetadataService.init(),
         (async () => {
           const folder = this.workspaceManager.getActiveWorkspaceFolder();
           if (folder) {
@@ -150,7 +155,7 @@ export class Container implements vscode.Disposable {
         this.statusBarItem.text = `$(sync~spin) Indexing ${progress.current}/${progress.total}`;
       } else if (
         progress.status === "completed" ||
-        (progress as any).status === "ready"
+        progress.status === "ready"
       ) {
         this.statusBarItem.text = "$(database) Qdrant: Ready";
       } else if (progress.status === "error") {
@@ -176,6 +181,7 @@ export class Container implements vscode.Disposable {
       this.logger.log(`Error disposing ClipboardService: ${err}`, "ERROR");
     }
     this.indexingService.dispose();
+    void this.indexMetadataService.close();
     this.workspaceManager.dispose();
     this.configService.dispose();
     void this.analyticsService.dispose();

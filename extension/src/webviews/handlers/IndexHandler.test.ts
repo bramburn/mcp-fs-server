@@ -66,10 +66,11 @@ describe("IndexHandler", () => {
     }));
   });
 
-  it("should send 'ready' status when stored state exists and commits match", async () => {
+  it("should send 'ready' status when stored metadata exists and commits match", async () => {
     (mockIndexingService.getRepoIndexState as Mock).mockReturnValue({
-        vectorCount: 100,
-        lastIndexedCommit: "mock-commit"
+        repoId: "mock-repo-id",
+        lastHash: "mock-commit",
+        lastIndexed: Date.now()
     });
 
     await handler.handleCommand(

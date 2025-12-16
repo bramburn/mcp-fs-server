@@ -8,9 +8,9 @@ import { ILogger } from "./LoggerService.js";
 // Use a relative import so compiled extension can resolve this at runtime
 // when packaged and installed in VS Code. The previous bare "shared" import
 // relied on TS path aliases and failed in extension host.
-import { SettingsManager } from "../settings.js"; // Import SettingsManager
 import { CodeSplitter } from "../shared/code-splitter.js";
 import { WorkspaceManager } from "./WorkspaceManager.js"; // Import WorkspaceManager
+import { IndexMetadataService } from "./IndexMetadataService.js";
 
 // Import types
 import {
@@ -69,7 +69,8 @@ export class IndexingService implements vscode.Disposable {
     private readonly _analyticsService: AnalyticsService,
     private readonly _logger: ILogger,
     // Inject WorkspaceManager to access GitProvider
-    private readonly _workspaceManager: WorkspaceManager
+    private readonly _workspaceManager: WorkspaceManager,
+    private readonly _indexMetadataService: IndexMetadataService
   ) {
     this._splitter = new CodeSplitter();
   }
@@ -96,8 +97,14 @@ export class IndexingService implements vscode.Disposable {
    * Retrieves the stored index state for a specific repo ID.
    */
   public getRepoIndexState(repoId: string) {
-    const states = SettingsManager.getRepoIndexStates();
-    return states[repoId];
+    return this._indexMetadataService.get(repoId);
+  }
+
+  /**
+   * Get the index metadata service instance
+   */
+  public get indexMetadataService(): IndexMetadataService {
+    return this._indexMetadataService;
   }
 
   /**
@@ -110,12 +117,57 @@ export class IndexingService implements vscode.Disposable {
         "resources",
         "tree-sitter.wasm"
       ).fsPath;
-      const langPath = vscode.Uri.joinPath(
-        this._context.extensionUri,
-        "resources",
-        "tree-sitter-typescript.wasm"
-      ).fsPath;
-      await this._splitter.initialize(wasmPath, langPath);
+
+      // Map language names to their WASM files
+      const langWasmPaths: Record<string, string> = {
+        typescript: vscode.Uri.joinPath(
+          this._context.extensionUri,
+          "resources",
+          "tree-sitter-typescript.wasm"
+        ).fsPath,
+        tsx: vscode.Uri.joinPath(
+          this._context.extensionUri,
+          "resources",
+          "tree-sitter-tsx.wasm"
+        ).fsPath,
+        javascript: vscode.Uri.joinPath(
+          this._context.extensionUri,
+          "resources",
+          "tree-sitter-javascript.wasm"
+        ).fsPath,
+        python: vscode.Uri.joinPath(
+          this._context.extensionUri,
+          "resources",
+          "tree-sitter-python.wasm"
+        ).fsPath,
+        java: vscode.Uri.joinPath(
+          this._context.extensionUri,
+          "resources",
+          "tree-sitter-java.wasm"
+        ).fsPath,
+        rust: vscode.Uri.joinPath(
+          this._context.extensionUri,
+          "resources",
+          "tree-sitter-rust.wasm"
+        ).fsPath,
+        go: vscode.Uri.joinPath(
+          this._context.extensionUri,
+          "resources",
+          "tree-sitter-go.wasm"
+        ).fsPath,
+        kotlin: vscode.Uri.joinPath(
+          this._context.extensionUri,
+          "resources",
+          "tree-sitter-kotlin.wasm"
+        ).fsPath,
+        dart: vscode.Uri.joinPath(
+          this._context.extensionUri,
+          "resources",
+          "tree-sitter-dart.wasm"
+        ).fsPath
+      };
+
+      await this._splitter.initialize(wasmPath, langWasmPaths);
     } catch {
       this._logger.log(
         "Failed to init splitter WASM (falling back to line split)",
@@ -631,17 +683,18 @@ export class IndexingService implements vscode.Disposable {
       // Only show success message if not cancelled
       if (!wasCancelled && !token.isCancellationRequested) {
         // 2. Persist Index State on Success
-        await SettingsManager.updateRepoIndexState(repoId, {
-          repoId,
-          lastIndexedCommit: currentCommit,
-          lastIndexedAt: Date.now(),
-          vectorCount: processedCount, // Approximation, ideally query DB or get actual count from store
-        });
+        await this._indexMetadataService.update(repoId, currentCommit);
 
+        // First notify completion of indexing process
         this.notifyProgress({
           current: processedCount,
           total: files.length,
           status: "completed",
+        });
+
+        // Then notify that the index is ready for search
+        this.notifyProgress({
+          status: "ready",
         });
 
         this._logger.log("=".repeat(60));

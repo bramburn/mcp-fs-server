@@ -8,7 +8,7 @@ import {
 } from "@modelcontextprotocol/sdk/types.js";
 import { QdrantClient } from "@qdrant/js-client-rest";
 import Database from "better-sqlite3";
-import chokidar from "chokidar";
+import * as chokidar from "chokidar";
 import fsSync from "fs";
 import fs from "fs/promises";
 import crypto from "node:crypto";
@@ -448,10 +448,10 @@ class SemanticWatcher {
     });
 
     this.watcher
-      .on("add", (path) => this.handleFileChange(path))
-      .on("change", (path) => this.handleFileChange(path))
-      .on("unlink", (path) => this.handleFileDelete(path))
-      .on("error", (error) => logger.error("Watcher error:", error));
+      .on("add", (path: string) => this.handleFileChange(path))
+      .on("change", (path: string) => this.handleFileChange(path))
+      .on("unlink", (path: string) => this.handleFileDelete(path))
+      .on("error", (error: unknown) => logger.error("Watcher error:", error));
   }
 
   private getHash(content: string): string {
