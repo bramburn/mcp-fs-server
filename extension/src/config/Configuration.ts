@@ -71,12 +71,13 @@ export const DefaultConfiguration: Configuration = {
       "html",
       "css",
       // Added backend/other languages supported by downloaded WASM modules
-      "py", 
+      "py",
       "java",
       "rs",
       "go",
       "kt",
       "kts",
+      "dart", // <-- ADDED DART SUPPORT
     ],
   },
   search: {

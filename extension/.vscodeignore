@@ -1,23 +1,16 @@
-# Git / editor / workspace
-.git/**
-.vscode/**
-.vscode-test/**
-coverage/**
+# Git / editor cruft
+.git
+.vscode
+.vscode-test
+coverage
 *.log
 
-# Source files (compiled JS is in out/)
+# Source & tests – runtime only needs 'out' + 'resources' + 'bin'
 src/**
-**/*.ts
-**/*.tsx
-**/*.svelte
-**/*.map
-
-# Tests
 test/**
-src/test/**
-out/test/**
+results.json
 
-# Build / tooling configs (not needed at runtime)
+# Build / tooling configs not needed at runtime
 tsconfig.json
 vitest.config.ts
 vite.config.ts
@@ -28,11 +21,25 @@ eslint.config.mjs
 components.json
 idea.md
 
+# Rust sources (binaries are kept from bin/)
+rust
 
-bin/**
+# Node modules – safe to exclude because host + webview are bundled
+node_modules
+
+# VSIX build artifacts
+bin/**/*.vsix
+
+# Keep only the necessary binaries
 !bin/clipboard-monitor*
 !bin/clipboard-files*
-resources/
+
+# Keep WASM resources
+!resources/
 !resources/*.wasm
-rust/
-# node_modules/
+
+# From out/, only keep the bundled extension and webview
+out/**
+!out/extension.cjs
+!out/extension.cjs.map
+!out/webview/**

@@ -7,7 +7,7 @@
   },
   "displayName": "Qdrant Code Search",
   "description": "Semantic code search using Qdrant and Ollama",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "type": "module",
   "engines": {
     "vscode": "^1.106.0"
@@ -18,7 +18,7 @@
   "activationEvents": [
     "onView:qdrant.search.view"
   ],
-  "main": "./out/extension.js",
+  "main": "./out/extension.cjs",
   "contributes": {
     "viewsContainers": {
       "activitybar": [
@@ -228,7 +228,9 @@
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "build:rust": "node ./scripts/build-rust.js",
-    "compile": "npm run build:rust && tsc -p ./tsconfig.json && node ./scripts/setup-resources.js && npm run build:webview",
+    "bundle:extension": "esbuild src/extension.ts --bundle --platform=node --format=cjs --external:vscode --outfile=out/extension.cjs --sourcemap",
+    "typecheck": "tsc -p ./tsconfig.json --noEmit",
+    "compile": "npm run build:rust && npm run bundle:extension && node ./scripts/setup-resources.js && npm run build:webview",
     "watch": "npm-run-all -p watch:*",
     "watch:extension": "tsc -watch -p ./",
     "watch:webview": "vite build --watch",
@@ -269,6 +271,7 @@
     "@vscode/test-electron": "^2.4.0",
     "@vscode/vsce": "^3.7.1",
     "concurrently": "^9.1.0",
+    "esbuild": "^0.27.1",
     "eslint": "^8.0.0",
     "eslint-plugin-react": "^7.37.2",
     "eslint-plugin-react-hooks": "^4.6.2",

@@ -475,12 +475,19 @@ export class IndexingService implements vscode.Disposable {
           "resources",
           "tree-sitter.wasm"
         ).fsPath;
-        const langPath = vscode.Uri.joinPath(
-          this._context.extensionUri,
-          "resources",
-          "tree-sitter-typescript.wasm"
-        ).fsPath;
-        await this._splitter.initialize(wasmPath, langPath);
+        const langPaths = {
+          typescript: vscode.Uri.joinPath(
+            this._context.extensionUri,
+            "resources",
+            "tree-sitter-typescript.wasm"
+          ).fsPath,
+          dart: vscode.Uri.joinPath( // <-- ADDED DART
+            this._context.extensionUri,
+            "resources",
+            "tree-sitter-dart.wasm"
+          ).fsPath,
+        };
+        await this._splitter.initialize(wasmPath, langPaths);
       } catch {
         this._logger.log(
           "Failed to init splitter WASM (falling back to line split)",
