@@ -270,4 +270,45 @@ export class QdrantVectorStore implements IVectorStore {
       throw e;
     }
   }
+
+  /**
+   * Delete vectors for a specific file from the collection
+   */
+  async deleteByFilePath(
+    collectionName: string,
+    repoId: string,
+    filePath: string,
+    token?: vscode.CancellationToken
+  ): Promise<void> {
+    if (!this.client) {
+      throw new Error("Qdrant client not initialized");
+    }
+
+    try {
+      // Create a filter to find vectors for the specific file
+      const filter = {
+        must: [
+          { key: "filePath", match: { value: filePath } },
+          { key: "repoId", match: { value: repoId } }
+        ]
+      };
+
+      // Delete points that match the filter
+      await this.client.delete(collectionName, {
+        filter: filter
+      });
+
+      this.logger.log(
+        `[VECTOR_STORE] Deleted vectors for file: ${filePath} in collection ${collectionName}`,
+        "INFO"
+      );
+    } catch (e) {
+      const error = e instanceof Error ? e : new Error(String(e));
+      this.logger.log(
+        `[VECTOR_STORE] Error deleting vectors for ${filePath}: ${error.message}`,
+        "ERROR"
+      );
+      throw error;
+    }
+  }
 }

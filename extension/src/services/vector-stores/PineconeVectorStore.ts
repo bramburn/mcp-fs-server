@@ -384,4 +384,56 @@ export class PineconeVectorStore implements IVectorStore {
 
     return pineconeFilter;
   }
+
+  /**
+   * Delete vectors for a specific file from the collection
+   */
+  async deleteByFilePath(
+    collectionName: string,
+    repoId: string,
+    filePath: string,
+    token?: vscode.CancellationToken
+  ): Promise<void> {
+    try {
+      const baseUrl = this.host.startsWith("http")
+        ? this.host
+        : `https://${this.host}`;
+
+      // Create a filter to find vectors for the specific file
+      const filter = {
+        filePath: { $eq: filePath },
+        repoId: { $eq: repoId }
+      };
+
+      // Delete vectors that match the filter
+      const deleteResponse = await fetch(`${baseUrl}/vectors/delete`, {
+        method: "POST",
+        headers: {
+          "Api-Key": this.apiKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          filter: filter
+        }),
+      });
+
+      if (!deleteResponse.ok) {
+        const errorText = await deleteResponse
+          .text();
+        throw new Error(`Failed to delete vectors: ${deleteResponse.status} ${errorText}`);
+      }
+
+      this.logger.log(
+        `[VECTOR_STORE] Deleted vectors for file: ${filePath} in index ${collectionName}`,
+        "INFO"
+      );
+    } catch (e) {
+      const error = e instanceof Error ? e : new Error(String(e));
+      this.logger.log(
+        `[VECTOR_STORE] Error deleting vectors for ${filePath}: ${error.message}`,
+        "ERROR"
+      );
+      throw error;
+    }
+  }
 }

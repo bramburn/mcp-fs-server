@@ -49,6 +49,11 @@ export interface GitProvider {
      * Get the last commit hash
      */
     getLastCommit(repositoryPath: string): Promise<string | null>;
+
+    /**
+     * Get ignore patterns from .gitignore file
+     */
+    getIgnorePatterns(repositoryPath: string): Promise<string[]>;
 }
 
 /**
@@ -178,6 +183,20 @@ export class VsCodeGitProvider implements GitProvider {
         return repo.state.HEAD.commit || null;
     }
 
+    public async getIgnorePatterns(repositoryPath: string): Promise<string[]> {
+        const gitignoreUri = vscode.Uri.joinPath(vscode.Uri.file(repositoryPath), '.gitignore');
+        try {
+            const content = await vscode.workspace.fs.readFile(gitignoreUri);
+            const text = new TextDecoder().decode(content);
+            return text.split('\n')
+                .filter(line => line.trim() && !line.startsWith('#'))
+                .map(line => line.trim());
+        } catch {
+            // No .gitignore file or can't read it
+            return [];
+        }
+    }
+
     private async getRepositoryInfo(repo: any): Promise<GitRepository | null> {
         try {
             const rootPath = repo.rootUri?.fsPath;
@@ -271,5 +290,19 @@ export class FallbackGitProvider implements GitProvider {
 
     public async getLastCommit(repositoryPath: string): Promise<string | null> {
         return null;
+    }
+
+    public async getIgnorePatterns(repositoryPath: string): Promise<string[]> {
+        const gitignoreUri = vscode.Uri.joinPath(vscode.Uri.file(repositoryPath), '.gitignore');
+        try {
+            const content = await vscode.workspace.fs.readFile(gitignoreUri);
+            const text = new TextDecoder().decode(content);
+            return text.split('\n')
+                .filter(line => line.trim() && !line.startsWith('#'))
+                .map(line => line.trim());
+        } catch {
+            // No .gitignore file or can't read it
+            return [];
+        }
     }
 }

@@ -222,7 +222,8 @@ describe("IndexingService", () => {
 
     const mockGitProvider = {
       getLastCommit: vi.fn().mockResolvedValue("commit-123"),
-      getRemoteUrl: vi.fn().mockResolvedValue("https://github.com/test/repo.git")
+      getRemoteUrl: vi.fn().mockResolvedValue("https://github.com/test/repo.git"),
+      getIgnorePatterns: vi.fn().mockResolvedValue([])
     };
 
     const mockWorkspaceManager = {
@@ -231,7 +232,15 @@ describe("IndexingService", () => {
         name: "test-workspace",
         index: 0,
       }),
-      gitProvider: mockGitProvider
+      gitProvider: mockGitProvider,
+      findRepositories: vi.fn().mockResolvedValue([]),
+      workspaceFolders: [
+        {
+          uri: { fsPath: "/test/workspace" },
+          name: "test-workspace",
+          index: 0,
+        }
+      ]
     };
 
     // Create mock IndexMetadataService instance
@@ -406,7 +415,8 @@ describe("IndexingService", () => {
         // Verify IndexMetadataService.update was called
         expect(mockIndexMetadataService.update).toHaveBeenCalledWith(
             expect.any(String), // repoId
-            "commit-123" // current hash
+            "commit-123", // current hash
+            undefined // gitignoreHash (mock returns empty patterns)
         );
     });
   });

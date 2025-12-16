@@ -60,4 +60,18 @@ export interface IVectorStore {
     token?: vscode.CancellationToken,
     filter?: any
   ): Promise<SearchResultItem[]>;
+
+  /**
+   * Delete vectors for a specific file from the collection
+   * @param collectionName Collection/index name
+   * @param repoId Repository ID
+   * @param filePath Relative file path
+   * @param token Optional cancellation token
+   */
+  deleteByFilePath(
+    collectionName: string,
+    repoId: string,
+    filePath: string,
+    token?: vscode.CancellationToken
+  ): Promise<void>;
 }

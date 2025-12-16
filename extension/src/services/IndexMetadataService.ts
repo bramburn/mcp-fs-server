@@ -12,10 +12,26 @@ const loadSqlJs = async () => {
   }
 };
 
+// Type definition for SQL.js database
+interface SqlJsDatabase {
+  run(sql: string, params?: unknown[]): void;
+  prepare(sql: string): SqlJsStatement;
+  export(): Uint8Array;
+  close(): void;
+}
+
+interface SqlJsStatement {
+  bind(params: unknown[]): void;
+  step(): boolean;
+  getAsObject(): Record<string, unknown>;
+  free(): void;
+}
+
 export interface RepoIndexState {
   repoId: string;
   lastHash: string;
   lastIndexed: number;
+  gitignoreHash?: string;
 }
 
 /**
@@ -23,7 +39,7 @@ export interface RepoIndexState {
  * Provides persistent storage for tracking repository indexing state.
  */
 export class IndexMetadataService {
-  private db: any;
+  private db: SqlJsDatabase | null = null;
   private dbUri: vscode.Uri;
   private isInitialized = false;
 
@@ -45,14 +61,18 @@ export class IndexMetadataService {
       const SQL = await initSqlJs({ locateFile });
 
       // Try to load existing database or create new one
+      let isNewDatabase = false;
       try {
         const uint8array = new Uint8Array(await vscode.workspace.fs.readFile(this.dbUri));
-        this.db = new SQL.Database(uint8array);
+        this.db = new SQL.Database(uint8array) as unknown as SqlJsDatabase;
       } catch {
         // Database doesn't exist, create new one
-        this.db = new SQL.Database();
-        this.createTables();
+        this.db = new SQL.Database() as unknown as SqlJsDatabase;
+        isNewDatabase = true;
       }
+
+      // Always run createTables to handle migrations
+      this.createTables(isNewDatabase);
 
       this.isInitialized = true;
       console.log('[IndexMetadataService] Initialized successfully');
@@ -62,28 +82,51 @@ export class IndexMetadataService {
     }
   }
 
-  private createTables(): void {
+  private createTables(isNewDatabase: boolean = false): void {
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
+    // Always create the table if it doesn't exist
     this.db.run(`
       CREATE TABLE IF NOT EXISTS repo_index (
         repoid TEXT PRIMARY KEY,
         last_hash TEXT NOT NULL,
-        last_indexed INTEGER NOT NULL
+        last_indexed INTEGER NOT NULL,
+        gitignore_hash TEXT
       )
     `);
+
+    // For existing databases, check and add missing columns
+    if (!isNewDatabase) {
+      // Check if gitignore_hash column exists and add it if it doesn't
+      try {
+        this.db.run(`SELECT gitignore_hash FROM repo_index LIMIT 1`);
+        console.log('[IndexMetadataService] gitignore_hash column already exists');
+      } catch {
+        // Column doesn't exist, add it
+        console.log('[IndexMetadataService] Adding gitignore_hash column to existing database');
+        this.db.run(`ALTER TABLE repo_index ADD COLUMN gitignore_hash TEXT`);
+      }
+    }
   }
 
   /**
    * Update the index metadata for a repository
    */
-  async update(repoId: string, hash: string): Promise<void> {
+  async update(repoId: string, hash: string, gitignoreHash?: string): Promise<void> {
     if (!this.isInitialized) {
       await this.init();
     }
 
+    if (!this.db) {
+      throw new Error('Database not initialized');
+    }
+
     try {
       this.db.run(
-        'INSERT OR REPLACE INTO repo_index (repoid, last_hash, last_indexed) VALUES (?, ?, ?)',
-        [repoId, hash, Date.now()]
+        'INSERT OR REPLACE INTO repo_index (repoid, last_hash, last_indexed, gitignore_hash) VALUES (?, ?, ?, ?)',
+        [repoId, hash, Date.now(), gitignoreHash || null]
       );
 
       // Persist changes to disk
@@ -101,7 +144,7 @@ export class IndexMetadataService {
    * Get index metadata for a repository
    */
   get(repoId: string): RepoIndexState | null {
-    if (!this.isInitialized) {
+    if (!this.isInitialized || !this.db) {
       console.warn('[IndexMetadataService] Service not initialized');
       return null;
     }
@@ -115,9 +158,10 @@ export class IndexMetadataService {
         stmt.free();
 
         return {
-          repoId: row.repoid,
-          lastHash: row.last_hash,
-          lastIndexed: row.last_indexed
+          repoId: row.repoid as string,
+          lastHash: row.last_hash as string,
+          lastIndexed: row.last_indexed as number,
+          gitignoreHash: (row.gitignore_hash as string) || undefined
         };
       }
 
@@ -133,7 +177,7 @@ export class IndexMetadataService {
    * Get all repositories with their index metadata
    */
   getAll(): RepoIndexState[] {
-    if (!this.isInitialized) {
+    if (!this.isInitialized || !this.db) {
       console.warn('[IndexMetadataService] Service not initialized');
       return [];
     }
@@ -145,9 +189,10 @@ export class IndexMetadataService {
       while (stmt.step()) {
         const row = stmt.getAsObject();
         results.push({
-          repoId: row.repoid,
-          lastHash: row.last_hash,
-          lastIndexed: row.last_indexed
+          repoId: row.repoid as string,
+          lastHash: row.last_hash as string,
+          lastIndexed: row.last_indexed as number,
+          gitignoreHash: (row.gitignore_hash as string) || undefined
         });
       }
 
@@ -165,6 +210,10 @@ export class IndexMetadataService {
   async remove(repoId: string): Promise<void> {
     if (!this.isInitialized) {
       await this.init();
+    }
+
+    if (!this.db) {
+      throw new Error('Database not initialized');
     }
 
     try {
@@ -194,6 +243,7 @@ export class IndexMetadataService {
       await vscode.workspace.fs.writeFile(this.dbUri, data);
 
       this.db.close();
+      this.db = null;
       this.isInitialized = false;
 
       console.log('[IndexMetadataService] Database closed');

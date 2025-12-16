@@ -1,3 +1,4 @@
+
 import { QdrantClient } from "@qdrant/js-client-rest";
 import * as crypto from "crypto";
 import * as vscode from "vscode";
@@ -11,6 +12,8 @@ import { ILogger } from "./LoggerService.js";
 import { CodeSplitter } from "../shared/code-splitter.js";
 import { WorkspaceManager } from "./WorkspaceManager.js"; // Import WorkspaceManager
 import { IndexMetadataService } from "./IndexMetadataService.js";
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const ignoreFactory = require('ignore');
 
 // Import types
 import {
@@ -18,6 +21,19 @@ import {
   IndexingProgressListener,
   SearchResultItem,
 } from "./types.js";
+
+// Define type for vector store result payload
+type VectorStoreResultPayload = {
+  filePath: string;
+  content: string;
+  lineStart: number;
+  lineEnd: number;
+  type?: 'file' | 'guidance';
+  guidanceId?: string;
+  repoId?: string;
+  commit?: string;
+  indexName?: string;
+};
 
 // Import embedding providers
 import {
@@ -94,17 +110,74 @@ export class IndexingService implements vscode.Disposable {
   }
 
   /**
-   * Retrieves the stored index state for a specific repo ID.
+   * Retrieves stored index state for a specific repo ID.
    */
   public getRepoIndexState(repoId: string) {
     return this._indexMetadataService.get(repoId);
   }
 
   /**
-   * Get the index metadata service instance
+   * Get index metadata service instance
    */
   public get indexMetadataService(): IndexMetadataService {
     return this._indexMetadataService;
+  }
+
+  /**
+   * Clean up vectors for files that should now be ignored
+   */
+  public async cleanupIgnoredFiles(
+    collectionName: string,
+    repoId: string,
+    ignorePatterns: string[]
+  ): Promise<void> {
+    if (!this._vectorStore) {
+      this._logger.log("[CLEANUP] No vector store available for cleanup", "WARN");
+      return;
+    }
+
+    try {
+      // Note: This requires vector store to support querying by repoId
+      // For now, we'll log the intent
+      this._logger.log(`[CLEANUP] Would clean up files matching ${ignorePatterns.length} ignore patterns`, "INFO");
+
+      // TODO: Implement actual cleanup when vector store supports querying by repoId
+      // Example implementation:
+      // const allFilePaths = await this._vectorStore.getFilePathsByRepo(collectionName, repoId);
+      // const filesToDelete = allFilePaths.filter(filePath => ig.ignores(filePath));
+      //
+      // for (const filePath of filesToDelete) {
+      //   await this._vectorStore.deleteByFilePath(collectionName, repoId, filePath);
+      //   this._logger.log(`[CLEANUP] Deleted vectors for ignored file: ${filePath}`, "INFO");
+      // }
+
+      this._logger.log(`[CLEANUP] Cleanup completed (placeholder implementation)`, "INFO");
+    } catch (error) {
+      this._logger.log(`[CLEANUP] Error during cleanup: ${error}`, "ERROR");
+    }
+  }
+
+  /**
+   * Delete vectors for a specific file from the index
+   */
+  public async deleteFileFromIndex(
+    collectionName: string,
+    repoId: string,
+    filePath: string
+  ): Promise<void> {
+    if (!this._vectorStore) {
+      this._logger.log("[DELETE] No vector store available for deletion", "WARN");
+      return;
+    }
+
+    try {
+      // Use vector store to delete vectors for the specific file
+      await this._vectorStore.deleteByFilePath(collectionName, repoId, filePath);
+      this._logger.log(`[DELETE] Deleted vectors for file: ${filePath}`, "INFO");
+    } catch (error) {
+      this._logger.log(`[DELETE] Error deleting vectors for ${filePath}: ${error}`, "ERROR");
+      throw error;
+    }
   }
 
   /**
@@ -592,7 +665,45 @@ export class IndexingService implements vscode.Disposable {
         excludePattern,
         maxResults
       );
-      this._logger.log(`[INDEXING] Found ${files.length} files to index.`);
+      this._logger.log(`[INDEXING] Found ${files.length} files before .gitignore filtering.`);
+
+      // Get repository ignore patterns
+      const repoPaths = await this._workspaceManager.findRepositories();
+      const gitIgnorePatterns: string[] = [];
+      for (const repoPath of repoPaths) {
+        if (workspaceFolder.uri.fsPath.startsWith(repoPath)) {
+          const patterns = await this._workspaceManager.gitProvider.getIgnorePatterns(repoPath);
+          gitIgnorePatterns.push(...patterns);
+          this._logger.log(`[INDEXING] Loaded ${patterns.length} patterns from .gitignore in ${repoPath}`);
+          this._logger.log(`[INDEXING] Gitignore patterns: ${JSON.stringify(patterns)}`);
+        }
+      }
+
+      // Create ignore filter
+      const ignoreFilter = ignoreFactory({
+        ignorecase: process.platform === 'win32',
+        // ignore library is case-insensitive on Windows by default
+      }).add(gitIgnorePatterns);
+
+      // Filter files through .gitignore
+      const filteredFiles = files.filter(uri => {
+        const relativePath = vscode.workspace.asRelativePath(uri);
+        // Remove leading slash if present (ignore library expects relative paths)
+        const normalizedPath = relativePath.replace(/^[/\\]+/, '');
+
+        // For debugging - log the path being checked
+        this._logger.log(`[INDEXING] Checking file: ${normalizedPath}`);
+
+        const isIgnored = ignoreFilter.ignores(normalizedPath);
+        if (isIgnored) {
+          this._logger.log(`[INDEXING] ✓ Ignoring file due to .gitignore: ${normalizedPath}`);
+        } else {
+          this._logger.log(`[INDEXING] → Including file: ${normalizedPath}`);
+        }
+        return !isIgnored;
+      });
+
+      this._logger.log(`[INDEXING] Filtered to ${filteredFiles.length} files after .gitignore processing.`);
 
       // Check for cancellation before starting heavy work
       if (token.isCancellationRequested) {
@@ -601,7 +712,7 @@ export class IndexingService implements vscode.Disposable {
 
       this.notifyProgress({
         current: 0,
-        total: files.length,
+        total: filteredFiles.length,
         status: "indexing",
       });
 
@@ -609,7 +720,7 @@ export class IndexingService implements vscode.Disposable {
 
       // Parallel Indexing Configuration
       const CONCURRENCY_LIMIT = 8;
-      const queue = [...files];
+      const queue = [...filteredFiles];
       const activeWorkers: Promise<void>[] = [];
 
       this._logger.log(
@@ -682,13 +793,24 @@ export class IndexingService implements vscode.Disposable {
 
       // Only show success message if not cancelled
       if (!wasCancelled && !token.isCancellationRequested) {
+        // Calculate gitignore hash for change detection
+        let gitignoreHash: string | undefined;
+        try {
+          const ignorePatterns = await this._workspaceManager.gitProvider.getIgnorePatterns(workspaceFolder.uri.fsPath);
+          if (ignorePatterns.length > 0) {
+            gitignoreHash = crypto.createHash('md5').update(ignorePatterns.join('\n')).digest('hex');
+          }
+        } catch (error) {
+          this._logger.log(`[INDEXING] Failed to calculate gitignore hash: ${error}`, "WARN");
+        }
+
         // 2. Persist Index State on Success
-        await this._indexMetadataService.update(repoId, currentCommit);
+        await this._indexMetadataService.update(repoId, currentCommit, gitignoreHash);
 
         // First notify completion of indexing process
         this.notifyProgress({
           current: processedCount,
-          total: files.length,
+          total: filteredFiles.length,
           status: "completed",
         });
 
@@ -700,7 +822,7 @@ export class IndexingService implements vscode.Disposable {
         this._logger.log("=".repeat(60));
         this._logger.log(`[INDEXING] ✓ Indexing completed successfully!`);
         this._logger.log(
-          `[INDEXING] Total files processed: ${processedCount}/${files.length}`
+          `[INDEXING] Total files processed: ${processedCount}/${filteredFiles.length}`
         );
         this._logger.log(`[INDEXING] Collection: ${collectionName}`);
         this._logger.log("=".repeat(60));
@@ -880,6 +1002,11 @@ export class IndexingService implements vscode.Disposable {
     const collectionName = this._activeConfig.index_info?.name || "codebase";
     const guidanceId = crypto.randomUUID();
 
+    // Get workspace folder and repoId for metadata
+    const workspaceFolder = this.getActiveWorkspaceFolder();
+    const repoId = workspaceFolder ? await this.getRepoId(workspaceFolder) : 'unknown';
+    const commit = await this._workspaceManager.gitProvider?.getLastCommit(workspaceFolder?.uri.fsPath || '') || 'HEAD';
+
     this._logger.log(
       `[INDEXING] Processing guidance item (${content.length} bytes)`
     );
@@ -916,6 +1043,8 @@ export class IndexingService implements vscode.Disposable {
         type: "guidance";
         guidanceId: string;
         indexName?: string;
+        repoId: string;
+        commit: string;
       };
     }> = [];
 
@@ -935,6 +1064,8 @@ export class IndexingService implements vscode.Disposable {
             type: "guidance", // Explicitly typed as "guidance"
             guidanceId: guidanceId,
             indexName: collectionName,
+            repoId: repoId,
+            commit: commit,
           },
         });
       }
@@ -951,9 +1082,32 @@ export class IndexingService implements vscode.Disposable {
   }
 
   /**
+   * Public method to index a single file with metadata
+   */
+  public async addToIndex(
+    collectionName: string,
+    filePath: string,
+    content: string,
+    token?: vscode.CancellationToken
+  ): Promise<void> {
+    // Get workspace folder and repoId for metadata
+    const workspaceFolder = this.getActiveWorkspaceFolder();
+    if (!workspaceFolder) {
+      throw new Error('No active workspace folder found');
+    }
+    const repoId = await this.getRepoId(workspaceFolder);
+    const commit = await this._workspaceManager.gitProvider?.getLastCommit(workspaceFolder.uri.fsPath) || 'HEAD';
+
+    // Use the actual cancellation token if provided, create a dummy one otherwise
+    const cancellationToken = token || new vscode.CancellationTokenSource().token;
+
+    await this.indexFile(collectionName, filePath, content, cancellationToken, repoId, commit);
+  }
+
+  /**
    * Breaks file content into chunks, embeds them, and uploads to Qdrant
    */
-  private async indexFile(
+  public async indexFile(
     collectionName: string,
     filePath: string,
     content: string,
@@ -1188,7 +1342,7 @@ export class IndexingService implements vscode.Disposable {
 
   public async search(
     query: string,
-    options?: { limit?: number; filter?: any }, // Added filter
+    options?: { limit?: number; filter?: Record<string, unknown> }, // Added filter
     token?: vscode.CancellationToken
   ): Promise<SearchResultItem[]> {
     if (!this._vectorStore || !this._activeConfig) {
@@ -1215,6 +1369,15 @@ export class IndexingService implements vscode.Disposable {
     );
 
     try {
+      // Get workspace folder and repoId
+      const workspaceFolder = this.getActiveWorkspaceFolder();
+      if (!workspaceFolder) {
+        vscode.window.showWarningMessage('No active workspace folder for search.');
+        return [];
+      }
+      const repoId = await this.getRepoId(workspaceFolder);
+      this._logger.log(`[SEARCH] Applied repoId filter: ${repoId}`);
+
       const embeddingStartTime = Date.now();
       const vector = await this.generateEmbedding(query, token);
       const embeddingDuration = Date.now() - embeddingStartTime;
@@ -1251,6 +1414,12 @@ export class IndexingService implements vscode.Disposable {
         match: { value: collectionName },
       };
 
+      // Build the repoId filter condition
+      const repoIdCondition = {
+        key: 'repoId',
+        match: { value: repoId }
+      };
+
       // Normalize and merge must conditions
       const baseFilter = options?.filter ?? {};
       const mustFromBase = Array.isArray(baseFilter.must)
@@ -1261,7 +1430,11 @@ export class IndexingService implements vscode.Disposable {
 
       const mergedFilter = {
         ...baseFilter,
-        must: [indexNameCondition, ...mustFromBase],
+        must: [
+          indexNameCondition,
+          repoIdCondition,
+          ...mustFromBase
+        ],
       };
 
       this._logger.log(`[SEARCH] Applied indexName filter: ${collectionName}`);
@@ -1280,13 +1453,24 @@ export class IndexingService implements vscode.Disposable {
         `[SEARCH] Vector search completed in ${searchDuration}ms`
       );
 
+      // Filter out results for files that no longer exist on the file system
+      const initialResultCount = results.length;
+      const filteredResults = await this.filterResultsByFileExistence(results);
+      const filteredCount = initialResultCount - filteredResults.length;
+
+      if (filteredCount > 0) {
+        this._logger.log(
+          `[SEARCH] Filtered out ${filteredCount} results for non-existent files.`
+        );
+      }
+
       const totalDuration = Date.now() - startTime;
       this._logger.log(
-        `[SEARCH] Search completed successfully in ${totalDuration}ms, found ${results.length} results`
+        `[SEARCH] Search completed successfully in ${totalDuration}ms, found ${initialResultCount} results, ${filteredResults.length} after filtering`
       );
 
-      return results.map(
-        (item): SearchResultItem => ({
+      return filteredResults.map(
+        (item: { id: string | number; score: number; payload: VectorStoreResultPayload }): SearchResultItem => ({
           id: item.id,
           score: item.score,
           payload: item.payload,
@@ -1324,6 +1508,36 @@ export class IndexingService implements vscode.Disposable {
       vscode.window.showErrorMessage(`Search failed: ${error.message}`);
       return [];
     }
+  }
+
+  /**
+   * Filters search results by checking if the associated file still exists on the file system.
+   * @param results The initial search results from the vector store.
+   * @returns A promise that resolves to the filtered list of results.
+   */
+  private async filterResultsByFileExistence(results: { id: string | number; score: number; payload: VectorStoreResultPayload }[]): Promise<{ id: string | number; score: number; payload: VectorStoreResultPayload }[]> {
+    const existenceChecks = results.map(async (result) => {
+      const filePath = result.payload?.filePath;
+      if (!filePath || filePath === "clipboard") {
+        // Keep guidance items or results without a valid file path
+        return true;
+      }
+      try {
+        const workspaceFolder = this.getActiveWorkspaceFolder();
+        if (!workspaceFolder) {
+          return false; // Cannot resolve path without a workspace
+        }
+        const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, filePath);
+        await vscode.workspace.fs.stat(fileUri);
+        return true; // File exists
+      } catch {
+        // `stat` throws an error if the file does not exist (e.g., FileNotFound)
+        return false; // File does not exist
+      }
+    });
+
+    const existenceResults = await Promise.all(existenceChecks);
+    return results.filter((_, index) => existenceResults[index]);
   }
 
   /**
