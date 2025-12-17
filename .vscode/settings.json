@@ -1,74 +1,93 @@
 {
-    "typescript.validate.enable": true,
-    "svelte.plugin.svelte.diagnostics.enable": true,
-    
-    // Extension Development Settings
-    "typescript.tsserver.experimental.enableProjectDiagnostics": true,
-    "typescript.preferences.includePackageJsonAutoImports": "on",
-    "typescript.suggest.autoImports": true,
-    "typescript.updateImportsOnFileMove.enabled": "always",
-    
-    // Debug Configuration
-    "debug.node.autoAttach": "on",
-    "debug.terminal.clearBeforeReusing": true,
-    "debug.console.closeOnEnd": false,
-    
-    // Editor Settings for Development
-    "editor.formatOnSave": true,
-    "editor.codeActionsOnSave": {
-        "source.fixAll.eslint": "explicit",
-        "source.organizeImports": "explicit"
-    },
-    "editor.defaultFormatter": "esbenp.prettier-vscode",
-    
-    // ESLint Settings
-    "eslint.useFlatConfig": true,
-    "eslint.configFile": "./extension/eslint.config.mjs",
-    "eslint.validate": [
-        "javascript",
-        "javascriptreact",
-        "typescript",
-        "typescriptreact",
-        "svelte"
-    ],
-    "eslint.workingDirectories": [
-        "./extension"
-    ],
-    "eslint.ignoreExclude": false,
-    
-    // File Watcher Settings
-    "files.watcherExclude": {
-        "**/out/**": true,
-        "**/node_modules/**": true,
-        "**/.git/**": true
-    },
-    
-    // Search Settings
-    "search.exclude": {
-        "**/out": true,
-        "**/node_modules": true,
-        "**/.git": true,
-        "**/dist": true
-    },
-    
-    // File Exclude Settings
-    "files.exclude": {
-        "**/.vscode/settings.json": false
-    },
-    
-    // TypeScript Compiler Settings
-    "typescript.preferences.importModuleSpecifier": "relative",
-    "typescript.tsdk": "./extension/node_modules/typescript/lib",
-    
-    // Vite/Build Settings
-    "npm.enableRunFromFolder": true,
-    "npm.packageManager": "npm",
-    
-    // Testing Settings
-    "testing.automaticallyOpenPeekView": "failureInVisibleDocument",
-    "testing.followRunningTest": true,
-    
-    // Extension Development Specific
-    "extensions.autoUpdate": false,
-    "extensions.autoCheckUpdates": false
+  "typescript.validate.enable": true,
+  "svelte.plugin.svelte.diagnostics.enable": true,
+
+  // Extension Development Settings
+  "typescript.tsserver.experimental.enableProjectDiagnostics": true,
+  "typescript.preferences.includePackageJsonAutoImports": "on",
+  "typescript.suggest.autoImports": true,
+  "typescript.updateImportsOnFileMove.enabled": "always",
+
+  // Debug Configuration
+  "debug.node.autoAttach": "on",
+  "debug.terminal.clearBeforeReusing": true,
+  "debug.console.closeOnEnd": false,
+
+  // Editor Settings for Development
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit",
+    "source.organizeImports": "explicit"
+  },
+  "editor.defaultFormatter": "esbenp.prettier-vscode",
+
+  // ESLint Settings
+  "eslint.useFlatConfig": true,
+  "eslint.configFile": "./extension/eslint.config.mjs",
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact",
+    "svelte"
+  ],
+  "eslint.workingDirectories": ["./extension"],
+  "eslint.ignoreExclude": false,
+
+  // File Watcher Settings
+  "files.watcherExclude": {
+    "**/out/**": true,
+    "**/node_modules/**": true,
+    "**/.git/**": true
+  },
+
+  // Search Settings
+  "search.exclude": {
+    "**/out": true,
+    "**/node_modules": true,
+    "**/.git": true,
+    "**/dist": true
+  },
+
+  // File Exclude Settings
+  "files.exclude": {
+    "**/.vscode/settings.json": false
+  },
+
+  // TypeScript Compiler Settings
+  "typescript.preferences.importModuleSpecifier": "relative",
+  "typescript.tsdk": "./extension/node_modules/typescript/lib",
+
+  // Vite/Build Settings
+  "npm.enableRunFromFolder": true,
+  "npm.packageManager": "npm",
+
+  // Testing Settings
+  "testing.automaticallyOpenPeekView": "failureInVisibleDocument",
+  "testing.followRunningTest": true,
+
+  // Extension Development Specific
+  "extensions.autoUpdate": false,
+  "extensions.autoCheckUpdates": false,
+  "semanticSearch.activeVectorDb": "pinecone",
+  "semanticSearch.qdrantUrl": "http://localhost:6333",
+  "semanticSearch.qdrantApiKey": "",
+  "semanticSearch.pineconeIndexName": "codevault",
+  "semanticSearch.pineconeHost": "codevault-ocm7jp8.svc.aped-4627-b74a.pinecone.io",
+  "semanticSearch.pineconeApiKey": "pcsk_6ieVng_CCkahG2oSmvwTRpJGLvQw4D5Uy5zGoWB8sP9TzEzMEaY2ygFYFyejeVFG4KeDqv",
+  "semanticSearch.activeEmbeddingProvider": "gemini",
+  "semanticSearch.ollamaBaseUrl": "http://localhost:11434",
+  "semanticSearch.ollamaModel": "nomic-embed-text",
+  "semanticSearch.openaiApiKey": "",
+  "semanticSearch.openaiModel": "text-embedding-3-small",
+  "semanticSearch.geminiApiKey": "AIzaSyAM0aJQzj23HbF-cfTG3fMZ1Sd2AxjDnkc",
+  "semanticSearch.geminiModel": "text-embedding-004",
+  "semanticSearch.indexName": "mcp-fs-server",
+  "semanticSearch.embeddingDimension": 768,
+  "semanticSearch.searchLimit": 10,
+  "semanticSearch.searchThreshold": 0.7,
+  "semanticSearch.indexingMaxFiles": 500,
+  "semanticSearch.includeQueryInCopy": false,
+  "semanticSearch.guidanceSearchLimit": 2,
+  "semanticSearch.guidanceSearchThreshold": 0.6
 }

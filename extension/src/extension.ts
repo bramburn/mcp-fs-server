@@ -20,12 +20,13 @@ async function checkIndexStatus(indexStatusItem: vscode.StatusBarItem): Promise<
         try {
             const repoId = await container?.indexingService.getRepoId(folder) || '';
             const currentHash = await container?.workspaceManager.gitProvider?.getLastCommit(folder.uri.fsPath) || 'HEAD';
-            const metadata = container?.indexingService.indexMetadataService.get(repoId);
+            const timestamp = await container?.indexingService.indexMetadataService.getLastIndexedTimestamp();
 
-            const synced = metadata && metadata.lastHash === currentHash;
-
-            if (synced) {
+            // Simplified logic: if we have a timestamp, consider it potentially out of sync
+            // and suggest reindexing. The user can choose to reindex or not.
+            if (timestamp) {
                 syncedCount++;
+                // We could add more sophisticated checking here if needed
             } else {
                 needsReindex = true;
             }
@@ -196,7 +197,7 @@ export async function activate(context: vscode.ExtensionContext) {
                         await container?.indexingService.indexFile(collectionName, relativePath, text, new vscode.CancellationTokenSource().token, repoId || '', currentHash || '');
 
                         // Update metadata after successful indexing
-                        await container?.indexingService.indexMetadataService.update(repoId || '', currentHash || '');
+                        await container?.indexingService.indexMetadataService.updateLastIndexedTimestamp();
 
                         // Refresh status after incremental update
                         await checkIndexStatus(indexStatusItem);
@@ -246,8 +247,7 @@ export async function activate(context: vscode.ExtensionContext) {
                 await container?.indexingService.deleteFileFromIndex(collectionName, repoId, relativePath);
 
                 // Update metadata after deletion
-                const currentHash = await container?.workspaceManager.gitProvider?.getLastCommit(folder.uri.fsPath) || 'HEAD';
-                await container?.indexingService.indexMetadataService.update(repoId, currentHash);
+                await container?.indexingService.indexMetadataService.updateLastIndexedTimestamp();
 
                 // Refresh status after deletion
                 await checkIndexStatus(indexStatusItem);

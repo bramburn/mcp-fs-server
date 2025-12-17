@@ -187,6 +187,21 @@ export const SEARCH_METHOD = "search";
 // 2. Index Status Notification (Updated)
 export type IndexStatus = "ready" | "indexing" | "error" | "no_workspace" | "notIndexed" | "stale";
 
+// Add 'not-indexed' to the status union type for the new UI
+export type IndexingStatus = 'initial' | 'indexing' | 'synced' | 'out-of-sync' | 'error' | 'not-indexed';
+
+export interface IndexingStatusMessage {
+  type: 'status';
+  payload: {
+    status: IndexingStatus;
+    progress?: {
+      current: number;
+      total: number;
+      currentFile: string;
+    };
+  };
+}
+
 export interface IndexStatusParams {
   status: IndexStatus;
   message?: string;

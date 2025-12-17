@@ -12,6 +12,7 @@ import { ILogger } from "./LoggerService.js";
 import { CodeSplitter } from "../shared/code-splitter.js";
 import { WorkspaceManager } from "./WorkspaceManager.js"; // Import WorkspaceManager
 import { IndexMetadataService } from "./IndexMetadataService.js";
+import { normalizePath } from "../utils/pathUtils.js";
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const ignoreFactory = require('ignore');
 
@@ -113,7 +114,13 @@ export class IndexingService implements vscode.Disposable {
    * Retrieves stored index state for a specific repo ID.
    */
   public getRepoIndexState(repoId: string) {
-    return this._indexMetadataService.get(repoId);
+    const timestamp = this._indexMetadataService.getLastIndexedTimestamp();
+    return {
+      repoId: repoId,
+      lastIndexed: timestamp || 0,
+      lastHash: '', // Not tracked in new implementation
+      gitignoreHash: undefined // Not tracked in new implementation
+    };
   }
 
   /**
@@ -170,12 +177,15 @@ export class IndexingService implements vscode.Disposable {
       return;
     }
 
+    // Normalize the file path for consistent handling
+    const normalizedFilePath = normalizePath(filePath);
+
     try {
       // Use vector store to delete vectors for the specific file
-      await this._vectorStore.deleteByFilePath(collectionName, repoId, filePath);
-      this._logger.log(`[DELETE] Deleted vectors for file: ${filePath}`, "INFO");
+      await this._vectorStore.deleteByFilePath(collectionName, repoId, normalizedFilePath);
+      this._logger.log(`[DELETE] Deleted vectors for file: ${normalizedFilePath}`, "INFO");
     } catch (error) {
-      this._logger.log(`[DELETE] Error deleting vectors for ${filePath}: ${error}`, "ERROR");
+      this._logger.log(`[DELETE] Error deleting vectors for ${normalizedFilePath}: ${error}`, "ERROR");
       throw error;
     }
   }
@@ -688,8 +698,8 @@ export class IndexingService implements vscode.Disposable {
       // Filter files through .gitignore
       const filteredFiles = files.filter(uri => {
         const relativePath = vscode.workspace.asRelativePath(uri);
-        // Remove leading slash if present (ignore library expects relative paths)
-        const normalizedPath = relativePath.replace(/^[/\\]+/, '');
+        // Remove leading slash if present and normalize path using our utility
+        const normalizedPath = normalizePath(relativePath.replace(/^[/\\]+/, ''));
 
         // For debugging - log the path being checked
         this._logger.log(`[INDEXING] Checking file: ${normalizedPath}`);
@@ -737,8 +747,9 @@ export class IndexingService implements vscode.Disposable {
 
           try {
             const relativePath = vscode.workspace.asRelativePath(fileUri);
+            const normalizedPath = normalizePath(relativePath);
             this._logger.log(
-              `[INDEXING] Worker ${id} processing: ${relativePath}`
+              `[INDEXING] Worker ${id} processing: ${normalizedPath}`
             );
 
             const content = await vscode.workspace.fs.readFile(fileUri);
@@ -746,7 +757,7 @@ export class IndexingService implements vscode.Disposable {
 
             await this.indexFile(
               collectionName,
-              relativePath,
+              normalizedPath,
               text,
               token,
               repoId,
@@ -757,7 +768,7 @@ export class IndexingService implements vscode.Disposable {
             this.notifyProgress({
               current: processedCount,
               total: files.length,
-              currentFile: relativePath,
+              currentFile: normalizedPath,
               status: "indexing",
             });
           } catch (err) {
@@ -793,19 +804,8 @@ export class IndexingService implements vscode.Disposable {
 
       // Only show success message if not cancelled
       if (!wasCancelled && !token.isCancellationRequested) {
-        // Calculate gitignore hash for change detection
-        let gitignoreHash: string | undefined;
-        try {
-          const ignorePatterns = await this._workspaceManager.gitProvider.getIgnorePatterns(workspaceFolder.uri.fsPath);
-          if (ignorePatterns.length > 0) {
-            gitignoreHash = crypto.createHash('md5').update(ignorePatterns.join('\n')).digest('hex');
-          }
-        } catch (error) {
-          this._logger.log(`[INDEXING] Failed to calculate gitignore hash: ${error}`, "WARN");
-        }
-
         // 2. Persist Index State on Success
-        await this._indexMetadataService.update(repoId, currentCommit, gitignoreHash);
+        await this._indexMetadataService.updateLastIndexedTimestamp();
 
         // First notify completion of indexing process
         this.notifyProgress({
@@ -1098,10 +1098,13 @@ export class IndexingService implements vscode.Disposable {
     const repoId = await this.getRepoId(workspaceFolder);
     const commit = await this._workspaceManager.gitProvider?.getLastCommit(workspaceFolder.uri.fsPath) || 'HEAD';
 
+    // Normalize the file path for consistent handling
+    const normalizedFilePath = normalizePath(filePath);
+
     // Use the actual cancellation token if provided, create a dummy one otherwise
     const cancellationToken = token || new vscode.CancellationTokenSource().token;
 
-    await this.indexFile(collectionName, filePath, content, cancellationToken, repoId, commit);
+    await this.indexFile(collectionName, normalizedFilePath, content, cancellationToken, repoId, commit);
   }
 
   /**
@@ -1125,7 +1128,7 @@ export class IndexingService implements vscode.Disposable {
       `[INDEXING] Processing file: ${filePath} (${content.length} bytes)`
     );
 
-    // Use shared splitter logic
+    // Use shared splitter logic with normalized file path
     const chunks = this._splitter.split(content, filePath);
 
     if (chunks.length === 0) {
@@ -1527,7 +1530,9 @@ export class IndexingService implements vscode.Disposable {
         if (!workspaceFolder) {
           return false; // Cannot resolve path without a workspace
         }
-        const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, filePath);
+        // Normalize the file path for consistent URI joining
+        const normalizedFilePath = normalizePath(filePath);
+        const fileUri = vscode.Uri.joinPath(workspaceFolder.uri, normalizedFilePath);
         await vscode.workspace.fs.stat(fileUri);
         return true; // File exists
       } catch {

@@ -33,7 +33,7 @@ import { FluentWrapper } from "./providers/FluentWrapper.js";
 import { useAppStore } from "./store.js";
 import Debugger from "./views/Debugger.js";
 import Search from "./views/Search.js";
-import Settings from "./views/Settings.js";
+import { Settings } from "./views/Settings.js";
 
 // Define styles using Griffel (CSS-in-JS) to replace Tailwind classes
 const useStyles = makeStyles({

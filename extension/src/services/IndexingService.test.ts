@@ -412,12 +412,8 @@ describe("IndexingService", () => {
 
         await indexingService.startIndexing();
 
-        // Verify IndexMetadataService.update was called
-        expect(mockIndexMetadataService.update).toHaveBeenCalledWith(
-            expect.any(String), // repoId
-            "commit-123", // current hash
-            undefined // gitignoreHash (mock returns empty patterns)
-        );
+        // Verify IndexMetadataService.updateLastIndexedTimestamp was called
+        expect(mockIndexMetadataService.updateLastIndexedTimestamp).toHaveBeenCalled();
     });
   });
 

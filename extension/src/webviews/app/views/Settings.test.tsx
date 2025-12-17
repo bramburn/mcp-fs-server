@@ -12,7 +12,7 @@ import {
 import { IpcProvider, type HostIpc } from "../contexts/ipc.js";
 import { FluentWrapper } from "../providers/FluentWrapper.js";
 import { useAppStore } from "../store.js";
-import Settings from "./Settings.js";
+import { Settings } from "./Settings.js";
 
 // Mock Store
 vi.mock("../store", async () => {

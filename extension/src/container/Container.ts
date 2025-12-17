@@ -53,7 +53,7 @@ export class Container implements vscode.Disposable {
       this.configService,
       this.logger
     );
-    this.indexMetadataService = new IndexMetadataService(context);
+    this.indexMetadataService = new IndexMetadataService(context, this.logger);
     this.indexingService = new IndexingService(
       this.configService,
       context,
@@ -102,7 +102,6 @@ export class Container implements vscode.Disposable {
     try {
       await Promise.all([
         this.workspaceManager.initialize(),
-        this.indexMetadataService.init(),
         (async () => {
           const folder = this.workspaceManager.getActiveWorkspaceFolder();
           if (folder) {
@@ -181,7 +180,6 @@ export class Container implements vscode.Disposable {
       this.logger.log(`Error disposing ClipboardService: ${err}`, "ERROR");
     }
     this.indexingService.dispose();
-    void this.indexMetadataService.close();
     this.workspaceManager.dispose();
     this.configService.dispose();
     void this.analyticsService.dispose();
